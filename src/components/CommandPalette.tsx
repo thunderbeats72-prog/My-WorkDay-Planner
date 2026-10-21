@@ -5,6 +5,7 @@ import {
   ChartColumn,
   CircleCheck,
   Command,
+  Keyboard,
   House,
   Image as ImageIcon,
   Inbox,
@@ -47,6 +48,7 @@ export function CommandPalette({
   onNewTask,
   onOpenTask,
   onCheckGraph,
+  onShowShortcuts,
 }: {
   open: boolean;
   tasks: Task[];
@@ -55,6 +57,7 @@ export function CommandPalette({
   onNewTask: () => void;
   onOpenTask: (id: string) => void;
   onCheckGraph: (() => void) | null;
+  onShowShortcuts: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -96,6 +99,14 @@ export function CommandPalette({
         icon: ChartColumn,
         run: () => onNavigate('reports'),
       },
+      {
+        id: 'action-shortcuts',
+        label: 'Keyboard shortcuts',
+        hint: '?',
+        group: 'Actions',
+        icon: Keyboard,
+        run: onShowShortcuts,
+      },
     ];
     if (onCheckGraph) {
       actions.push({
@@ -128,7 +139,7 @@ export function CommandPalette({
       const bStarts = b.label.toLowerCase().startsWith(q) ? 0 : 1;
       return aStarts - bStarts;
     });
-  }, [query, tasks, onNavigate, onNewTask, onOpenTask, onCheckGraph]);
+  }, [query, tasks, onNavigate, onNewTask, onOpenTask, onCheckGraph, onShowShortcuts]);
 
   useEffect(() => {
     setActive((current) => Math.min(current, Math.max(0, items.length - 1)));

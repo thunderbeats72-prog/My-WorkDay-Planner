@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ComponentType, CSSProperties, ReactNode } from 'react';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, X } from 'lucide-react';
 import type { Category, Priority } from '../lib/types';
@@ -368,24 +368,75 @@ export function Modal({
   footer?: ReactNode;
   size?: 'sm' | 'md' | 'lg';
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusables = () => {
+      const dialog = dialogRef.current;
+      if (!dialog) return [] as HTMLElement[];
+      return Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!event.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && (active === first || active === dialogRef.current || !dialogRef.current?.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
-    const previous = document.body.style.overflow;
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // Land on the first control (usually the title field) rather than the page behind.
+    const focusTimer = window.setTimeout(() => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const target =
+        dialog.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])') ??
+        focusables()[0] ??
+        dialog;
+      target.focus();
+    }, 30);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previous;
+      document.body.style.overflow = previousOverflow;
+      window.clearTimeout(focusTimer);
+      if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className={`modal modal-${size}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        ref={dialogRef}
+        className={`modal modal-${size}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+      >
         <header className="modal-head">
           <div>
             <h2>{title}</h2>

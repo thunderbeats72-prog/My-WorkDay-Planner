@@ -4,6 +4,19 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import App from './App';
 import { db } from './lib/db';
+import { DEFAULT_SETTINGS } from './lib/types';
+
+async function seedOnboarded(overrides: Partial<typeof DEFAULT_SETTINGS> = {}) {
+  // Earlier tests leave the hash on another page; each test should start at Today.
+  window.location.hash = '#/today';
+  await db.settings.put({
+    ...DEFAULT_SETTINGS,
+    id: 'app',
+    name: 'Aarav Sharma',
+    onboardingComplete: true,
+    ...overrides,
+  });
+}
 
 function sidebarButton(label: string): HTMLElement {
   const sidebar = document.querySelector('.sidebar-nav');
@@ -172,5 +185,73 @@ describe('My Workday Planner app', () => {
     expect(
       await screen.findByRole('button', { name: 'Send revised pricing deck to Nexus Retail — urgent' }),
     ).toBeTruthy();
+  }, 30000);
+
+  it('turns one natural-language line into a dated, prioritised task', async () => {
+    const user = userEvent.setup();
+    await seedOnboarded();
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    const quickAdd = await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    await user.type(quickAdd, 'Send deck tomorrow 3pm !high 30m #proposal');
+
+    const pending = document.querySelector('.quick-tokens') as HTMLElement;
+    expect(pending).toBeTruthy();
+    expect(within(pending).getByText('Tomorrow')).toBeTruthy();
+    expect(within(pending).getByText('3pm')).toBeTruthy();
+    expect(within(pending).getByText('High priority')).toBeTruthy();
+    expect(within(pending).getByText('30m')).toBeTruthy();
+    expect(within(pending).getByText('Proposal')).toBeTruthy();
+    expect((document.querySelector('.quick-add-priority') as HTMLSelectElement).disabled).toBe(true);
+
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByRole('button', { name: 'Send deck' })).toBeTruthy();
+    expect(await screen.findByText(/Added “Send deck” for tomorrow/)).toBeTruthy();
+    expect(await screen.findByText(/Due tomorrow at 15:00/)).toBeTruthy();
+    expect(quickAdd).toHaveProperty('value', '');
+
+    // Shortcuts must not fire while a field has the caret.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await user.keyboard('?');
+    const sheet = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+    expect(within(sheet).getByText('Open the command palette')).toBeTruthy();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull());
+
+    // Quick capture works from any page.
+    await user.click(sidebarButton('Inbox'));
+    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeTruthy();
+    await user.keyboard('/');
+    const focusedBar = await screen.findByPlaceholderText(/Quick add for today/);
+    await waitFor(() => expect(document.activeElement).toBe(focusedBar));
+  }, 30000);
+
+  it('offers an end-of-day wrap-up that rolls today to tomorrow and can be undone', async () => {
+    const user = userEvent.setup();
+    // A workday that has already ended makes the wrap-up deterministic in any timezone.
+    await seedOnboarded({ workdayEnd: '00:00', workdayStart: '00:05' });
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    const quickAdd = await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    await user.type(quickAdd, 'File the weekly report{Enter}');
+    expect(await screen.findByRole('button', { name: 'File the weekly report' })).toBeTruthy();
+
+    const roll = await screen.findByRole('button', { name: 'Move to tomorrow' });
+    await user.click(roll);
+
+    expect(await screen.findByText(/Moved 1 task to tomorrow/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Move to tomorrow' })).toBeNull());
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText(/Moved back to today/)).toBeTruthy();
   }, 30000);
 });

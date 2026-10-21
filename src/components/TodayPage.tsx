@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Bell,
   CalendarDays,
@@ -8,7 +8,10 @@ import {
   Clock,
   Flame,
   Inbox,
+  MoonStar,
+  Play,
   Plus,
+  RefreshCw,
   Sparkles,
   Target,
   TriangleAlert,
@@ -25,16 +28,20 @@ import {
   isTaskOverdue,
   formatDayNumber,
   greetingForHour,
+  parseTimeToMinutes,
   percent,
+  relativeDayLabel,
   todayISO,
 } from '../lib/dates';
 import { buildDayPlan } from '../lib/engine';
 import type { ReminderItem } from '../lib/engine';
 import { deadlineRisk, learnDurations } from '../lib/ml';
+import { suggestFocus } from '../lib/focus';
+import { parseQuickAdd } from '../lib/quickAdd';
 import { dayVibe } from '../lib/vibe';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
-import { AnimatedValue, Badge, Button, EmptyState, ProgressBar, Ring, StatCard } from './ui';
+import { AnimatedValue, Badge, Button, EmptyState, PriorityBadge, ProgressBar, Ring, StatCard } from './ui';
 
 export function TodayPage({
   tasks,
@@ -55,6 +62,7 @@ export function TodayPage({
   onDismissReminder,
   onStartTask,
   onCompleteReminder,
+  onDeferTodayToTomorrow,
 }: CommonPageProps & {
   graphCard: ReactNode;
   reminders: ReminderItem[];
@@ -64,16 +72,27 @@ export function TodayPage({
   onDismissReminder: (taskId: string) => void;
   onStartTask: (taskId: string) => void;
   onCompleteReminder: (taskId: string) => void;
+  onDeferTodayToTomorrow: () => void;
 }) {
   const [quickTitle, setQuickTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState<Priority>(settings.defaultPriority);
+  const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
+  const [focusSkip, setFocusSkip] = useState(0);
   const today = todayISO(now);
   const openTasks = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
   const learned = learnDurations(tasks, timer.sessions).learned;
   const plan = buildDayPlan(tasks, settings, now, { learned });
   const capacity = plan.capacityMinutes;
   const planned = plan.plannedMinutes;
-  const freeMinutes = Math.max(0, capacity - planned);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const endMinutes = parseTimeToMinutes(settings.workdayEnd);
+  const workdayOver = nowMinutes >= endMinutes;
+  const workingToday = settings.workingDays.includes(now.getDay());
+  // Free time is the smaller of uncommitted capacity and the hours actually
+  // left — at 17:00 there is an hour, not the whole morning's remainder.
+  const minutesLeft = Math.max(0, endMinutes - nowMinutes);
+  const freeMinutes =
+    workdayOver || !workingToday ? 0 : Math.max(0, Math.min(capacity - planned, minutesLeft));
   const completedToday = tasks.filter(
     (task) => task.status === 'completed' && task.completedAt && task.completedAt.slice(0, 10) === today,
   ).length;
@@ -109,6 +128,35 @@ export function TodayPage({
   const hour = now.getHours();
   const timeOfDay = hour < 5 ? 'night' : hour < 9 ? 'dawn' : hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night';
 
+  const clients = useMemo(
+    () => Array.from(new Set(tasks.map((task) => task.client).filter((client): client is string => Boolean(client)))).sort(),
+    [tasks],
+  );
+  const quickPreview = useMemo(
+    () =>
+      parseQuickAdd(quickTitle, {
+        now,
+        fallbackPriority: quickPriority,
+        fallbackEstimateMinutes: settings.defaultEstimateMinutes,
+        clients,
+      }),
+    [quickTitle, now, quickPriority, settings.defaultEstimateMinutes, clients],
+  );
+  const focus = suggestFocus(tasks, settings, now, {
+    learned,
+    freeMinutes,
+    runningTaskId: timer.activeSession?.taskId ?? null,
+    skip: focusSkip,
+  });
+  const focusRunning = Boolean(focus && timer.isRunning(focus.task.id));
+  const showWrapUp = workdayOver && dueToday.length > 0 && !wrapUpDismissed;
+
+  const submitQuickAdd = () => {
+    if (!quickTitle.trim()) return;
+    onQuickAdd(quickPreview.draft);
+    setQuickTitle('');
+  };
+
   return (
     <div className="page today-page">
       <section className="hero" data-tod={timeOfDay}>
@@ -124,10 +172,22 @@ export function TodayPage({
           </h1>
           <p className="hero-sub">
             {overdue.length > 0
-              ? `${overdue.length} task${overdue.length === 1 ? ' is' : 's are'} past their deadline. Clear those first.`
+              ? overdue.length === 1
+                ? '1 task is past its deadline. Clear it first.'
+                : `${overdue.length} tasks are past their deadlines. Clear those first.`
               : dueToday.length > 0
-                ? `${dueToday.length} deadline${dueToday.length === 1 ? '' : 's'} land today. Your schedule has room for ${formatDuration(freeMinutes)}.`
-                : `${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} · ${formatDuration(freeMinutes)} still free today.`}
+                ? !workingToday
+                  ? `${dueToday.length} deadline${dueToday.length === 1 ? ' lands' : 's land'} today, outside your working days.`
+                  : workdayOver
+                    ? `${dueToday.length} deadline${dueToday.length === 1 ? ' is' : 's are'} still open today. Wrap up below when you are ready.`
+                    : `${dueToday.length} deadline${dueToday.length === 1 ? ' lands' : 's land'} today. Your schedule has room for ${formatDuration(freeMinutes)}.`
+                : `${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} · ${
+                    !workingToday
+                      ? 'a rest day, nothing scheduled'
+                      : workdayOver
+                        ? 'the workday is done'
+                        : `${formatDuration(freeMinutes)} still free today`
+                  }.`}
           </p>
           <div className="hero-chips">
             <span className={`vibe-chip vibe-${vibe.tone}`} title={vibe.note}>
@@ -188,7 +248,9 @@ export function TodayPage({
             sublabel="day planned"
           />
           <p>
-            {formatDuration(planned)} of {formatDuration(capacity)} committed
+            {capacity > 0
+              ? `${formatDuration(planned)} of ${formatDuration(capacity)} committed`
+              : 'No working hours today'}
           </p>
         </div>
       </section>
@@ -196,13 +258,18 @@ export function TodayPage({
       <section className="quick-add card" aria-label="Quick add a task">
         <Plus size={18} aria-hidden="true" />
         <input
+          id="quick-add-input"
           className="quick-add-input"
           placeholder="Quick add for today — type and press Enter"
+          autoComplete="off"
           value={quickTitle}
+          aria-describedby="quick-add-help"
           onChange={(event) => setQuickTitle(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && quickTitle.trim()) {
-              onQuickAdd(quickTitle.trim(), quickPriority);
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              submitQuickAdd();
+            } else if (event.key === 'Escape') {
               setQuickTitle('');
             }
           }}
@@ -210,7 +277,9 @@ export function TodayPage({
         <select
           className="input quick-add-priority"
           aria-label="Priority for quick add"
-          value={quickPriority}
+          value={quickPreview.hasPriority ? quickPreview.draft.priority : quickPriority}
+          disabled={quickPreview.hasPriority}
+          title={quickPreview.hasPriority ? 'Priority is coming from the !token you typed' : undefined}
           onChange={(event) => setQuickPriority(event.target.value as Priority)}
         >
           {PRIORITY_ORDER.map((priority) => (
@@ -219,24 +288,139 @@ export function TodayPage({
             </option>
           ))}
         </select>
-        <Button
-          variant="primary"
-          disabled={!quickTitle.trim()}
-          onClick={() => {
-            if (!quickTitle.trim()) return;
-            onQuickAdd(quickTitle.trim(), quickPriority);
-            setQuickTitle('');
-          }}
-        >
+        <Button variant="primary" disabled={!quickTitle.trim()} onClick={submitQuickAdd}>
           Add
         </Button>
+        <div className="quick-add-meta" id="quick-add-help">
+          {quickPreview.tokens.length > 0 ? (
+            <>
+              <div className="quick-tokens">
+                {quickPreview.tokens.map((token) => (
+                  <span key={`${token.kind}-${token.label}`} className={`quick-token quick-token-${token.kind}`}>
+                    {token.label}
+                  </span>
+                ))}
+                {quickPreview.rolledOver ? (
+                  <span className="quick-note">that time already passed today</span>
+                ) : null}
+              </div>
+              <span className="quick-saves">
+                Saves for {quickPreview.draft.dueDate ? relativeDayLabel(quickPreview.draft.dueDate, now) : 'no date'}
+              </span>
+            </>
+          ) : (
+            <p className="quick-tip">
+              <Sparkles size={12} aria-hidden="true" />
+              Type naturally — “email Sam tomorrow 3pm !high 30m #email @Nova”
+            </p>
+          )}
+        </div>
       </section>
+
+      {showWrapUp ? (
+        <section className="card wrapup-card">
+          <div className="wrapup-copy">
+            <span className="wrapup-eyebrow">
+              <MoonStar size={13} aria-hidden="true" /> End of day
+            </span>
+            <h2>
+              The workday is done — {dueToday.length} task{dueToday.length === 1 ? ' is' : 's are'} still dated today.
+            </h2>
+            <p className="muted">
+              Roll {dueToday.length === 1 ? 'it' : 'them'} to tomorrow and the deferral is counted honestly. Nothing is
+              lost.
+            </p>
+          </div>
+          <div className="wrapup-actions">
+            <Button variant="primary" onClick={onDeferTodayToTomorrow}>
+              Move to tomorrow
+            </Button>
+            <Button variant="ghost" onClick={() => setWrapUpDismissed(true)}>
+              Keep {dueToday.length === 1 ? 'it' : 'them'} today
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {focus ? (
+        <section className={`card focus-card focus-${focus.kind}`} aria-label="Suggested next task">
+          <div className="focus-top">
+            <span className="focus-eyebrow">
+              <Sparkles size={13} aria-hidden="true" /> Do this next
+            </span>
+            <span className="focus-score" title="Scheduler score: priority, deadline, deferrals and age">
+              <strong>{focus.score}</strong>
+              <small>/100</small>
+            </span>
+          </div>
+          <div className="focus-main">
+            <div className="focus-copy">
+              <h3 className="focus-title">{focus.task.title}</h3>
+              <p className="focus-reason">{focus.reason}</p>
+              <div className="focus-meta">
+                <span>
+                  <Clock size={12} aria-hidden="true" /> {formatDuration(focus.estimateMinutes)}
+                </span>
+                <PriorityBadge priority={focus.task.priority} />
+                {focus.task.client ? <span className="focus-client">{focus.task.client}</span> : null}
+              </div>
+            </div>
+            <div className="focus-actions">
+              {focusRunning ? (
+                <Button variant="primary" icon={Clock} onClick={() => taskHandlers(focus.task).onOpen()}>
+                  Timer running
+                </Button>
+              ) : (
+                <Button variant="primary" icon={Play} onClick={() => onStartTask(focus.task.id)}>
+                  Start focus
+                </Button>
+              )}
+              <Button variant="ghost" onClick={() => taskHandlers(focus.task).onOpen()}>
+                Open
+              </Button>
+              {focus.options.length > 1 ? (
+                <button
+                  type="button"
+                  className="focus-shuffle"
+                  aria-label="Suggest another task"
+                  title="Suggest another task"
+                  onClick={() => setFocusSkip((current) => current + 1)}
+                >
+                  <RefreshCw size={15} aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {focus.alternatives.length > 0 ? (
+            <div className="focus-alts">
+              <span className="focus-alts-label">Then</span>
+              {focus.alternatives.map((alternative) => (
+                <button
+                  key={alternative.task.id}
+                  type="button"
+                  className="focus-alt"
+                  onClick={() => taskHandlers(alternative.task).onOpen()}
+                >
+                  {alternative.task.title}
+                  <small>{formatDuration(alternative.estimateMinutes)}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="stat-grid">
         <StatCard icon={TriangleAlert} label="Overdue" value={overdue.length} sub="real deadlines only" tone="danger" />
         <StatCard icon={CalendarDays} label="Due today" value={dueToday.length} sub="before end of day" tone="warning" />
         <StatCard icon={CircleCheck} label="Completed today" value={completedToday} sub="tracked work" tone="success" />
-        <StatCard icon={Clock} label="Focus planned" value={formatDuration(planned)} sub={`${formatDuration(freeMinutes)} free`} tone="primary" />
+        <StatCard
+          icon={Clock}
+          label="Focus planned"
+          value={formatDuration(planned)}
+          sub={workingToday ? `${formatDuration(freeMinutes)} free` : 'rest day'}
+          tone="primary"
+        />
       </div>
 
       <div className="dashboard-grid">
@@ -459,7 +643,7 @@ export function TodayPage({
               <EmptyState
                 icon={Sparkles}
                 title="Your day is clear"
-                message="Add a task, or import a screenshot from Teams or Outlook to get started."
+                message="Nothing overdue, nothing due, nothing waiting. Add something small, or import a screenshot and let the parser do the typing."
                 action={
                   <div className="empty-actions">
                     <Button variant="primary" icon={Plus} onClick={onNewTask}>

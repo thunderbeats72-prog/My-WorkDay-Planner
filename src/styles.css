@@ -10122,8 +10122,8 @@ button:focus-visible,
   }
 
   .stat-card {
-    padding: 15px;
-    gap: 11px;
+    padding: 12px;
+    gap: 9px;
   }
 
   .stat-value {
@@ -10131,9 +10131,24 @@ button:focus-visible,
   }
 
   .stat-icon {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border-radius: 10px;
+  }
+
+  .stat-icon svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .stat-label {
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+  }
+
+  .stat-sub {
+    font-size: 10.5px;
+    line-height: 1.35;
   }
 
   .quick-add {
@@ -10356,6 +10371,735 @@ button:focus-visible,
 
   .quick-add {
     margin-top: 2px;
+  }
+}
+
+
+/* ============================================================
+   Smart capture, focus suggestion and wrap-up
+   ============================================================ */
+
+/* ---------- Smart quick add ---------- */
+
+.quick-add {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  transition:
+    border-color var(--dur-2) ease,
+    box-shadow var(--dur-2) ease;
+}
+
+.quick-add > svg {
+  transition: color var(--dur-2) ease;
+}
+
+.quick-add:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  box-shadow: var(--shadow-sm), 0 0 0 4px color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+.quick-add:focus-within > svg {
+  color: var(--primary);
+}
+
+.quick-add-meta {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  min-width: 0;
+  padding: 1px 2px 2px 30px;
+}
+
+.quick-tip {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.quick-tip svg {
+  flex: none;
+  color: var(--primary);
+}
+
+.quick-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.quick-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+  color: color-mix(in srgb, var(--primary) 68%, var(--text));
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: token-in 220ms var(--ease-out) both;
+}
+
+.quick-token-date,
+.quick-token-time {
+  border-color: color-mix(in srgb, var(--accent-ice) 26%, var(--border));
+  background: color-mix(in srgb, var(--accent-ice) 9%, var(--surface));
+  color: color-mix(in srgb, var(--accent-ice) 58%, var(--text));
+}
+
+.quick-token-priority {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 62%, var(--text));
+}
+
+.quick-token-category {
+  border-color: color-mix(in srgb, var(--accent-violet) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent-violet) 9%, var(--surface));
+  color: color-mix(in srgb, var(--accent-violet) 56%, var(--text));
+}
+
+.quick-token-client {
+  border-color: color-mix(in srgb, var(--accent-mint) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent-mint) 10%, var(--surface));
+  color: color-mix(in srgb, var(--accent-mint) 46%, var(--text));
+}
+
+.quick-note {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: var(--warning);
+}
+
+.quick-saves {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.quick-add-priority:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+@keyframes token-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Focus suggestion ---------- */
+
+.focus-card {
+  position: relative;
+  overflow: hidden;
+  padding: 15px 18px 14px 21px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(120% 170% at 100% -30%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 62%),
+    var(--surface);
+  box-shadow: var(--shadow-xs), var(--hairline);
+  transition: box-shadow var(--dur-3) ease, border-color var(--dur-3) ease;
+}
+
+.focus-card:hover {
+  box-shadow: var(--shadow-sm), var(--hairline);
+}
+
+.focus-card::before {
+  content: '';
+  position: absolute;
+  inset: 12px auto 12px 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--primary), color-mix(in srgb, var(--primary) 20%, transparent));
+}
+
+.focus-overdue::before {
+  background: linear-gradient(180deg, var(--danger), color-mix(in srgb, var(--danger) 20%, transparent));
+}
+
+.focus-today::before {
+  background: linear-gradient(180deg, var(--warning), color-mix(in srgb, var(--warning) 20%, transparent));
+}
+
+.focus-quick-win::before {
+  background: linear-gradient(180deg, var(--accent-mint), color-mix(in srgb, var(--accent-mint) 20%, transparent));
+}
+
+.focus-resume::before {
+  background: linear-gradient(180deg, var(--accent-violet), color-mix(in srgb, var(--accent-violet) 20%, transparent));
+}
+
+.focus-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.focus-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.focus-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.focus-score strong {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-main {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 4px;
+}
+
+.focus-copy {
+  min-width: 0;
+}
+
+.focus-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.25;
+  color: var(--text);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.focus-reason {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.focus-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.focus-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.focus-client {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  color: var(--text-soft);
+}
+
+.focus-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.focus-shuffle {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color var(--dur-1) ease,
+    border-color var(--dur-1) ease,
+    background-color var(--dur-1) ease;
+}
+
+.focus-shuffle:hover {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+
+.focus-shuffle svg {
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .focus-shuffle:hover svg {
+    transform: rotate(180deg);
+  }
+}
+
+.focus-alts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.focus-alts-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.focus-alt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) ease,
+    color var(--dur-1) ease,
+    background-color var(--dur-1) ease;
+}
+
+.focus-alt small {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.focus-alt span,
+.focus-alt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-alt:hover {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+/* ---------- End-of-day wrap-up ---------- */
+
+.wrapup-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, var(--warning) 26%, var(--border));
+  background:
+    radial-gradient(120% 200% at 0% -40%, color-mix(in srgb, var(--warning) 12%, transparent), transparent 62%),
+    var(--surface);
+}
+
+.wrapup-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+
+.wrapup-copy h2 {
+  margin: 5px 0 3px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.wrapup-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  max-width: 62ch;
+}
+
+.wrapup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- Shortcut sheet ---------- */
+
+.shortcut-grid {
+  columns: 2;
+  column-gap: 34px;
+}
+
+.shortcut-group {
+  break-inside: avoid;
+  margin-bottom: 18px;
+}
+
+.shortcut-group h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.shortcut-group dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.shortcut-row:last-child {
+  border-bottom: 0;
+}
+
+.shortcut-row dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.shortcut-row dd {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: right;
+}
+
+.shortcut-row kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 23px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  box-shadow: 0 1px 0 var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-soft);
+}
+
+.shortcut-or {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.shortcut-tip {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.shortcut-tip strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.shortcut-tip p {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.shortcut-tip code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* ---------- Responsive: new surfaces ---------- */
+
+@media (max-width: 1240px) {
+  .shortcut-hint-btn {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .focus-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .focus-actions {
+    justify-content: flex-start;
+  }
+
+  .focus-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .shortcut-grid {
+    columns: 1;
+  }
+
+  .shortcut-group {
+    margin-bottom: 14px;
+  }
+}
+
+@media (max-width: 560px) {
+  .quick-add-meta {
+    padding-left: 0;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .quick-tip {
+    font-size: 10.5px;
+  }
+
+  .quick-saves {
+    width: 100%;
+  }
+
+  .focus-card {
+    padding: 14px 14px 12px 17px;
+  }
+
+  .focus-title {
+    font-size: 17px;
+  }
+
+  .focus-actions {
+    flex-wrap: wrap;
+  }
+
+  .focus-actions .btn-primary {
+    flex: 1 1 auto;
+  }
+
+  .focus-actions .btn-ghost {
+    flex: 0 0 auto;
+  }
+
+  .focus-shuffle {
+    margin-left: auto;
+  }
+
+  .focus-alts {
+    gap: 5px;
+  }
+
+  .focus-alt {
+    max-width: 100%;
+  }
+
+  .wrapup-card {
+    padding: 16px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .wrapup-actions {
+    width: 100%;
+  }
+
+  .wrapup-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .shortcut-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .shortcut-row dd {
+    text-align: left;
+  }
+}
+
+/* ---------- Touch and typography polish ---------- */
+
+.btn,
+.icon-btn,
+.focus-shuffle,
+.focus-alt,
+.bottom-nav-item,
+.nav-item,
+.chip,
+.palette-item,
+.quick-token {
+  touch-action: manipulation;
+}
+
+h1,
+h2,
+h3,
+.focus-title,
+.wrapup-copy h2 {
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+@media (hover: none) {
+  .focus-shuffle:hover {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--muted);
+  }
+
+  .focus-alt:hover {
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--text-soft);
+  }
+}
+
+
+/* ---------- Small-screen ergonomics ---------- */
+
+@media (max-width: 767px) {
+  /* Give the Add button real weight next to the priority picker. */
+  .quick-add-priority {
+    flex: 1 1 55%;
+  }
+
+  .quick-add > .btn {
+    flex: 1 1 0;
+  }
+
+  /* Four reminder actions used to wrap into a ragged line. */
+  .reminder-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .reminder-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .reminder-list li {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 420px) {
+  .page-container {
+    padding-inline: 12px;
+  }
+
+  .h1,
+  .page-header h1 {
+    font-size: 23px;
+  }
+
+  .hero {
+    border-radius: 18px;
+  }
+
+  .hero h1 {
+    font-size: 22px;
+  }
+
+  .bottom-nav-item span {
+    font-size: 9.5px;
+  }
+
+  .toast {
+    font-size: 12px;
   }
 }
 
