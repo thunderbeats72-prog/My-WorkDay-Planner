@@ -1100,6 +1100,7 @@ export default function App() {
             onSnoozeReminder={(taskId) => void snoozeTask(taskId)}
             onDismissReminder={(taskId) => void dismissReminder(taskId)}
             onStartTask={(taskId) => void startTask(taskId)}
+            onResumeTask={(taskId) => void resumeTask(taskId)}
             onCompleteReminder={(taskId) => void toggleComplete(taskId)}
             onDeferTodayToTomorrow={() => void deferTodayToTomorrow()}
           />

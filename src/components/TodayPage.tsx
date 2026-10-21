@@ -61,6 +61,7 @@ export function TodayPage({
   onSnoozeReminder,
   onDismissReminder,
   onStartTask,
+  onResumeTask,
   onCompleteReminder,
   onDeferTodayToTomorrow,
 }: CommonPageProps & {
@@ -71,6 +72,7 @@ export function TodayPage({
   onSnoozeReminder: (taskId: string) => void;
   onDismissReminder: (taskId: string) => void;
   onStartTask: (taskId: string) => void;
+  onResumeTask: (taskId: string) => void;
   onCompleteReminder: (taskId: string) => void;
   onDeferTodayToTomorrow: () => void;
 }) {
@@ -149,6 +151,7 @@ export function TodayPage({
     skip: focusSkip,
   });
   const focusRunning = Boolean(focus && timer.isRunning(focus.task.id));
+  const focusPaused = Boolean(focus && timer.hasPausedSession(focus.task.id));
   const showWrapUp = workdayOver && dueToday.length > 0 && !wrapUpDismissed;
 
   const submitQuickAdd = () => {
@@ -369,6 +372,10 @@ export function TodayPage({
               {focusRunning ? (
                 <Button variant="primary" icon={Clock} onClick={() => taskHandlers(focus.task).onOpen()}>
                   Timer running
+                </Button>
+              ) : focusPaused ? (
+                <Button variant="primary" icon={Play} onClick={() => onResumeTask(focus.task.id)}>
+                  Resume focus
                 </Button>
               ) : (
                 <Button variant="primary" icon={Play} onClick={() => onStartTask(focus.task.id)}>
