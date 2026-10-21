@@ -94,7 +94,7 @@ export function ReportsPage({ tasks, now, timer, addToast, onExportCsv }: Common
               ))}
             </ul>
           )}
-          <p className="fine-print">Grey = estimate · Blue = actual tracked time.</p>
+          <p className="fine-print">Grey = estimate · Ink = actual tracked time.</p>
         </section>
 
         <section className="card">

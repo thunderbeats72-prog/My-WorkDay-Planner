@@ -19,12 +19,12 @@ npx -y pnpm@10 lint
 - Screenshot Import: drag/drop or upload, Tesseract.js OCR with progress, editable raw text, deterministic parsing, confidence + ambiguous-date warnings, duplicate detection, **mandatory review before saving**, plus a sample-text mode
 - Scheduling: explainable scoring (priority + deadline + deferrals), daily timeline, lunch/buffers, capacity & remaining time, conflict warnings, unscheduled queue (never silently discarded), manual override
 - Time tracking: Start/Pause/Resume/Complete, one active session, timestamp-based elapsed time persisted in IndexedDB so it recovers after refresh
-- Reminders: in-app queue, Start/Complete/Snooze 15m, quiet-hours settings, optional browser Notification (permission-gated)
+- Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per deadline, and clickable straight into the task
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
 
 ## Honest limitations
-- **Notifications:** reliable only while the app is open. A closed webpage cannot guarantee reminders — this is stated in-app, not hidden.
+- **Notifications:** in-app reminders are always written and survive reloads. System banners fire while the app is open, and — on Android, for the installed PWA — from a best-effort background check. A fully closed browser on desktop cannot be woken; there is no push server by design, and the app says so rather than pretending otherwise.
 - **Cloud sync:** not configured (by design). See `SUPABASE.md` for the RLS-first setup; never expose a service-role key.
 - **OCR:** quality depends on screenshot clarity; inferred dates are flagged and never auto-confirmed.
 - IndexedDB is per-browser/device and can be cleared — export backups regularly.
@@ -160,3 +160,76 @@ A second pass tightened the product rather than restyling it.
   chips and stepper dots.
 - **Branding.** Every "Clouder Technologies" reference is gone from the app,
   the README and the default settings.
+
+## Design v5 — a real dark theme, branded assets, and notifications
+
+The third pass looked for what breaks rather than what to add.
+
+### Dark mode, actually dark
+
+- **One neutral ramp, no cast.** Canvas `#0a0a0c`, surface `#121215`,
+  raised `#202025`, borders `#2a2a31` — every grey is a true neutral, so
+  nothing reads navy. Light mode moved to `#f5f5f6` paper.
+- **Ink fills carry their own text colour.** A `--on-ink` token now pairs with
+  `--ink`, which fixed the visible bug where an active filter chip was white
+  text on a near-white fill (1.1:1 contrast) in dark mode.
+- **Blue retired everywhere.** A colour-space sweep converted the last
+  blue-tinted surfaces, shadows and gradients to neutral greys; the only
+  saturated colours left are semantic (red / amber / green). The one remaining
+  blue-ish hue is the "Meeting" category chip, deliberately moved to teal.
+- **Elevation reads as elevation.** Cards separate from the canvas with a
+  hairline plus surface step instead of a shadow that a black-on-black
+  background swallows.
+- **Selection states are dark-native.** Day chips, segmented controls and
+  toggles use a lightened surface in dark mode instead of the light theme's
+  near-black fill, and disabled buttons are muted rather than invisible.
+- **Contrast audited, not eyeballed.** A scripted WCAG pass walks every text
+  node on all five pages and reports anything under 5:1; the remaining hits
+  are only decorative 9.5 px shortcut hints.
+- **Tablet layout repaired.** A later `:root` block was resetting
+  `--sidebar-width` to 264 px at every width, so from 768–1080 px a widened
+  rail sat on top of content whose margin had collapsed to zero. Each
+  breakpoint now owns its width explicitly: no sidebar under 768, a real
+  78 px rail with reserved space up to 1080, and the user's width above it.
+
+### One mark, everywhere
+
+- The old blue **"W" logo was still shipping** as `icon.svg`,
+  `favicon-32.png`, `icon-192.png` and `apple-touch-icon.png`. All of them are
+  regenerated from the day-arc mark, with a thicker variant for the 16/32 px
+  favicons so the pin survives.
+- Added `favicon-16.png`, a `mask-icon` colour, and a **1200×630 Open Graph
+  card** (`og-image.png`) with matching `og:`/`twitter:` meta tags.
+- `manifest.webmanifest` now carries the mark as its theme/background colour,
+  an `id`, display overrides, categories, and **three app shortcuts**
+  (Today / My Tasks / Reports) for the long-press menu on an installed app.
+- The browser chrome colour follows the theme (`#f5f5f6` / `#0a0a0c`)
+  instead of the retired navy.
+
+### Notifications you can actually receive
+
+Two layers, because they fail in different ways.
+
+1. **In-app centre** — a bell in the utility bar (and the phone top bar) with
+   an unread badge and a panel listing every reminder: task, client, deadline
+   relative to now, snooze and dismiss per row, mark all read, clear all.
+   Backed by `localStorage`, so it survives reloads and never depends on the
+   OS accepting a banner.
+2. **Native notifications** — shown through the **service worker**
+   (`registration.showNotification`), which is the only path that works in an
+   Android PWA, with a `Notification` constructor fallback for desktop
+   browsers without a worker. Tapping one focuses the app and opens the task.
+
+Supporting behaviour:
+
+- `deliverNative()` sends the icon, badge, tag, vibration pattern and a deep
+  link; delivery is de-duplicated per `(task, deadline)` for 14 days, and
+  **snoozing clears that marker** so the reminder genuinely comes back.
+- Quiet hours suppress the OS banner only — the in-app copy always lands.
+- A **"Send a test notification"** button in Settings proves the whole chain
+  on the current device, and the panel shows honest states: *Alerts off*,
+  *System alerts on*, *Blocked by browser*, *Not supported*.
+- `periodicSync` is registered when the browser supports it (installed
+  Android PWA), so reminders can fire from the background: the worker reads
+  IndexedDB, applies lead time and quiet hours, and fires once per deadline.
+- Nothing leaves the device. There is no push server, and the copy says so.

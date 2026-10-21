@@ -258,6 +258,60 @@ describe('My Workday Planner app', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(await screen.findByText(/Moved back to today/)).toBeTruthy();
   }, 30000);
+
+  it('collects a due reminder in the bell and marks it read', async () => {
+    await seedOnboarded({ reminderLeadMinutes: 1440, quietHoursEnabled: false });
+    const today = new Date().toISOString().slice(0, 10);
+    await db.tasks.put({
+      id: 'task_notify',
+      title: 'Chase the invoice',
+      notes: '',
+      client: 'Northwind',
+      category: 'follow_up',
+      priority: 'critical',
+      estimatedMinutes: 20,
+      actualMinutes: 0,
+      dueDate: today,
+      dueTime: '00:01',
+      scheduledFor: null,
+      suggestedDate: null,
+      suggestedStart: null,
+      status: 'todo',
+      blocked: false,
+      dependencyIds: [],
+      deferrals: 0,
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: null,
+      deletedAt: null,
+      source: 'manual',
+      graphRef: null,
+    });
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+
+    const bell = await waitFor(() => {
+      const found = screen.getAllByRole('button', { name: /^Notifications/ });
+      expect(found.length).toBeGreaterThan(0);
+      return found[0];
+    });
+    await waitFor(() => expect(bell.getAttribute('aria-label')).toMatch(/unread/));
+
+    fireEvent.click(bell);
+    const panel = await screen.findByRole('dialog', { name: 'Notifications' });
+    const scope = within(panel);
+    expect(scope.getByText('Chase the invoice')).toBeTruthy();
+    expect(scope.getByText(/Northwind/)).toBeTruthy();
+
+    fireEvent.click(scope.getByRole('button', { name: /Mark all read/ }));
+    await waitFor(() => expect(bell.getAttribute('aria-label')).toBe('Notifications'));
+    expect(JSON.parse(window.localStorage.getItem('workday.notifications.v1') ?? '[]')[0].read).toBe(true);
+  }, 30000);
 });
 
 describe('live behaviour', () => {

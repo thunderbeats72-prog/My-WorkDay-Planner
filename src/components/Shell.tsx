@@ -174,12 +174,15 @@ export function MobileTopBar({
   onToggleTheme,
   onOpenPalette,
   onOpenSettings,
+  notifications,
 }: {
   isDark: boolean;
   online: boolean;
   onToggleTheme: () => void;
   onOpenPalette: () => void;
   onOpenSettings: () => void;
+  /** The bell, rendered by App so both bars share one notification state. */
+  notifications?: ReactNode;
 }) {
   return (
     <header className="mobile-topbar">
@@ -187,6 +190,7 @@ export function MobileTopBar({
       <span className="mobile-brand">Workday</span>
       <span className="mobile-spacer" />
       <IconButton label="Open command palette" icon={Search} onClick={onOpenPalette} />
+      {notifications}
       <IconButton
         label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
         icon={isDark ? Sun : Moon}
