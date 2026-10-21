@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="My Workday Planner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17243B"/>
+      <stop offset="1" stop-color="#23407A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6B9AFF"/>
+      <stop offset="1" stop-color="#356AE6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="96" y="120" width="320" height="272" rx="32" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="8"/>
+  <rect x="136" y="96" width="24" height="72" rx="12" fill="#9DB8FF"/>
+  <rect x="352" y="96" width="24" height="72" rx="12" fill="#9DB8FF"/>
+  <path d="M148 336V200l52 84 52-84v136" fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M300 200l34 136 34-136" fill="none" stroke="url(#accent)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

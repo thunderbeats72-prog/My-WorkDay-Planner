@@ -1,0 +1,945 @@
+import { addDays, differenceInCalendarDays, startOfDay } from 'date-fns';
+import {
+  clamp,
+  combineDateTime,
+  daysFromNow,
+  dayOffset,
+  fromISODate,
+  isQuietNow,
+  minutesToTime,
+  parseTimeToMinutes,
+  toISODate,
+} from './dates';
+import type {
+  Category,
+  Priority,
+  ScheduleBlock,
+  Settings,
+  Task,
+} from './types';
+import { CATEGORIES, PRIORITIES } from './types';
+
+export interface ScoredTask {
+  task: Task;
+  score: number;
+  reasons: string[];
+  estimateMinutes: number;
+  blocked: boolean;
+  blockReasons: string[];
+}
+
+export interface PlanQueueItem {
+  task: Task;
+  reason: string;
+  estimateMinutes: number;
+}
+
+export interface DayPlan {
+  dateISO: string;
+  isWorkingDay: boolean;
+  nowMinutes: number;
+  dayStart: number;
+  dayEnd: number;
+  capacityMinutes: number;
+  plannedMinutes: number;
+  remainingMinutes: number;
+  blocks: ScheduleBlock[];
+  queued: PlanQueueItem[];
+  conflicts: ConflictWarning[];
+}
+
+export interface ConflictWarning {
+  dateISO: string;
+  firstTaskId: string;
+  secondTaskId: string;
+  message: string;
+}
+
+export interface LearnedDurations {
+  byCategory: Partial<Record<Category, number>>;
+  byClient: Record<string, number>;
+}
+
+export interface ParsedDraft {
+  title: string;
+  notes: string;
+  client: string;
+  category: Category;
+  priority: Priority;
+  estimatedMinutes: number;
+  dueDate: string | null;
+  dueTime: string;
+  confidence: number;
+  warnings: string[];
+  rawText: string;
+}
+
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+export function roundUpToFive(minutes: number): number {
+  return Math.ceil(minutes / 5) * 5;
+}
+
+export function isWorkingDaySettings(settings: Settings, date: Date): boolean {
+  return settings.workingDays.includes(date.getDay());
+}
+
+export function workingMinutes(settings: Settings): number {
+  const start = parseTimeToMinutes(settings.workdayStart);
+  const end = parseTimeToMinutes(settings.workdayEnd);
+  if (end <= start) return 0;
+  const lunchStart = parseTimeToMinutes(settings.lunchStart);
+  const lunchEnd = parseTimeToMinutes(settings.lunchEnd);
+  const lunch = lunchEnd > lunchStart && lunchStart >= start && lunchEnd <= end ? lunchEnd - lunchStart : 0;
+  return Math.max(0, end - start - lunch);
+}
+
+export function findDependencyCycle(
+  taskId: string | null,
+  dependencyIds: string[],
+  tasks: Task[],
+): string[] | null {
+  if (!taskId) return null;
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const visited = new Set<string>();
+  const walk = (id: string, path: string[]): string[] | null => {
+    if (id === taskId) return [...path, id];
+    if (visited.has(id)) return null;
+    visited.add(id);
+    const task = byId.get(id);
+    if (!task) return null;
+    for (const nextId of task.dependencyIds) {
+      const cycle = walk(nextId, [...path, id]);
+      if (cycle) return cycle;
+    }
+    return null;
+  };
+  for (const dependencyId of dependencyIds) {
+    const cycle = walk(dependencyId, []);
+    if (cycle) return cycle;
+  }
+  return null;
+}
+
+export function isDependencyMet(task: Task, byId: Map<string, Task>): boolean {
+  if (task.dependencyIds.length === 0) return true;
+  return task.dependencyIds.every((id) => {
+    const dependency = byId.get(id);
+    if (!dependency) return true;
+    return dependency.status === 'completed' && dependency.deletedAt === null;
+  });
+}
+
+export function scoreTask(
+  task: Task,
+  settings: Settings,
+  now: Date = new Date(),
+  learned: LearnedDurations | null = null,
+): ScoredTask {
+  const reasons: string[] = [];
+  const blockReasons: string[] = [];
+  const priorityMeta = PRIORITIES[task.priority];
+  let score = 0;
+  score += priorityMeta.weight;
+  reasons.push(`${priorityMeta.label} priority (+${priorityMeta.weight})`);
+
+  if (task.dueDate) {
+    const offset = dayOffset(task.dueDate, now);
+    let deadlinePoints = 0;
+    if (offset < 0) {
+      deadlinePoints = 35;
+      reasons.push(`Overdue by ${Math.abs(offset)} day${Math.abs(offset) === 1 ? '' : 's'} (+35)`);
+    } else if (offset === 0) {
+      deadlinePoints = 28;
+      reasons.push('Deadline is today (+28)');
+    } else if (offset === 1) {
+      deadlinePoints = 20;
+      reasons.push('Deadline is tomorrow (+20)');
+    } else if (offset <= 7) {
+      deadlinePoints = 14 - offset;
+      reasons.push(`Due in ${offset} days (+${deadlinePoints})`);
+    } else {
+      deadlinePoints = 3;
+      reasons.push(`Due ${offset} days out (+3)`);
+    }
+    score += deadlinePoints;
+  } else {
+    reasons.push('No deadline (+0)');
+  }
+
+  if (task.deferrals > 0) {
+    const points = Math.min(15, task.deferrals * 4);
+    score += points;
+    reasons.push(`Deferred ${task.deferrals} time${task.deferrals === 1 ? '' : 's'} (+${points})`);
+  }
+
+  if (task.estimatedMinutes <= 15) {
+    score += 4;
+    reasons.push('Quick win under 15m (+4)');
+  }
+
+  const ageDays = Math.max(0, differenceInCalendarDays(now, new Date(task.createdAt)));
+  if (ageDays >= 3) {
+    score += Math.min(6, Math.floor(ageDays / 3) + 2);
+    reasons.push(`Waiting ${ageDays} days (+${Math.min(6, Math.floor(ageDays / 3) + 2)})`);
+  }
+
+  if (task.blocked) {
+    blockReasons.push('Marked as blocked');
+  }
+  if (task.dependencyIds.length > 0) {
+    blockReasons.push(
+      task.dependencyIds.length === 1 ? 'Waiting on 1 dependency' : `Waiting on ${task.dependencyIds.length} dependencies`,
+    );
+  }
+  if (task.status === 'completed') blockReasons.push('Already completed');
+  if (task.deletedAt) blockReasons.push('Deleted');
+
+  return {
+    task,
+    score: clamp(Math.round(score), 0, 100),
+    reasons,
+    estimateMinutes: estimateForTask(task, settings, learned),
+    blocked: blockReasons.length > 0,
+    blockReasons,
+  };
+}
+
+export function estimateForTask(task: Task, settings: Settings, learned: LearnedDurations | null): number {
+  if (learned) {
+    const categoryMedian = learned.byCategory[task.category];
+    const clientMedian = task.client ? learned.byClient[task.client] : undefined;
+    if (typeof categoryMedian === 'number' && categoryMedian > 0) return Math.round(categoryMedian);
+    if (typeof clientMedian === 'number' && clientMedian > 0) return Math.round(clientMedian);
+  }
+  return Math.max(5, Math.round(task.estimatedMinutes || settings.defaultEstimateMinutes));
+}
+
+export function orderCandidates(
+  tasks: Task[],
+  settings: Settings,
+  now: Date,
+  learned: LearnedDurations | null = null,
+): ScoredTask[] {
+  return tasks
+    .map((task) => scoreTask(task, settings, now, learned))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const aDue = a.task.dueDate ?? '9999-12-31';
+      const bDue = b.task.dueDate ?? '9999-12-31';
+      if (aDue !== bDue) return aDue.localeCompare(bDue);
+      return a.task.createdAt.localeCompare(b.task.createdAt);
+    });
+}
+
+export interface BuildPlanOptions {
+  date?: Date;
+  learned?: LearnedDurations | null;
+}
+
+export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new Date(), options: BuildPlanOptions = {}): DayPlan {
+  const date = options.date ?? now;
+  const dateISO = toISODate(date);
+  const isWorkingDay = settings.workingDays.includes(date.getDay());
+  const dayStart = parseTimeToMinutes(settings.workdayStart);
+  const dayEnd = parseTimeToMinutes(settings.workdayEnd);
+  const lunchStart = parseTimeToMinutes(settings.lunchStart);
+  const lunchEnd = parseTimeToMinutes(settings.lunchEnd);
+  const hasLunch = lunchEnd > lunchStart && lunchStart >= dayStart && lunchEnd <= dayEnd;
+  const capacityMinutes = isWorkingDay ? workingMinutes(settings) : 0;
+  const nowMinutes = dateISO === toISODate(now) ? now.getHours() * 60 + now.getMinutes() : dayStart;
+
+  const openTasks = tasks
+    .filter((task) => task.status !== 'completed' && task.deletedAt === null)
+    .map((task) => ({ ...task }));
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const scoredTasks = orderCandidates(openTasks, settings, now, options.learned ?? null);
+  const candidates = scoredTasks.filter((scored) => {
+    if (scored.task.blocked) return false;
+    return isDependencyMet(scored.task, byId);
+  });
+  const ineligible = scoredTasks.filter((scored) => !candidates.includes(scored));
+
+  const blocks: ScheduleBlock[] = [];
+  const queued: PlanQueueItem[] = [];
+  let cursor = Math.max(dayStart, roundUpToFive(nowMinutes));
+  let plannedMinutes = 0;
+  let lunchInserted = !hasLunch;
+  let buffer = Math.max(0, settings.bufferMinutes);
+  let blockCounter = 0;
+
+  if (!isWorkingDay) {
+    for (const scored of candidates) {
+      queued.push({ task: scored.task, reason: 'Not a working day', estimateMinutes: scored.estimateMinutes });
+    }
+    for (const scored of ineligible) {
+      const reasons = scored.blockReasons.join(' · ');
+      queued.push({
+        task: scored.task,
+        reason: reasons ? `${reasons} — not scheduled` : 'Not a working day',
+        estimateMinutes: scored.estimateMinutes,
+      });
+    }
+    return {
+      dateISO,
+      isWorkingDay,
+      nowMinutes,
+      dayStart,
+      dayEnd,
+      capacityMinutes,
+      plannedMinutes: 0,
+      remainingMinutes: 0,
+      blocks: [],
+      queued,
+      conflicts: detectConflicts(tasks, dateISO),
+    };
+  }
+
+  if (cursor >= dayEnd) {
+    for (const scored of candidates) {
+      queued.push({ task: scored.task, reason: 'Workday already finished', estimateMinutes: scored.estimateMinutes });
+    }
+    for (const scored of ineligible) {
+      const reasons = scored.blockReasons.join(' · ');
+      queued.push({
+        task: scored.task,
+        reason: reasons ? `${reasons} — not scheduled` : 'Workday already finished',
+        estimateMinutes: scored.estimateMinutes,
+      });
+    }
+    return {
+      dateISO,
+      isWorkingDay,
+      nowMinutes,
+      dayStart,
+      dayEnd,
+      capacityMinutes,
+      plannedMinutes: 0,
+      remainingMinutes: capacityMinutes,
+      blocks: [],
+      queued,
+      conflicts: detectConflicts(tasks, dateISO),
+    };
+  }
+
+  const focusMinutes = clamp(settings.focusBlockMinutes || 50, 15, 180);
+
+  for (const scored of candidates) {
+    const task = scored.task;
+    let remaining = scored.estimateMinutes;
+    let placedMinutes = 0;
+
+    while (remaining > 0) {
+      if (!lunchInserted && cursor >= lunchStart && cursor < lunchEnd) {
+        blocks.push({
+          id: `break_${dateISO}_lunch`,
+          taskId: null,
+          title: 'Lunch break',
+          start: lunchStart,
+          end: lunchEnd,
+          kind: 'break',
+        });
+        cursor = lunchEnd;
+        lunchInserted = true;
+        continue;
+      }
+
+      let latestEnd = cursor + Math.min(remaining, focusMinutes);
+      if (!lunchInserted && cursor < lunchStart && latestEnd > lunchStart) {
+        latestEnd = lunchStart;
+      }
+      if (latestEnd <= cursor) {
+        break;
+      }
+      if (latestEnd > dayEnd) break;
+
+      blocks.push({
+        id: `blk_${dateISO}_${blockCounter}`,
+        taskId: task.id,
+        title: task.title,
+        start: cursor,
+        end: latestEnd,
+        kind: 'focus',
+        learned: Boolean(
+          (options.learned?.byCategory[task.category] ?? 0) > 0 ||
+            (task.client ? (options.learned?.byClient[task.client] ?? 0) > 0 : false),
+        ),
+      });
+      blockCounter += 1;
+      const chunk = latestEnd - cursor;
+      placedMinutes += chunk;
+      remaining -= chunk;
+      cursor = latestEnd;
+
+      if (remaining > 0) {
+        const nextCursor = cursor + buffer;
+        cursor = !lunchInserted && cursor < lunchStart && nextCursor > lunchStart ? lunchStart : nextCursor;
+      } else if (buffer > 0 && cursor + buffer <= dayEnd) {
+        const wouldCollideWithLunch = !lunchInserted && cursor < lunchEnd && cursor + buffer > lunchStart;
+        if (!wouldCollideWithLunch) {
+          blocks.push({
+            id: `buf_${dateISO}_${blockCounter}`,
+            taskId: null,
+            title: 'Buffer',
+            start: cursor,
+            end: cursor + buffer,
+            kind: 'buffer',
+          });
+          blockCounter += 1;
+          cursor += buffer;
+        }
+      }
+    }
+
+    if (placedMinutes > 0) {
+      task.suggestedDate = dateISO;
+      task.suggestedStart = minutesToTime(
+        blocks.find((block) => block.taskId === task.id)?.start ?? dayStart,
+      );
+      plannedMinutes += placedMinutes;
+      if (remaining > 0) {
+        queued.push({
+          task,
+          reason: `Partially scheduled — ${Math.round(remaining)}m still queued (workday ends ${settings.workdayEnd})`,
+          estimateMinutes: remaining,
+        });
+      }
+    } else {
+      queued.push({
+        task,
+        reason: `Not enough time left before ${settings.workdayEnd}`,
+        estimateMinutes: scored.estimateMinutes,
+      });
+    }
+    if (cursor >= dayEnd) {
+      // Remaining tasks stay visible in the queue rather than disappearing.
+      continue;
+    }
+  }
+
+  const scheduledIds = new Set(blocks.filter((block) => block.taskId).map((block) => block.taskId));
+  for (const scored of candidates) {
+    if (scheduledIds.has(scored.task.id)) continue;
+    if (queued.some((item) => item.task.id === scored.task.id)) continue;
+    queued.push({
+      task: scored.task,
+      reason: 'Did not fit in the remaining workday',
+      estimateMinutes: scored.estimateMinutes,
+    });
+  }
+
+  for (const scored of ineligible) {
+    const reasons = scored.blockReasons.join(' · ');
+    queued.push({
+      task: scored.task,
+      reason: reasons ? `${reasons} — not scheduled` : 'Not eligible for automatic scheduling',
+      estimateMinutes: scored.estimateMinutes,
+    });
+  }
+
+  blocks.sort((a, b) => a.start - b.start);
+
+  return {
+    dateISO,
+    isWorkingDay,
+    nowMinutes,
+    dayStart,
+    dayEnd,
+    capacityMinutes,
+    plannedMinutes,
+    remainingMinutes: Math.max(0, capacityMinutes - plannedMinutes),
+    blocks,
+    queued,
+    conflicts: detectConflicts(tasks, dateISO),
+  };
+}
+
+export function detectConflicts(tasks: Task[], dateISO?: string): ConflictWarning[] {
+  const warnings: ConflictWarning[] = [];
+  const scheduled = tasks.filter(
+    (task) =>
+      task.status !== 'completed' &&
+      task.deletedAt === null &&
+      task.suggestedDate !== null &&
+      task.suggestedStart !== null &&
+      (dateISO === undefined || task.suggestedDate === dateISO),
+  );
+  for (let i = 0; i < scheduled.length; i += 1) {
+    for (let j = i + 1; j < scheduled.length; j += 1) {
+      const first = scheduled[i];
+      const second = scheduled[j];
+      if (first.suggestedDate !== second.suggestedDate) continue;
+      const firstStart = parseTimeToMinutes(first.suggestedStart ?? '00:00');
+      const secondStart = parseTimeToMinutes(second.suggestedStart ?? '00:00');
+      const firstEnd = firstStart + estimateForTask(first, { defaultEstimateMinutes: 30 } as Settings, null);
+      const secondEnd = secondStart + estimateForTask(second, { defaultEstimateMinutes: 30 } as Settings, null);
+      if (firstStart < secondEnd && secondStart < firstEnd) {
+        warnings.push({
+          dateISO: first.suggestedDate ?? '',
+          firstTaskId: first.id,
+          secondTaskId: second.id,
+          message: `“${first.title}” and “${second.title}” overlap on ${first.suggestedDate}`,
+        });
+      }
+    }
+  }
+  return warnings;
+}
+
+export function applyPlanToTasks(plan: DayPlan, tasks: Task[]): Task[] {
+  const nowISO = new Date().toISOString();
+  const scheduledStarts = new Map<string, number>();
+  for (const block of plan.blocks) {
+    if (!block.taskId) continue;
+    if (!scheduledStarts.has(block.taskId)) scheduledStarts.set(block.taskId, block.start);
+  }
+  return tasks.map((task) => {
+    const start = scheduledStarts.get(task.id);
+    if (start === undefined) {
+      if (task.suggestedDate === plan.dateISO) {
+        return { ...task, suggestedDate: null, suggestedStart: null, updatedAt: nowISO };
+      }
+      return task;
+    }
+    return {
+      ...task,
+      suggestedDate: plan.dateISO,
+      suggestedStart: minutesToTime(start),
+      updatedAt: nowISO,
+    };
+  });
+}
+
+export interface PlanSummary {
+  moves: number;
+  staysQueued: number;
+  deadlineChanges: number;
+}
+
+export function summarisePlan(plan: DayPlan): PlanSummary {
+  return {
+    moves: new Set(plan.blocks.filter((block) => block.taskId).map((block) => block.taskId)).size,
+    staysQueued: plan.queued.length,
+    deadlineChanges: 0,
+  };
+}
+
+export interface WeekDaySummary {
+  dateISO: string;
+  label: string;
+  dueCount: number;
+  overdueCount: number;
+  scheduledMinutes: number;
+}
+
+export function buildWeekSummary(tasks: Task[], settings: Settings, anchor: Date = new Date()): WeekDaySummary[] {
+  const start = startOfDay(anchor);
+  const mondayOffset = (start.getDay() + 6) % 7;
+  const monday = addDays(start, -mondayOffset);
+  const days: WeekDaySummary[] = [];
+  for (let index = 0; index < 7; index += 1) {
+    const day = addDays(monday, index);
+    const dateISO = toISODate(day);
+    const dueTasks = tasks.filter(
+      (task) => task.deletedAt === null && task.status !== 'completed' && task.dueDate === dateISO,
+    );
+    const scheduled = tasks.filter(
+      (task) =>
+        task.deletedAt === null &&
+        task.status !== 'completed' &&
+        (task.scheduledFor === dateISO || task.suggestedDate === dateISO),
+    );
+    const isPast = dayOffset(dateISO, new Date()) < 0;
+    days.push({
+      dateISO,
+      label: `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day.getDay()]} ${day.getDate()}`,
+      dueCount: dueTasks.length,
+      overdueCount: isPast ? dueTasks.length : 0,
+      scheduledMinutes: scheduled.reduce((sum, task) => sum + estimateForTask(task, settings, null), 0),
+    });
+  }
+  return days;
+}
+
+export interface ReminderItem {
+  task: Task;
+  dueAt: Date;
+  leadMinutes: number;
+  overdue: boolean;
+}
+
+export function buildReminders(tasks: Task[], settings: Settings, now: Date = new Date()): ReminderItem[] {
+  return tasks
+    .filter((task) => task.status !== 'completed' && task.deletedAt === null && task.dueDate !== null)
+    .map((task) => {
+      const dueAt = combineDateTime(task.dueDate as string, task.dueTime || '17:00');
+      const minutesUntil = (dueAt.getTime() - now.getTime()) / 60000;
+      return { task, dueAt, leadMinutes: settings.reminderLeadMinutes, overdue: minutesUntil < 0 };
+    })
+    .filter((item) => (item.dueAt.getTime() - now.getTime()) / 60000 <= settings.reminderLeadMinutes)
+    .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
+}
+
+export function canNotifyNow(settings: Settings, now: Date = new Date()): boolean {
+  return !isQuietNow(settings, now);
+}
+
+function stripBullets(line: string): string {
+  return line
+    .replace(/^\s*[-*•·]\s*/, '')
+    .replace(/^\s*\d+[.)]\s*/, '')
+    .replace(/^\s*(task|todo|to-do)\s*[:-]\s*/i, '')
+    .trim();
+}
+
+function splitDraftBlocks(raw: string): string[] {
+  const normalised = raw.replace(/\r\n/g, '\n').trim();
+  if (!normalised) return [];
+  const byParagraph = normalised
+    .split(/\n\s*\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  if (byParagraph.length > 1) return byParagraph;
+
+  const lines = normalised.split('\n').map((line) => line.trim()).filter(Boolean);
+  const blocks: string[] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    const startsNew =
+      /^\s*([-*•·]|\d+[.)])\s+/.test(line) ||
+      /^\s*(task|todo|to-do)\s*[:-]/i.test(line);
+    if (startsNew && current.length > 0) {
+      blocks.push(current.join('\n'));
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.length > 0) blocks.push(current.join('\n'));
+  return blocks.length > 0 ? blocks : [normalised];
+}
+
+function monthIndex(name: string): number {
+  const lower = name.toLowerCase();
+  const full = MONTHS.findIndex((month) => month === lower || month.startsWith(lower.slice(0, 3)));
+  return full;
+}
+
+export interface ParsedDueDate {
+  dateISO: string | null;
+  matchedText: string;
+  ambiguous: boolean;
+  reason: string;
+}
+
+export function parseDuePhrase(text: string, now: Date = new Date()): ParsedDueDate {
+  const lower = text.toLowerCase();
+  const base = startOfDay(now);
+
+  if (/\btoday\b/.test(lower)) return { dateISO: toISODate(base), matchedText: 'today', ambiguous: false, reason: '' };
+  if (/\btomorrow\b/.test(lower)) return { dateISO: daysFromNow(1, now), matchedText: 'tomorrow', ambiguous: false, reason: '' };
+  if (/\bday after tomorrow\b/.test(lower)) {
+    return { dateISO: daysFromNow(2, now), matchedText: 'day after tomorrow', ambiguous: false, reason: '' };
+  }
+
+  const inDays = /\bin\s+(\d{1,2})\s+days?\b/.exec(lower);
+  if (inDays) {
+    return { dateISO: daysFromNow(Number(inDays[1]), now), matchedText: inDays[0], ambiguous: false, reason: '' };
+  }
+
+  const iso = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/.exec(lower);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const parsed = new Date(year, month - 1, day);
+    if (!Number.isNaN(parsed.getTime()) && parsed.getMonth() === month - 1) {
+      return { dateISO: toISODate(parsed), matchedText: iso[0], ambiguous: false, reason: '' };
+    }
+    return { dateISO: null, matchedText: iso[0], ambiguous: false, reason: 'Invalid ISO date' };
+  }
+
+  const weekday = /\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\b/.exec(
+    lower,
+  );
+  if (weekday) {
+    const name = weekday[2];
+    const target = WEEKDAY_NAMES.findIndex((day) => day.startsWith(name.slice(0, 3)));
+    if (target >= 0) {
+      let offset = (target - base.getDay() + 7) % 7;
+      if (offset === 0) offset = 7;
+      return { dateISO: toISODate(addDays(base, offset)), matchedText: weekday[0], ambiguous: false, reason: '' };
+    }
+  }
+
+  const dayMonth = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s*,?\s*(\d{4}))?\b/.exec(
+    lower,
+  );
+  if (dayMonth) {
+    const day = Number(dayMonth[1]);
+    const month = monthIndex(dayMonth[2]);
+    const year = dayMonth[3] ? Number(dayMonth[3]) : base.getFullYear();
+    if (month >= 0 && day >= 1 && day <= 31) {
+      let parsed = new Date(year, month, day);
+      if (!dayMonth[3] && parsed.getTime() < base.getTime()) parsed = new Date(year + 1, month, day);
+      return { dateISO: toISODate(parsed), matchedText: dayMonth[0], ambiguous: false, reason: '' };
+    }
+  }
+
+  const monthDay = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?\b/.exec(
+    lower,
+  );
+  if (monthDay) {
+    const month = monthIndex(monthDay[1]);
+    const day = Number(monthDay[2]);
+    const year = monthDay[3] ? Number(monthDay[3]) : base.getFullYear();
+    if (month >= 0 && day >= 1 && day <= 31) {
+      let parsed = new Date(year, month, day);
+      if (!monthDay[3] && parsed.getTime() < base.getTime()) parsed = new Date(year + 1, month, day);
+      return { dateISO: toISODate(parsed), matchedText: monthDay[0], ambiguous: false, reason: '' };
+    }
+  }
+
+  const numeric =
+    /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/.exec(lower) ??
+    /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b/.exec(lower);
+  if (numeric) {
+    let first = Number(numeric[1]);
+    let second = Number(numeric[2]);
+    const yearPart = numeric[3] ? Number(numeric[3]) : base.getFullYear();
+    const year = yearPart < 100 ? 2000 + yearPart : yearPart;
+    const ambiguous = first <= 12 && second <= 12;
+    if (first > 12 && second <= 12) {
+      // already day/month
+    } else if (second > 12 && first <= 12) {
+      const swap = first;
+      first = second;
+      second = swap;
+    }
+    const parsed = new Date(year, second - 1, first);
+    if (!Number.isNaN(parsed.getTime()) && parsed.getMonth() === second - 1 && parsed.getDate() === first) {
+      return {
+        dateISO: toISODate(parsed),
+        matchedText: numeric[0],
+        ambiguous,
+        reason: ambiguous ? `“${numeric[0]}” is ambiguous — read as day/month` : '',
+      };
+    }
+    return { dateISO: null, matchedText: numeric[0], ambiguous, reason: `“${numeric[0]}” is not a valid date` };
+  }
+
+  return { dateISO: null, matchedText: '', ambiguous: false, reason: '' };
+}
+
+export interface ParsedTime {
+  time: string;
+  matchedText: string;
+}
+
+export function parseTimePhrase(text: string): ParsedTime {
+  const eod = /\b(eod|end of day)\b/i.exec(text);
+  if (eod) return { time: '18:00', matchedText: eod[0] };
+  const meridiem = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i.exec(text);
+  if (meridiem) {
+    let hours = Number(meridiem[1]);
+    const minutes = meridiem[2] ? Number(meridiem[2]) : 0;
+    const isPm = meridiem[3].toLowerCase() === 'pm';
+    if (hours < 12 && isPm) hours += 12;
+    if (hours === 12 && !isPm) hours = 0;
+    if (hours <= 23 && minutes <= 59) {
+      return { time: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`, matchedText: meridiem[0] };
+    }
+  }
+  const clock = /\b(\d{1,2}):(\d{2})\b/.exec(text);
+  if (clock) {
+    const hours = Number(clock[1]);
+    const minutes = Number(clock[2]);
+    if (hours <= 23 && minutes <= 59) {
+      return { time: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`, matchedText: clock[0] };
+    }
+  }
+  return { time: '', matchedText: '' };
+}
+
+function parsePriority(text: string): { priority: Priority; matched: boolean } {
+  const lower = text.toLowerCase();
+  if (/\b(critical|urgent|asap|p0|immediately)\b/.test(lower)) return { priority: 'critical', matched: true };
+  if (/\b(high|important|p1|priority)\b/.test(lower)) return { priority: 'high', matched: true };
+  if (/\b(low|whenever|later|p3|someday)\b/.test(lower)) return { priority: 'low', matched: true };
+  if (/\b(medium|normal|p2)\b/.test(lower)) return { priority: 'medium', matched: true };
+  return { priority: 'medium', matched: false };
+}
+
+function parseCategory(text: string): { category: Category; matched: boolean } {
+  const lower = text.toLowerCase();
+  const rules: Array<[Category, RegExp]> = [
+    ['follow_up', /\b(follow[- ]?up|check[- ]?in|chase|remind|revert|nudge)\b/],
+    ['proposal', /\b(proposal|quote|quotation|estimate|pitch|sow|rfp|tender)\b/],
+    ['meeting', /\b(meeting|call|demo|sync|visit|discussion|review call|standup)\b/],
+    ['email', /\b(email|e-mail|mail|inbox|reply|respond)\b/],
+    ['report', /\b(report|deck|presentation|summary|dashboard|analysis deck)\b/],
+    ['research', /\b(research|analyse|analyze|analysis|investigate|explore|benchmark)\b/],
+    ['admin', /\b(admin|expense|timesheet|invoice|update crm|data entry)\b/],
+  ];
+  for (const [category, pattern] of rules) {
+    if (pattern.test(lower)) return { category, matched: true };
+  }
+  return { category: 'other', matched: false };
+}
+
+function parseEstimate(text: string): { minutes: number; matched: boolean } {
+  const hours = /\b(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i.exec(text);
+  if (hours) return { minutes: Math.round(Number(hours[1]) * 60), matched: true };
+  const minutes = /\b(\d+)\s*(?:m|min|mins|minute|minutes)\b/i.exec(text);
+  if (minutes) return { minutes: Number(minutes[1]), matched: true };
+  return { minutes: 30, matched: false };
+}
+
+function parseClient(text: string): string {
+  const explicit = /(?:client|customer|account|company)\s*[:-]\s*([^\n,;]+)/i.exec(text);
+  if (explicit) return explicit[1].trim().slice(0, 60);
+  const withCompany = /\b(?:with|for)\s+([A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,3})(?=[\s,.;]|$)/.exec(text);
+  if (withCompany) return withCompany[1].trim().slice(0, 60);
+  return '';
+}
+
+export function parseScreenshotText(rawText: string, now: Date = new Date()): ParsedDraft[] {
+  const blocks = splitDraftBlocks(rawText);
+  const drafts: ParsedDraft[] = [];
+
+  for (const block of blocks) {
+    const lines = block
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) continue;
+
+    const first = stripBullets(lines[0]);
+    const titleSource = /^(client|customer|account|company|priority|due|deadline)\s*[:-]/i.test(first)
+      ? stripBullets(lines[1] ?? first)
+      : first;
+    const title = titleSource.replace(/\s+/g, ' ').slice(0, 160).trim();
+    if (!title) continue;
+
+    const notes = lines
+      .slice(1)
+      .filter((line) => !/^(client|customer|account|company)\s*[:-]/i.test(line))
+      .join('\n')
+      .trim();
+
+    const due = parseDuePhrase(block, now);
+    const time = parseTimePhrase(block);
+    const priority = parsePriority(block);
+    const category = parseCategory(block);
+    const estimate = parseEstimate(block);
+    const client = parseClient(block);
+
+    const warnings: string[] = [];
+    if (due.ambiguous) warnings.push(due.reason || 'Date is ambiguous — please confirm the exact day.');
+    if (due.reason && !due.ambiguous) warnings.push(due.reason);
+    if (!due.dateISO && /\b(deadline|due|by)\b/i.test(block)) {
+      warnings.push('A deadline was mentioned but no clear date could be read — please set it manually.');
+    }
+    if (due.dateISO && dayOffset(due.dateISO, now) < 0) {
+      warnings.push(`Parsed date ${due.dateISO} is in the past — confirm before saving.`);
+    }
+
+    let confidence = 40;
+    if (title.length >= 6) confidence += 10;
+    if (due.dateISO) confidence += 20;
+    if (client) confidence += 10;
+    if (priority.matched) confidence += 5;
+    if (category.matched) confidence += 10;
+    if (estimate.matched) confidence += 5;
+    if (warnings.length > 0) confidence -= warnings.length * 8;
+
+    drafts.push({
+      title,
+      notes,
+      client,
+      category: category.category,
+      priority: priority.priority,
+      estimatedMinutes: clamp(estimate.minutes, 5, 480),
+      dueDate: due.dateISO,
+      dueTime: time.time,
+      confidence: clamp(confidence, 10, 95),
+      warnings,
+      rawText: block,
+    });
+  }
+
+  return drafts;
+}
+
+function normaliseTitle(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function titleSimilarity(a: string, b: string): number {
+  const first = new Set(normaliseTitle(a).split(' ').filter(Boolean));
+  const second = new Set(normaliseTitle(b).split(' ').filter(Boolean));
+  if (first.size === 0 || second.size === 0) return 0;
+  let overlap = 0;
+  for (const token of first) if (second.has(token)) overlap += 1;
+  return overlap / Math.max(first.size, second.size);
+}
+
+export function findDuplicate(draft: ParsedDraft, existing: Task[]): Task | null {
+  for (const task of existing) {
+    if (task.deletedAt !== null) continue;
+    if (task.status === 'completed') continue;
+    if (normaliseTitle(task.title) === normaliseTitle(draft.title)) return task;
+    if (titleSimilarity(task.title, draft.title) >= 0.8) return task;
+  }
+  return null;
+}
+
+export function draftToTask(draft: ParsedDraft, settings: Settings, now: Date = new Date()): Task {
+  const iso = now.toISOString();
+  return {
+    id: '',
+    title: draft.title,
+    notes: draft.notes,
+    client: draft.client,
+    category: draft.category,
+    priority: draft.priority || settings.defaultPriority,
+    estimatedMinutes: draft.estimatedMinutes,
+    actualMinutes: 0,
+    dueDate: draft.dueDate,
+    dueTime: draft.dueTime || '',
+    scheduledFor: null,
+    suggestedDate: null,
+    suggestedStart: null,
+    status: 'inbox',
+    blocked: false,
+    dependencyIds: [],
+    deferrals: 0,
+    createdAt: iso,
+    updatedAt: iso,
+    completedAt: null,
+    deletedAt: null,
+    source: 'ocr',
+    graphRef: null,
+  };
+}
+
+export function describeCategory(category: Category): string {
+  return CATEGORIES[category].label;
+}
+
+export function countOpenTasks(tasks: Task[]): number {
+  return tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null).length;
+}
+
+export function dueTodayCount(tasks: Task[], now: Date = new Date()): number {
+  const iso = toISODate(now);
+  return tasks.filter(
+    (task) => task.deletedAt === null && task.status !== 'completed' && task.dueDate === iso,
+  ).length;
+}
+
+export function fromDateInput(value: string): string | null {
+  if (!value) return null;
+  const parsed = fromISODate(value);
+  return Number.isNaN(parsed.getTime()) ? null : toISODate(parsed);
+}
