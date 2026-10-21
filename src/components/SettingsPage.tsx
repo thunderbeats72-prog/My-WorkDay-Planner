@@ -35,6 +35,7 @@ export function SettingsPage({
   graph,
   notificationsPermission,
   onRequestNotifications,
+  onSendTestNotification,
 }: CommonPageProps & {
   onSaveSettings: (next: Settings) => void;
   onExportBackup: () => void;
@@ -52,6 +53,7 @@ export function SettingsPage({
   };
   notificationsPermission: string;
   onRequestNotifications: () => Promise<string>;
+  onSendTestNotification: () => void;
 }) {
   const [draft, setDraft] = useState<Settings>(settings);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -292,7 +294,13 @@ export function SettingsPage({
                 <Bell size={16} /> Reminders
               </h2>
               <Badge tone={notificationsPermission === 'granted' ? 'success' : 'neutral'}>
-                Browser: {notificationsPermission}
+                {notificationsPermission === 'granted'
+                  ? 'System alerts on'
+                  : notificationsPermission === 'denied'
+                    ? 'Blocked by browser'
+                    : notificationsPermission === 'unsupported'
+                      ? 'Not supported'
+                      : 'Alerts off'}
               </Badge>
             </div>
             <div className="form-grid">
@@ -349,18 +357,41 @@ export function SettingsPage({
                 }
                 setDraft({ ...draft, notificationsEnabled: checked });
               }}
-              label="Optional browser notifications"
-              description="Permission-gated, best-effort, and only while the browser is open. In-app reminders always work."
+              label="Desktop and phone notifications"
+              description="Laptop and phone banners when a deadline is close. Alerts while the app is open, plus a best-effort background check on Android. In-app reminders always work."
               disabled={notificationsPermission === 'unsupported'}
             />
             {notificationsPermission === 'denied' ? (
               <p className="field-hint">
-                Notifications are blocked in this browser's site settings. Change that in the browser, not here.
+                Notifications are blocked in this browser’s site settings. Allow them there, then reload — this
+                page cannot override it.
               </p>
             ) : null}
             {notificationsPermission === 'unsupported' ? (
-              <p className="field-hint">This browser does not support the Notification API.</p>
+              <p className="field-hint">This browser does not support system notifications. In-app reminders still work.</p>
             ) : null}
+            <div className="settings-actions">
+              {notificationsPermission === 'granted' ? (
+                <Button variant="secondary" icon={Bell} onClick={onSendTestNotification}>
+                  Send a test notification
+                </Button>
+              ) : notificationsPermission === 'default' ? (
+                <Button
+                  variant="primary"
+                  icon={Bell}
+                  onClick={() => {
+                    void onRequestNotifications().then((permission) => {
+                      if (permission === 'granted') onSendTestNotification();
+                    });
+                  }}
+                >
+                  Turn on notifications
+                </Button>
+              ) : null}
+              <span className="field-hint">
+                Nothing leaves this device: alerts are computed from your local tasks.
+              </span>
+            </div>
           </section>
 
           <section className="card settings-section">

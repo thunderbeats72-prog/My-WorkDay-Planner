@@ -10,6 +10,7 @@ import {
   Flame,
   Inbox,
   MoonStar,
+  PieChart,
   Play,
   CornerDownLeft,
   Plus,
@@ -206,6 +207,10 @@ export function TodayPage({
             <span className={`chip ${online ? 'chip-online' : 'chip-offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
               {online ? 'Online' : 'Offline'}
+            </span>
+            <span className="chip chip-plan" title={`${plannedPercent}% of today's capacity is planned`}>
+              <PieChart size={12} />
+              {plannedPercent}% planned
             </span>
             {nextDeadline ? (
               <span
@@ -436,7 +441,7 @@ export function TodayPage({
                 <Badge tone="warning">{reminders.length} waiting</Badge>
               </div>
               <p className="fine-print">
-                In-app only while this page is open. Browser notifications can fire in the background if you allow them.
+                Deadline alerts. In-app copies always land in the bell; system banners need permission.
               </p>
               <ul className="reminder-list">
                 {reminders.slice(0, 5).map((reminder) => (
@@ -471,13 +476,14 @@ export function TodayPage({
           {notificationsPermission !== 'granted' && notificationsPermission !== 'unsupported' ? (
             <section className="card notification-card">
               <div>
-                <h3>Want browser reminders?</h3>
+                <h3>Get reminders on this device</h3>
                 <p className="muted">
-                  Permission is optional. Reminders stay in-app; notifications are best-effort while the browser is open.
+                  A laptop or phone banner when a deadline is close. In-app reminders appear in the bell either way —
+                  nothing leaves this browser.
                 </p>
               </div>
               <Button variant="secondary" icon={Bell} onClick={onRequestNotifications}>
-                Enable notifications
+                Turn on notifications
               </Button>
             </section>
           ) : null}

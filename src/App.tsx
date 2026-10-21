@@ -29,6 +29,20 @@ import {
   validateBackup,
 } from './lib/db';
 import { applyPlanToTasks, buildReminders } from './lib/engine';
+import {
+  addNotification,
+  clearNotifications as clearNotificationList,
+  deliverNative,
+  forgetDelivered,
+  loadNotifications,
+  markAllNotificationsRead,
+  markDelivered,
+  registerBackgroundChecks,
+  saveNotifications,
+  sendTestNotification,
+  wasDelivered,
+} from './lib/notifications';
+import type { AppNotification } from './lib/notifications';
 import type { DayPlan, ParsedDraft, ReminderItem } from './lib/engine';
 import {
   beginGraphSignIn,
@@ -53,6 +67,7 @@ import {
   useScrollPosition,
 } from './hooks/useEnvironment';
 import { Sidebar, MobileTopBar, BottomNav, ScrollProgress, BackToTop, LiveClock } from './components/Shell';
+import { NotificationCenter } from './components/NotificationCenter';
 import type { NavCounts } from './components/Shell';
 import { Button, ConfirmDialog, Confetti, Modal, SkeletonScreen, ToastStack } from './components/ui';
 import type { ToastItem, ToastTone } from './components/ui';
@@ -155,6 +170,7 @@ export default function App() {
   const [graphBusy, setGraphBusy] = useState(false);
   const graphRedirectHandled = useRef(false);
   const [notificationPermission, requestNotificationPermission] = useNotificationPermission();
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
 
   useAmbientEffects(!loading);
 
@@ -231,8 +247,9 @@ export default function App() {
     const root = document.documentElement;
     root.dataset.theme = isDark ? 'dark' : 'light';
     root.style.colorScheme = isDark ? 'dark' : 'light';
+    // Keep the browser chrome identical to the canvas — no navy, no flash.
     const themeColor = document.querySelector('meta[name="theme-color"]');
-    if (themeColor) themeColor.setAttribute('content', isDark ? '#0b1220' : '#17243B');
+    if (themeColor) themeColor.setAttribute('content', isDark ? '#0a0a0c' : '#f5f5f6');
     root.classList.add('theme-fade');
     const timer = window.setTimeout(() => root.classList.remove('theme-fade'), 480);
     return () => window.clearTimeout(timer);
@@ -547,6 +564,11 @@ export default function App() {
       setReminders(next);
       await saveReminders([record]);
       await logEvent(task.id, 'reminder', 'Reminder snoozed for 15 minutes');
+      // A snooze is a request to be told again — clear the de-dupe marker.
+      forgetDelivered(task.id);
+      setNotifications((current) =>
+        saveNotifications(current.filter((item) => item.taskId !== task.id || item.kind === 'test')),
+      );
       addToast('Reminder snoozed for 15 minutes.', 'info');
     },
     [addToast],
@@ -572,6 +594,7 @@ export default function App() {
       setReminders(next);
       await saveReminders([record]);
       await logEvent(task.id, 'reminder', 'Reminder dismissed');
+      setNotifications((current) => saveNotifications(current.filter((item) => item.taskId !== task.id)));
       addToast('Reminder dismissed.', 'info');
     },
     [addToast],
@@ -952,12 +975,67 @@ export default function App() {
     if (permission === 'granted') {
       const next = { ...settingsRef.current, notificationsEnabled: true };
       await updateSettings(next);
-      addToast('Browser notifications enabled — best-effort while the browser is open.', 'success');
+      void registerBackgroundChecks();
+      addToast('Notifications enabled on this device.', 'success');
     } else if (permission === 'denied') {
       addToast('Browser permission was denied. In-app reminders still work.', 'warning');
     }
     return permission;
   }, [addToast, requestNotificationPermission, updateSettings]);
+
+  const handleOpenNotificationTask = useCallback((taskId: string) => {
+    setPage('tasks');
+    setPanelId(taskId);
+    setNotifications((current) => markAllNotificationsRead(current));
+  }, []);
+
+  const handleMarkAllRead = useCallback(() => {
+    setNotifications((current) => markAllNotificationsRead(current));
+  }, []);
+
+  const handleClearNotifications = useCallback(() => {
+    setNotifications(clearNotificationList());
+  }, []);
+
+  const handleDismissNotification = useCallback((item: AppNotification) => {
+    setNotifications((current) => saveNotifications(current.filter((entry) => entry.id !== item.id)));
+  }, []);
+
+  /**
+   * Proves the whole chain end to end: in-app entry, OS banner, and a
+   * permission prompt when the browser has not been asked yet.
+   */
+  const handleSendTestNotification = useCallback(async () => {
+    let permission = notificationPermission;
+    if (permission !== 'granted') permission = await requestNotificationPermission();
+
+    setNotifications((current) =>
+      addNotification(current, {
+        id: `test_${Date.now()}`,
+        taskId: null,
+        title: 'Notifications are on',
+        body: 'This is what a deadline alert looks like on this device.',
+        createdAt: new Date().toISOString(),
+        dueAt: null,
+        read: false,
+        kind: 'test',
+      }),
+    );
+
+    if (permission !== 'granted') {
+      addToast('Saved in-app. Allow notifications to also get system alerts.', 'info');
+      return;
+    }
+    if (!settingsRef.current.notificationsEnabled) {
+      await updateSettings({ ...settingsRef.current, notificationsEnabled: true });
+    }
+    const sent = await sendTestNotification();
+    addToast(
+      sent ? 'Test notification sent to this device.' : 'System notifier unavailable — the in-app copy is above.',
+      sent ? 'success' : 'warning',
+    );
+    void registerBackgroundChecks();
+  }, [addToast, notificationPermission, requestNotificationPermission, updateSettings]);
 
   const handleOnboarding = useCallback(
     async (next: Settings) => {
@@ -981,25 +1059,72 @@ export default function App() {
     });
   }, [tasks, settings, now, reminders]);
 
-  const notifiedRef = useRef<Set<string>>(new Set());
+  /**
+   * Reminders become notifications here.
+   *
+   * The in-app list is always written (it is the reliable layer). The OS is
+   * asked only when the user has enabled alerts, granted permission, and is
+   * outside quiet hours. Each (task, deadline) pair fires once; snoozing
+   * clears the marker so it can fire again.
+   */
   useEffect(() => {
-    if (!settings.notificationsEnabled || notificationPermission !== 'granted') return;
-    if (isQuietNow(settings, now)) return;
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    for (const reminder of activeReminders.slice(0, 3)) {
-      const key = `${reminder.task.id}|${reminder.task.dueDate}|${reminder.task.dueTime}`;
-      if (notifiedRef.current.has(key)) continue;
-      notifiedRef.current.add(key);
-      try {
-        new Notification('Workday reminder', {
-          body: `${reminder.task.title} — ${dueLabel(reminder.task, now)}`,
-          tag: key,
+    if (activeReminders.length === 0) return;
+    const candidates = activeReminders
+      .filter((reminder) => !wasDelivered(`${reminder.task.id}|${reminder.dueAt.toISOString()}`))
+      .slice(0, 5);
+    if (candidates.length === 0) return;
+
+    const quiet = isQuietNow(settings, now);
+    const createdAt = new Date().toISOString();
+    setNotifications((current) =>
+      candidates.reduce((list, reminder) => {
+        markDelivered(`${reminder.task.id}|${reminder.dueAt.toISOString()}`);
+        const client = reminder.task.client ? `${reminder.task.client} · ` : '';
+        return addNotification(list, {
+          id: `rem_${reminder.task.id}_${reminder.dueAt.getTime()}`,
+          taskId: reminder.task.id,
+          title: reminder.task.title,
+          body: `${client}${dueLabel(reminder.task, now)}`,
+          createdAt,
+          dueAt: reminder.dueAt.toISOString(),
+          read: false,
+          kind: 'reminder',
         });
-      } catch {
-        // Notification failures are non-fatal; in-app reminders remain.
-      }
+      }, current),
+    );
+
+    if (!settings.notificationsEnabled || notificationPermission !== 'granted' || quiet) return;
+    for (const reminder of candidates.slice(0, 2)) {
+      const client = reminder.task.client ? `${reminder.task.client} · ` : '';
+      void deliverNative({
+        title: reminder.task.title,
+        body: `${client}${dueLabel(reminder.task, now)}`,
+        tag: `rem_${reminder.task.id}`,
+        taskId: reminder.task.id,
+        page: 'tasks',
+      });
     }
   }, [activeReminders, settings, notificationPermission, now]);
+
+  // Ask the installed app to check reminders in the background (best effort).
+  useEffect(() => {
+    if (notificationPermission !== 'granted' || !settings.notificationsEnabled) return;
+    void registerBackgroundChecks();
+  }, [notificationPermission, settings.notificationsEnabled]);
+
+  // Tapping an OS notification focuses the app and opens the task.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || data.type !== 'workday:notification-click') return;
+      setPage('tasks');
+      if (typeof data.taskId === 'string') setPanelId(data.taskId);
+      setNotifications((current) => markAllNotificationsRead(current));
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1160,6 +1285,21 @@ export default function App() {
     />
   );
 
+  const notificationCenter = (
+    <NotificationCenter
+      notifications={notifications}
+      permission={notificationPermission}
+      onOpenTask={handleOpenNotificationTask}
+      onSnooze={(taskId) => void snoozeTask(taskId)}
+      onDismiss={handleDismissNotification}
+      onMarkAllRead={handleMarkAllRead}
+      onClearAll={handleClearNotifications}
+      onRequestPermission={() => void handleRequestNotifications()}
+      onSendTest={() => void handleSendTestNotification()}
+      onOpenSettings={() => setPage('settings')}
+    />
+  );
+
   const renderPage = () => {
     switch (page) {
       case 'today':
@@ -1210,6 +1350,7 @@ export default function App() {
             }}
             notificationsPermission={notificationPermission}
             onRequestNotifications={handleRequestNotifications}
+            onSendTestNotification={() => void handleSendTestNotification()}
           />
         );
       default:
@@ -1244,6 +1385,7 @@ export default function App() {
           onToggleTheme={toggleTheme}
           onOpenPalette={() => setPaletteOpen(true)}
           onOpenSettings={() => setPage('settings')}
+          notifications={notificationCenter}
         />
         <div className={`utility-bar ${scrolled > 4 ? 'is-scrolled' : ''}`.trim()}>
           <button type="button" className="utility-search" onClick={() => setPaletteOpen(true)}>
@@ -1261,6 +1403,7 @@ export default function App() {
               <ScanText size={15} aria-hidden="true" />
               <span>Import</span>
             </button>
+            {notificationCenter}
             <LiveClock />
             <span className={`status-pill ${online ? 'online' : 'offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
