@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ComponentType, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, CSSProperties, ReactNode } from 'react';
 import { useEffect, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, X } from 'lucide-react';
@@ -36,6 +36,11 @@ function useCountUp(value: string | number): string | number {
   return target === null ? value : display;
 }
 
+export function AnimatedValue({ value }: { value: string | number }) {
+  const shown = useCountUp(value);
+  return <>{shown}</>;
+}
+
 export type ToastTone = 'info' | 'success' | 'warning' | 'danger';
 
 export interface ToastItem {
@@ -49,8 +54,12 @@ export interface ToastItem {
 export function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
   return (
     <div className="toast-stack" role="status" aria-live="polite" aria-atomic="false">
-      {toasts.map((toast) => (
-        <div key={toast.id} className={`toast toast-${toast.tone}`}>
+      {toasts.map((toast, index) => (
+        <div
+          key={toast.id}
+          className={`toast toast-${toast.tone}`}
+          style={{ '--toast-index': toasts.length - 1 - index } as CSSProperties}
+        >
           <span className="toast-dot" aria-hidden="true" />
           <span className="toast-message">{toast.message}</span>
           {toast.actionLabel && toast.onAction ? (
@@ -450,13 +459,36 @@ export function SkeletonScreen() {
 }
 
 export function Confetti() {
-  const pieces = Array.from({ length: 16 }, (_, index) => index);
+  const pieces = Array.from({ length: 34 }, (_, index) => index);
   return (
-    <div className="confetti" aria-hidden="true">
-      {pieces.map((piece) => (
-        <span key={piece} className={`confetti-piece confetti-${piece % 4}`} style={{ left: `${8 + (piece * 5.5) % 84}%` }} />
-      ))}
-    </div>
+    <>
+      <div className="confetti-flash" aria-hidden="true" />
+      <div className="confetti" aria-hidden="true">
+        {pieces.map((piece) => {
+          const drift = Math.round((((piece * 37) % 120) - 60) * 1.6);
+          const spin = 280 + ((piece * 61) % 620);
+          const delay = ((piece * 29) % 260) / 1000;
+          const size = piece % 5 === 0 ? 10 : 7;
+          return (
+            <span
+              key={piece}
+              className={`confetti-piece confetti-${piece % 5}`}
+              style={
+                {
+                  left: `${4 + ((piece * 8.7) % 92)}%`,
+                  '--drift': `${drift}px`,
+                  '--spin': `${spin}deg`,
+                  '--delay': `${delay}s`,
+                  '--w': `${size}px`,
+                  '--h': `${piece % 3 === 0 ? size + 4 : size}px`,
+                  '--r': piece % 4 === 0 ? '999px' : '2px',
+                } as CSSProperties
+              }
+            />
+          );
+        })}
+      </div>
+    </>
   );
 }
 

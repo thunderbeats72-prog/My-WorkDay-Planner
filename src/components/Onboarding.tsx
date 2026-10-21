@@ -103,7 +103,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         </ol>
 
         {step === 1 ? (
-          <div className="onboarding-step">
+          <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 1 of 3</p>
             <h2>Let's set up your workday</h2>
             <p className="muted">
@@ -141,7 +141,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         ) : null}
 
         {step === 2 ? (
-          <div className="onboarding-step">
+          <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 2 of 3</p>
             <h2>When do you actually work?</h2>
             <p className="muted">
@@ -217,7 +217,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         ) : null}
 
         {step === 3 ? (
-          <div className="onboarding-step">
+          <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 3 of 3</p>
             <h2>Your defaults</h2>
             <p className="muted">Sensible starting points — the on-device model adapts as you track real work.</p>

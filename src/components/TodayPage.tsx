@@ -33,7 +33,7 @@ import type { ReminderItem } from '../lib/engine';
 import { deadlineRisk, learnDurations } from '../lib/ml';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
-import { Badge, Button, EmptyState, ProgressBar, Ring, StatCard } from './ui';
+import { AnimatedValue, Badge, Button, EmptyState, ProgressBar, Ring, StatCard } from './ui';
 
 export function TodayPage({
   tasks,
@@ -100,6 +100,11 @@ export function TodayPage({
   return (
     <div className="page today-page">
       <section className="hero">
+        <div className="hero-aurora" aria-hidden="true">
+          <span className="hero-orb hero-orb-1" />
+          <span className="hero-orb hero-orb-2" />
+          <span className="hero-orb hero-orb-3" />
+        </div>
         <div className="hero-copy">
           <p className="eyebrow">{formatDateLong(today)}</p>
           <h1>
@@ -129,15 +134,21 @@ export function TodayPage({
           </div>
           <div className="hero-stats">
             <div>
-              <strong>{overdue.length}</strong>
+              <strong>
+                <AnimatedValue value={overdue.length} />
+              </strong>
               <span>Overdue</span>
             </div>
             <div>
-              <strong>{dueToday.length}</strong>
+              <strong>
+                <AnimatedValue value={dueToday.length} />
+              </strong>
               <span>Due today</span>
             </div>
             <div>
-              <strong>{completedToday}</strong>
+              <strong>
+                <AnimatedValue value={completedToday} />
+              </strong>
               <span>Done today</span>
             </div>
             <div>

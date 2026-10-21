@@ -41,6 +41,7 @@ import {
 import type { GraphAccount, GraphHighlight, GraphToken } from './lib/graph';
 import { tasksToCsv } from './lib/reports';
 import { useTimer } from './hooks/useTimer';
+import { useAmbientEffects } from './hooks/useAmbientEffects';
 import {
   useMediaQuery,
   useNotificationPermission,
@@ -128,6 +129,8 @@ export default function App() {
   const graphRedirectHandled = useRef(false);
   const [notificationPermission, requestNotificationPermission] = useNotificationPermission();
 
+  useAmbientEffects(!loading);
+
   const online = useOnline();
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
   const { scrolled, atTop } = useScrollPosition();
@@ -165,6 +168,11 @@ export default function App() {
     const root = document.documentElement;
     root.dataset.theme = isDark ? 'dark' : 'light';
     root.style.colorScheme = isDark ? 'dark' : 'light';
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) themeColor.setAttribute('content', isDark ? '#0b1220' : '#17243B');
+    root.classList.add('theme-fade');
+    const timer = window.setTimeout(() => root.classList.remove('theme-fade'), 480);
+    return () => window.clearTimeout(timer);
   }, [isDark]);
 
   useEffect(() => {
@@ -1055,7 +1063,7 @@ export default function App() {
           onToggleTheme={toggleTheme}
           onOpenPalette={() => setPaletteOpen(true)}
         />
-        <div className="utility-bar">
+        <div className={`utility-bar ${scrolled > 4 ? 'is-scrolled' : ''}`.trim()}>
           <button type="button" className="utility-search" onClick={() => setPaletteOpen(true)}>
             <Search size={16} />
             <span>Search pages, tasks and actions…</span>
@@ -1069,7 +1077,7 @@ export default function App() {
             <span className="sync-chip">Local-only · Sync not configured</span>
             <button
               type="button"
-              className="icon-btn"
+              className="icon-btn theme-toggle"
               aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
               onClick={toggleTheme}
             >

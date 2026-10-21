@@ -76,7 +76,9 @@ export function TaskCard({
   const elapsedMinutes = Math.round(elapsedMs / 60000);
 
   return (
-    <article className={`task-card priority-accent-${task.priority} ${completed ? 'completed' : ''}`.trim()}>
+    <article
+      className={`task-card priority-accent-${task.priority} ${completed ? 'completed' : ''} ${isRunning ? 'is-running' : ''}`.trim()}
+    >
       <div className="task-main">
         <button
           type="button"
