@@ -14,6 +14,18 @@ createRoot(container).render(
 );
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  // A new deployment's worker calls skipWaiting() and clients.claim(), so it
+  // takes over an already-open tab. Reload once at that moment: without this,
+  // the tab keeps painting the previous cached shell (and its title and icons)
+  // and a refresh appears to do nothing.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('/sw.js').catch(() => {
       // A failed service-worker registration must never break the planner.

@@ -31,7 +31,7 @@ function absoluteSiteUrls(): Plugin {
 // The icon set is cache-busted as one generation. Bump this whenever a file in
 // public/ changes, and every browser and OS that respected the old icon will
 // fetch the new one instead of reusing its cached copy.
-const ASSET_GENERATION = '4'
+const ASSET_GENERATION = '5'
 
 function cacheBustIcons(): Plugin {
   return {

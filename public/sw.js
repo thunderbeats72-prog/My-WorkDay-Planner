@@ -5,7 +5,7 @@
  * — on Android, for an installed app — during a periodic background check.
  */
 
-const CACHE = 'workday-shell-v4';
+const CACHE = 'workday-shell-v5';
 const SHELL = [
   '/',
   '/index.html',
@@ -96,8 +96,8 @@ self.addEventListener('fetch', (event) => {
 /* Notifications                                                       */
 /* ------------------------------------------------------------------ */
 
-const ICON = '/icon-192.png?v=4';
-const BADGE = '/favicon-32.png?v=4';
+const ICON = '/icon-192.png?v=5';
+const BADGE = '/favicon-32.png?v=5';
 
 async function showNotification(title, options) {
   try {
