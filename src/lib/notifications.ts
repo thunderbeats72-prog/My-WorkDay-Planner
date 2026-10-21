@@ -187,8 +187,8 @@ export async function deliverNative(payload: NativeNotificationPayload): Promise
   const options: NotificationOptions & { renotify?: boolean; vibrate?: number[] } = {
     body: payload.body,
     tag: payload.tag,
-    icon: '/icon-192.png',
-    badge: '/favicon-32.png',
+    icon: '/icon-192.png?v=4',
+    badge: '/favicon-32.png?v=4',
     data: { url, taskId: payload.taskId ?? null },
     renotify: false,
     // A short, single pulse on Android; silently ignored elsewhere.

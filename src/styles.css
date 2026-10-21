@@ -14694,3 +14694,73 @@ kbd {
     margin-left: var(--sidebar-width);
   }
 }
+
+
+/* =========================================================================
+   The tick, actually centred
+   -------------------------------------------------------------------------
+   `.task-check` is a <button>, so the user-agent's `padding: 1px 6px` applied
+   unless we reset it. That left a 5px-wide content box for a 14px glyph, and
+   because a grid item that overflows its area has its `center` alignment
+   demoted to `start`, the tick was pushed 7px to the right and 1px down —
+   visibly off-centre inside the circle. Reset the padding, centre on the
+   grid, and line the control up with the first line of the title optically.
+   ========================================================================= */
+
+.task-check {
+  padding: 0;
+  /* The circle should sit on the title's optical centre, not the card's. */
+  margin-top: 0;
+  align-items: center;
+  justify-content: center;
+  justify-items: center;
+  align-content: center;
+  line-height: 0;
+  overflow: hidden;
+}
+
+.task-check svg {
+  display: block;
+  /* A tick drawn to the glyph box looks low and right; nudge it optically. */
+  transform: translateY(-0.5px);
+  margin: 0;
+  flex: none;
+}
+
+.task-check:not(.checked) {
+  /* Keep the empty circle the same box so rows never jump on completion. */
+  color: transparent;
+}
+
+/* A circle must stay a circle. In any flex row, `align-self: stretch` would
+   otherwise turn the empty state into a stadium and change the row height. */
+.task-check {
+  flex: 0 0 20px;
+  aspect-ratio: 1 / 1;
+  align-self: flex-start;
+  box-sizing: border-box;
+}
+
+/* The same reset belongs on every other bare icon button in the app. */
+.icon-btn,
+.task-check,
+.task-attach,
+.task-menu button,
+.plan-slot,
+.notify-bell {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.icon-btn,
+.notify-bell {
+  padding: 0;
+}
+
+/* Align the check with the top line of the title in every card density. */
+.task-main {
+  align-items: flex-start;
+}
+
+.task-check {
+  margin-top: 0.5px;
+}

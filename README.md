@@ -233,3 +233,39 @@ Supporting behaviour:
   Android PWA), so reminders can fire from the background: the worker reads
   IndexedDB, applies lead time and quiet hours, and fires once per deadline.
 - Nothing leaves the device. There is no push server, and the copy says so.
+
+## Design v6 — one logo, proven, and a tick that sits still
+
+Two things that looked fine in screenshots and were wrong in fact.
+
+### The logo was three different logos
+
+- The **in-app mark drew a 177° arc** while `icon.svg` and every PNG drew
+  **233°** — the sidebar logo and the tab icon were genuinely different shapes.
+  Geometry now lives in one module, `src/lib/brandGeometry.ts`, consumed by the
+  component, the generated SVG and `scripts/build-icons.mjs`
+  (`pnpm brand:icons`). A unit test asserts the component and `icon.svg`
+  produce the same dash pattern, and the test suite also checks that every
+  shipped icon file is non-empty and the `.ico` is a real three-size container.
+- **Old icons survive in caches and in the OS's copy.** Icons are now served
+  with a generation query (`?v=4`), the service worker is network-first for
+  brand assets and everything in `public/` including `favicon.ico`, and the
+  manifest lists PNG icons first — a few Android launchers ignore the SVG entry.
+- Shipped the gaps too: **`favicon.ico`** (16/32/48, the URL browsers request
+  when nothing else is declared) and **`favicon-48.png`**.
+- **Social cards were resolving to the favicon.** `og:image` was relative, and
+  crawlers do not resolve relative URLs, so LinkedIn, Slack and iMessage fell
+  back to whatever icon they had cached — often the old "W". `og:image`,
+  `og:url`, `twitter:image` and `canonical` are now absolute, built from
+  `SITE_URL` / `VERCEL_URL` at build time (`%SITE_URL%` in `index.html`).
+
+### The tick was 7px off-centre
+
+`.task-check` is a `<button>`, and the user-agent's `padding: 1px 6px` was never
+reset. That left a 5px content box for a 14px glyph, and because a grid item
+that overflows its area has its `center` alignment demoted to `start`, the tick
+rendered 7px right and 1px low inside the circle — exactly the misalignment
+visible on the Completed page. The control now resets its padding, centres on
+the grid, locks `flex`/`aspect-ratio` so an empty circle can never stretch into
+a stadium, and sits 0.75px from the title's optical centre. Measured, not
+eyeballed: the browser offset is now `0.00 × 0.00`.
