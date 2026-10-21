@@ -134,6 +134,24 @@ export function taskDueAt(task: Task): Date | null {
   return combineDateTime(task.dueDate, task.dueTime || '17:00');
 }
 
+/**
+ * Compact, live countdown such as "45m", "3h 10m" or "due now".
+ * Rounded to the minute so a 15-second tick cannot make it jitter.
+ */
+export function countdownLabel(target: Date, now: Date = new Date()): string {
+  const diffMs = target.getTime() - now.getTime();
+  if (diffMs <= 0) return 'due now';
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return 'under a minute';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours < 24) return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+  const days = Math.floor(hours / 24);
+  const spareHours = hours % 24;
+  return spareHours === 0 ? `${days}d` : `${days}d ${spareHours}h`;
+}
+
 export function startOfWeekMonday(date: Date = new Date()): Date {
   return startOfWeek(date, { weekStartsOn: 1 });
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AlarmClock,
   CalendarDays,
   ChartColumn,
   CircleCheck,
@@ -24,7 +25,7 @@ const PAGE_ICONS: Record<PageId, IconComponent> = {
   today: House,
   inbox: Inbox,
   schedule: CalendarDays,
-  overdue: CalendarDays,
+  overdue: AlarmClock,
   completed: CircleCheck,
   reports: ChartColumn,
   import: ImageIcon,

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  AlarmClock,
   ArrowUp,
   CalendarDays,
   ChartColumn,
@@ -7,7 +9,10 @@ import {
   House,
   Image as ImageIcon,
   Inbox,
+  Menu,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings as SettingsIcon,
@@ -23,7 +28,8 @@ export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House;
   { page: 'today', label: 'Today', icon: House, mobile: true },
   { page: 'inbox', label: 'Inbox', icon: Inbox, mobile: true },
   { page: 'schedule', label: 'Schedule', icon: CalendarDays, mobile: true },
-  { page: 'overdue', label: 'Overdue', icon: CalendarDays },
+  /* Schedule and Overdue both used a calendar glyph — one of them had to change. */
+  { page: 'overdue', label: 'Overdue', icon: AlarmClock },
   { page: 'completed', label: 'Completed', icon: CheckCircleIcon },
   { page: 'reports', label: 'Reports', icon: ChartColumn },
   { page: 'import', label: 'Screenshot Import', icon: ImageIcon, mobile: true },
@@ -59,21 +65,48 @@ export function Sidebar({
   counts,
   online,
   onNavigate,
+  collapsed,
+  open,
+  onToggle,
 }: {
   page: PageId;
   settings: Settings;
   counts: NavCounts;
   online: boolean;
   onNavigate: (page: PageId) => void;
+  /** Icon rail when true. Driven by the user's choice on desktop, forced on tablets. */
+  collapsed: boolean;
+  /** Slide-over drawer (tablet/mobile). */
+  open: boolean;
+  onToggle: () => void;
 }) {
+  const state = collapsed && !open ? 'rail' : 'full';
   return (
-    <aside className="sidebar" aria-label="Main navigation">
-      <div className="brand">
-        <BrandMark size="md" />
-        <span className="brand-copy">
-          <strong>My Workday</strong>
-          <small>Planner</small>
-        </span>
+    <aside
+      id="app-sidebar"
+      className={`sidebar is-${state} ${open ? 'is-open' : ''}`.trim()}
+      aria-label="Main navigation"
+      data-state={state}
+    >
+      <div className="sidebar-head">
+        <div className="brand">
+          <BrandMark size="md" />
+          <span className="brand-copy">
+            <strong>My Workday</strong>
+            <small>Planner</small>
+          </span>
+        </div>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={onToggle}
+          aria-controls="app-sidebar"
+          aria-expanded={!collapsed || open}
+          aria-label={collapsed && !open ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed && !open ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed && !open ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
       </div>
       <nav className="sidebar-nav">
         {NAV_GROUPS.map((group) => (
@@ -127,9 +160,6 @@ export function Sidebar({
           </span>
           <span className={`online-dot ${online ? 'is-online' : 'is-offline'}`} aria-label={online ? 'Online' : 'Offline'} />
         </div>
-        <p className="sync-chip">
-          <WifiOff size={12} aria-hidden="true" /> Local-only · Sync not configured
-        </p>
       </div>
     </aside>
   );
@@ -140,14 +170,25 @@ export function MobileTopBar({
   online,
   onToggleTheme,
   onOpenPalette,
+  onOpenNav,
+  navOpen,
 }: {
   isDark: boolean;
   online: boolean;
   onToggleTheme: () => void;
   onOpenPalette: () => void;
+  onOpenNav: () => void;
+  navOpen: boolean;
 }) {
   return (
     <header className="mobile-topbar">
+      <IconButton
+        label={navOpen ? 'Close navigation' : 'Open navigation'}
+        icon={Menu}
+        onClick={onOpenNav}
+        aria-expanded={navOpen}
+        aria-controls="app-sidebar"
+      />
       <BrandMark size="sm" />
       <span className="mobile-brand">My Workday Planner</span>
       <span className={`status-pill ${online ? 'online' : 'offline'}`}>
@@ -197,6 +238,30 @@ export function BottomNav({
         </button>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Second-accurate local clock. It owns its own interval so the whole app is not
+ * re-rendered once a second just to move the seconds hand.
+ */
+export function LiveClock() {
+  const [time, setTime] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setTime(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const hh = String(time.getHours()).padStart(2, '0');
+  const mm = String(time.getMinutes()).padStart(2, '0');
+  const ss = String(time.getSeconds()).padStart(2, '0');
+  return (
+    <span className="live-clock" title={time.toLocaleString()}>
+      <span className="live-clock-dot" aria-hidden="true" />
+      <time dateTime={time.toISOString()} aria-label={`Local time ${hh}:${mm}:${ss}`}>
+        {hh}:{mm}
+        <span className="live-clock-seconds">:{ss}</span>
+      </time>
+    </span>
   );
 }
 

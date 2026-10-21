@@ -4579,7 +4579,7 @@ a.btn {
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1080px) {
   :root {
     --sidebar-width: 78px;
   }
@@ -5931,26 +5931,6 @@ a.btn {
   box-shadow: 0 22px 54px -22px rgba(16, 26, 44, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   animation: none;
   transition: box-shadow var(--dur-4) ease;
-}
-
-.hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: radial-gradient(
-    420px circle at var(--mx, 78%) var(--my, 18%),
-    rgba(255, 255, 255, 0.16),
-    transparent 62%
-  );
-  opacity: 0;
-  transition: opacity var(--dur-4) ease;
-  z-index: 0;
-}
-
-.hero.spotlight-active::before {
-  opacity: 1;
 }
 
 .hero::after {
@@ -7919,13 +7899,16 @@ html.theme-fade .toast {
    ============================================================ */
 
 :root {
+  /* One universal family for the whole product. `--font-display` and
+     `--font-mono` stay as aliases so component rules keep working, but they
+     resolve to the same stack — no mixed typefaces anywhere. Numbers that need
+     to line up use font-variant-numeric instead of a separate mono face. */
   --font:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-  --font-display:
-    'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI',
-    system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
-  --mono: var(--font-mono);
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-display: var(--font);
+  --font-mono: var(--font);
+  --mono: var(--font);
 
   --radius-sm: 10px;
   --radius: 14px;
@@ -9995,27 +9978,27 @@ button:focus-visible,
   }
 }
 
-@media (max-width: 1100px) {
-  .nav-group {
+@media (max-width: 1080px) {
+  .sidebar.is-rail .nav-group {
     margin-bottom: 10px;
     align-items: center;
   }
 
-  .nav-group-label {
+  .sidebar.is-rail .nav-group-label {
     display: none;
   }
 
-  .nav-item {
+  .sidebar.is-rail .nav-item {
     justify-content: center;
     padding: 6px;
   }
 
-  .nav-item .nav-icon {
+  .sidebar.is-rail .nav-item .nav-icon {
     width: 34px;
     height: 34px;
   }
 
-  .nav-badge {
+  .sidebar.is-rail .nav-badge {
     position: absolute;
     top: 2px;
     right: 4px;
@@ -10241,21 +10224,21 @@ button:focus-visible,
 
 /* ---------- Collapsed rail refinement ---------- */
 
-@media (max-width: 1100px) {
-  .nav-group {
+@media (max-width: 1080px) {
+  .sidebar.is-rail .nav-group {
     gap: 4px;
     margin-bottom: 12px;
     padding-bottom: 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  .nav-group:last-child {
+  .sidebar.is-rail .nav-group:last-child {
     border-bottom: 0;
     margin-bottom: 0;
     padding-bottom: 0;
   }
 
-  .nav-item {
+  .sidebar.is-rail .nav-item {
     width: 44px;
     height: 44px;
     padding: 0;
@@ -10263,25 +10246,25 @@ button:focus-visible,
     margin: 0 auto;
   }
 
-  .nav-item .nav-icon {
+  .sidebar.is-rail .nav-item .nav-icon {
     width: 36px;
     height: 36px;
     border-radius: 10px;
   }
 
-  .nav-item.active .nav-icon {
+  .sidebar.is-rail .nav-item.active .nav-icon {
     box-shadow: 0 8px 18px -8px rgba(91, 140, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   }
 
-  .brand-mark {
+  .sidebar.is-rail .brand-mark {
     box-shadow: 0 12px 26px -14px rgba(6, 12, 24, 0.9);
   }
 
-  .sidebar-footer {
+  .sidebar.is-rail .sidebar-footer {
     align-items: center;
   }
 
-  .sidebar-footer .profile-card {
+  .sidebar.is-rail .sidebar-footer .profile-card {
     flex-direction: column;
     gap: 6px;
     width: 52px;
@@ -11148,4 +11131,428 @@ li {
     box-shadow: none;
     break-inside: avoid;
   }
+}
+
+/* ============================================================
+   Sidebar: collapse / expand, icon rail and slide-over drawer
+   ============================================================ */
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.sidebar-head .brand {
+  padding: 0;
+  border-bottom: 0;
+  min-width: 0;
+}
+
+.sidebar-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(206, 220, 245, 0.78);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) ease,
+    color var(--dur-1) ease,
+    border-color var(--dur-1) ease;
+}
+
+.sidebar-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.sidebar-toggle:focus-visible {
+  outline: 2px solid #8fb3ff;
+  outline-offset: 2px;
+}
+
+/* ---- Icon rail ---- */
+
+.sidebar.is-rail {
+  padding: 18px 10px 14px;
+}
+
+.sidebar.is-rail .sidebar-head {
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.sidebar.is-rail .brand {
+  justify-content: center;
+}
+
+.sidebar.is-rail .brand-copy,
+.sidebar.is-rail .nav-label,
+.sidebar.is-rail .nav-group-label,
+.sidebar.is-rail .profile-copy {
+  display: none;
+}
+
+.sidebar.is-rail .nav-group {
+  gap: 4px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sidebar.is-rail .nav-group:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.sidebar.is-rail .nav-item {
+  position: relative;
+  width: 100%;
+  height: auto;
+  min-height: 42px;
+  margin: 0;
+  padding: 4px 0;
+  justify-content: center;
+}
+
+.sidebar.is-rail .nav-item .nav-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.sidebar.is-rail .nav-badge {
+  position: absolute;
+  top: 0;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.sidebar.is-rail .sidebar-toggle {
+  width: 100%;
+}
+
+.sidebar.is-rail .sidebar-footer {
+  align-items: center;
+}
+
+.sidebar.is-rail .profile-card {
+  flex-direction: column;
+  gap: 6px;
+  width: 52px;
+  margin: 0 auto;
+  padding: 10px 6px 8px;
+  border-radius: 14px;
+}
+
+/* ---- Full width (desktop expand, or drawer) ---- */
+
+.sidebar.is-full .brand-copy,
+.sidebar.is-full .profile-copy {
+  display: flex;
+}
+
+.sidebar.is-full .nav-label {
+  display: inline;
+}
+
+.sidebar.is-full .nav-group-label {
+  display: block;
+}
+
+.sidebar.is-full .brand {
+  justify-content: flex-start;
+}
+
+.sidebar.is-full .nav-item {
+  position: relative;
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
+  padding: 6px 10px 6px 8px;
+}
+
+.sidebar.is-full .nav-item .nav-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.sidebar.is-full .nav-badge {
+  position: static;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.sidebar.is-full .profile-card {
+  flex-direction: row;
+  width: auto;
+  padding: 10px 11px;
+}
+
+/* ---- Slide-over drawer (tablet + phone) ---- */
+
+@media (max-width: 1080px) {
+  .sidebar.is-open {
+    display: flex;
+    width: 276px;
+    z-index: 60;
+    box-shadow: 30px 0 80px -30px rgba(0, 0, 0, 0.75);
+    animation: drawer-in 220ms var(--ease-out) both;
+  }
+}
+
+@media (max-width: 767px) {
+  .sidebar.is-open {
+    display: flex;
+    width: 280px;
+    padding: 18px 14px 16px;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-14px);
+    opacity: 0.55;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* When the user expands the sidebar on a desktop, its width must win over the
+   tablet-era 78px custom property (the shell sets --sidebar-width inline). */
+@media (max-width: 1080px) {
+  .app-shell[data-sidebar='responsive'] .sidebar.is-open {
+    width: 276px;
+  }
+
+  .app-shell[data-sidebar='responsive'] .app-main {
+    margin-left: 0;
+  }
+}
+
+.sidebar-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(5, 10, 19, 0.52);
+  backdrop-filter: blur(2px);
+  animation: scrim-in 180ms ease both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+body.nav-drawer-open {
+  overflow: hidden;
+}
+
+/* The mobile top bar gains a menu button; keep it first and tappable. */
+.mobile-topbar .icon-btn:first-child {
+  margin-right: -2px;
+}
+
+/* ============================================================
+   Live elements: clock seconds, deadline countdown, "now" markers
+   ============================================================ */
+
+.live-clock time {
+  font-variant-numeric: tabular-nums;
+}
+
+.live-clock-seconds {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.chip-live {
+  border-color: color-mix(in srgb, var(--accent-ice) 26%, var(--border));
+  background: color-mix(in srgb, var(--accent-ice) 8%, transparent);
+  color: color-mix(in srgb, var(--accent-ice) 55%, #fff);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-live svg {
+  color: color-mix(in srgb, var(--accent-ice) 70%, #fff);
+}
+
+.chip-live.is-urgent {
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: #ffd9a3;
+}
+
+.chip-live.is-urgent svg {
+  color: #ffc76e;
+  animation: live-alarm 2.4s ease-in-out infinite;
+}
+
+@keyframes live-alarm {
+  0%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+  50% {
+    opacity: 0.65;
+    transform: rotate(-8deg);
+  }
+}
+
+.mini-block.is-now {
+  position: relative;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-ice) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent-ice);
+}
+
+.mini-block.is-now p {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mini-now {
+  margin-left: auto;
+  font-size: 8.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-ice);
+}
+
+.plan-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-left.is-done {
+  color: var(--success);
+}
+
+/* Collapsed footnote replaces the old "Honest limits" card. */
+.honesty-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.honesty-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-soft);
+  list-style: none;
+}
+
+.honesty-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.honesty-card summary small {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.honesty-card summary::after {
+  content: '+';
+  margin-left: 2px;
+  color: var(--muted);
+  font-size: 14px;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.honesty-card[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.honesty-card .limit-list,
+.honesty-card .btn {
+  margin-inline: 16px;
+}
+
+.honesty-card .limit-list {
+  padding-bottom: 4px;
+}
+
+.honesty-card .btn {
+  margin-bottom: 14px;
+}
+
+/* The clock earns its space on tablets; below that the utility bar is gone anyway. */
+@media (max-width: 1080px) {
+  .live-clock {
+    display: none;
+  }
+}
+
+/* Plan card footer: the live "time left" line and the link sit on one row. */
+.plan-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan-foot .plan-left {
+  margin: 0;
+  min-width: 0;
+}
+
+.plan-foot .btn {
+  flex: none;
+}
+
+@media (max-width: 480px) {
+  .plan-foot {
+    flex-wrap: wrap;
+  }
+
+  .plan-foot .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Sidebar controls must never inherit the nav-item active pill. */
+.sidebar-head .nav-item,
+.sidebar-toggle.active {
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
 }

@@ -1,19 +1,14 @@
 import { useEffect } from 'react';
 
 /**
- * Global, delegated micro-interactions that make the UI feel alive without
- * wiring animation state into every component:
+ * Global, delegated micro-interaction: a soft ripple that grows from the
+ * pointer on any button.
  *
- *  - a soft ripple that grows from the pointer on any button
- *  - a soft cursor highlight on the hero banner
- *
- * Everything is skipped when the visitor prefers reduced motion or is on a
- * coarse pointer (touch) device, and every listener is cleaned up on unmount.
+ * There is deliberately no cursor-tracking highlight — surfaces stay flat and
+ * calm when the pointer moves across them. Everything is skipped when the
+ * visitor prefers reduced motion or is on a coarse pointer (touch) device, and
+ * every listener is cleaned up on unmount.
  */
-
-/* The hero is the only surface that tracks the pointer — cards and panels
-   stay calm. */
-const SPOTLIGHT_SELECTOR = '.hero';
 
 const RIPPLE_EXCLUDE_SELECTOR = '[data-no-ripple], .menu, .toast-close, .switch';
 
@@ -29,41 +24,6 @@ export function useAmbientEffects(enabled = true): void {
   useEffect(() => {
     if (!enabled || typeof window === 'undefined' || typeof document === 'undefined') return;
     if (prefersReducedMotion()) return;
-
-    const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
-
-    let frame = 0;
-    let hovered: HTMLElement | null = null;
-    let pointX = 0;
-    let pointY = 0;
-
-    const paintSpotlight = () => {
-      frame = 0;
-      if (!hovered || !hovered.isConnected) return;
-      const rect = hovered.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-      hovered.style.setProperty('--mx', `${((pointX - rect.left) / rect.width) * 100}%`);
-      hovered.style.setProperty('--my', `${((pointY - rect.top) / rect.height) * 100}%`);
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      if (!finePointer.matches) return;
-      const target = event.target instanceof Element ? event.target.closest<HTMLElement>(SPOTLIGHT_SELECTOR) : null;
-      if (target !== hovered) {
-        if (hovered) hovered.classList.remove('spotlight-active');
-        hovered = target;
-        if (hovered) hovered.classList.add('spotlight-active');
-      }
-      if (!hovered) return;
-      pointX = event.clientX;
-      pointY = event.clientY;
-      if (!frame) frame = window.requestAnimationFrame(paintSpotlight);
-    };
-
-    const onPointerLeave = () => {
-      if (hovered) hovered.classList.remove('spotlight-active');
-      hovered = null;
-    };
 
     const onPointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Element)) return;
@@ -89,18 +49,12 @@ export function useAmbientEffects(enabled = true): void {
       window.setTimeout(() => ripple.remove(), 700);
     };
 
-    document.addEventListener('pointermove', onPointerMove, { passive: true });
     document.addEventListener('pointerdown', onPointerDown, { passive: true });
-    document.addEventListener('pointerleave', onPointerLeave);
     document.documentElement.classList.add('has-ambient-effects');
 
     return () => {
-      document.removeEventListener('pointermove', onPointerMove);
       document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('pointerleave', onPointerLeave);
       document.documentElement.classList.remove('has-ambient-effects');
-      if (hovered) hovered.classList.remove('spotlight-active');
-      if (frame) window.cancelAnimationFrame(frame);
     };
   }, [enabled]);
 }

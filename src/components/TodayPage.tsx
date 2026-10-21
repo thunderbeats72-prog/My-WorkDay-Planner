@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import {
+  AlarmClock,
   Bell,
-  CalendarDays,
+  CalendarClock,
+  CalendarRange,
   Check,
-  CircleCheck,
   Clock,
   Flame,
   Inbox,
@@ -14,13 +15,13 @@ import {
   RefreshCw,
   Sparkles,
   Target,
-  TriangleAlert,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 import type { Priority } from '../lib/types';
 import { PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import {
+  countdownLabel,
   daysFromNow,
   formatDateLong,
   formatDuration,
@@ -31,6 +32,7 @@ import {
   parseTimeToMinutes,
   percent,
   relativeDayLabel,
+  taskDueAt,
   todayISO,
 } from '../lib/dates';
 import { buildDayPlan } from '../lib/engine';
@@ -41,7 +43,7 @@ import { parseQuickAdd } from '../lib/quickAdd';
 import { dayVibe } from '../lib/vibe';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
-import { AnimatedValue, Badge, Button, EmptyState, PriorityBadge, ProgressBar, Ring, StatCard } from './ui';
+import { AnimatedValue, Badge, Button, EmptyState, PriorityBadge, ProgressBar, Ring } from './ui';
 
 export function TodayPage({
   tasks,
@@ -144,6 +146,13 @@ export function TodayPage({
       }),
     [quickTitle, now, quickPriority, settings.defaultEstimateMinutes, clients],
   );
+  // Live: the next thing with a real deadline, recomputed as the clock moves.
+  const nextDeadline = openTasks
+    .map((task) => ({ task, at: taskDueAt(task) }))
+    .filter((entry): entry is { task: typeof openTasks[number]; at: Date } => entry.at !== null)
+    .filter((entry) => entry.at.getTime() >= now.getTime())
+    .sort((a, b) => a.at.getTime() - b.at.getTime())[0] ?? null;
+
   const focus = suggestFocus(tasks, settings, now, {
     learned,
     freeMinutes,
@@ -205,17 +214,17 @@ export function TodayPage({
             </span>
             <span className={`chip ${online ? 'chip-online' : 'chip-offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
-              {online ? 'Online' : 'Offline — local data still works'}
+              {online ? 'Online' : 'Offline'}
             </span>
-            <span className="chip">
-              <Bell size={12} />
-              {notificationsPermission === 'granted'
-                ? 'Browser notifications on'
-                : notificationsPermission === 'denied'
-                  ? 'Notifications blocked in browser'
-                  : 'Notifications not enabled'}
-            </span>
-            <span className="chip">Local-only · Sync not configured</span>
+            {nextDeadline ? (
+              <span
+                className={`chip chip-live ${nextDeadline.at.getTime() - now.getTime() <= 60 * 60_000 ? 'is-urgent' : ''}`}
+                title={`${nextDeadline.task.title} — ${formatDateLong(nextDeadline.task.dueDate ?? today)}`}
+              >
+                <AlarmClock size={12} />
+                {nextDeadline.at.getTime() <= now.getTime() ? 'Due now' : `Next in ${countdownLabel(nextDeadline.at, now)}`}
+              </span>
+            ) : null}
           </div>
           <div className="hero-stats">
             <div>
@@ -417,19 +426,6 @@ export function TodayPage({
         </section>
       ) : null}
 
-      <div className="stat-grid">
-        <StatCard icon={TriangleAlert} label="Overdue" value={overdue.length} sub="real deadlines only" tone="danger" />
-        <StatCard icon={CalendarDays} label="Due today" value={dueToday.length} sub="before end of day" tone="warning" />
-        <StatCard icon={CircleCheck} label="Completed today" value={completedToday} sub="tracked work" tone="success" />
-        <StatCard
-          icon={Clock}
-          label="Focus planned"
-          value={formatDuration(planned)}
-          sub={workingToday ? `${formatDuration(freeMinutes)} free` : 'rest day'}
-          tone="primary"
-        />
-      </div>
-
       <div className="dashboard-grid">
         <div className="dashboard-main">
           {reminders.length > 0 ? (
@@ -524,7 +520,7 @@ export function TodayPage({
           <section className="card week-strip-card">
             <div className="section-head">
               <h2>
-                <CalendarDays size={16} /> Next 7 days
+                <CalendarRange size={16} /> Next 7 days
               </h2>
               <Button size="sm" variant="ghost" onClick={() => onOpenPage('schedule')}>
                 Open schedule
@@ -576,7 +572,7 @@ export function TodayPage({
             <section className="task-group">
               <div className="section-head">
                 <h2>
-                  <CalendarDays size={16} /> Due today
+                  <CalendarClock size={16} /> Due today
                 </h2>
                 <Badge tone="warning">{dueToday.length}</Badge>
               </div>
@@ -677,20 +673,46 @@ export function TodayPage({
               {formatDuration(planned)} planned · {formatDuration(freeMinutes)} free · {plan.queued.length} queued
             </p>
             <ul className="mini-timeline">
-              {plan.blocks.slice(0, 8).map((block) => (
-                <li key={block.id} className={`mini-block ${block.kind}`}>
-                  <span>{String(Math.floor(block.start / 60)).padStart(2, '0')}:{String(block.start % 60).padStart(2, '0')}</span>
-                  <p>{block.title}</p>
-                </li>
-              ))}
+              {plan.blocks.slice(0, 8).map((block) => {
+                const live = workingToday && nowMinutes >= block.start && nowMinutes < block.end;
+                return (
+                  <li key={block.id} className={`mini-block ${block.kind} ${live ? 'is-now' : ''}`.trim()}>
+                    <span>
+                      {String(Math.floor(block.start / 60)).padStart(2, '0')}:{String(block.start % 60).padStart(2, '0')}
+                    </span>
+                    <p>{block.title}</p>
+                    {live ? <em className="mini-now">now</em> : null}
+                  </li>
+                );
+              })}
             </ul>
-            <Button size="sm" variant="secondary" onClick={() => onOpenPage('schedule')}>
-              Open schedule
-            </Button>
+            <div className="plan-foot">
+              {workingToday ? (
+                <p className={`plan-left ${workdayOver ? 'is-done' : ''}`}>
+                  {workdayOver ? (
+                    <>
+                      <MoonStar size={12} aria-hidden="true" /> Workday finished · {formatDuration(Math.max(0, capacity - planned))} unplanned
+                    </>
+                  ) : (
+                    <>
+                      <Clock size={12} aria-hidden="true" /> {formatDuration(minutesLeft)} left
+                    </>
+                  )}
+                </p>
+              ) : (
+                <span />
+              )}
+              <Button size="sm" variant="secondary" onClick={() => onOpenPage('schedule')}>
+                Open schedule
+              </Button>
+            </div>
           </section>
 
-          <section className="card">
-            <h2>Honest limits</h2>
+          <details className="card honesty-card">
+            <summary>
+              <span>Honest limits</span>
+              <small>4 notes</small>
+            </summary>
             <ul className="limit-list">
               <li>IndexedDB is per-browser. Export a backup regularly.</li>
               <li>A closed tab cannot guarantee reminders.</li>
@@ -700,7 +722,7 @@ export function TodayPage({
             <Button size="sm" variant="ghost" onClick={() => addToast('Backup and restore live in Settings → Your data.', 'info')}>
               Where is backup?
             </Button>
-          </section>
+          </details>
         </aside>
       </div>
     </div>

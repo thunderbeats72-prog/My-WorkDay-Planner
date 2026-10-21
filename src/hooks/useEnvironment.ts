@@ -41,6 +41,34 @@ export function useNotificationPermission(): [NotificationPermissionState, () =>
   return [permission, request];
 }
 
+/**
+ * A ticking `Date` for anything that depends on "now".
+ *
+ * Ticks faster than a minute so deadline countdowns, reminders and the
+ * day roll-over stay honest, and it re-syncs instantly when the tab regains
+ * focus or visibility (a laptop resumed from sleep should not show stale time).
+ */
+export function useNow(intervalMs = 15_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    let timer = 0;
+    const tick = () => setNow(new Date());
+    const onWake = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    tick();
+    timer = window.setInterval(tick, intervalMs);
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, [intervalMs]);
+  return now;
+}
+
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return false;

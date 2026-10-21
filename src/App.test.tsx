@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { db } from './lib/db';
 import { DEFAULT_SETTINGS } from './lib/types';
@@ -253,5 +253,94 @@ describe('My Workday Planner app', () => {
 
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(await screen.findByText(/Moved back to today/)).toBeTruthy();
+  }, 30000);
+});
+
+describe('live behaviour', () => {
+  beforeEach(async () => {
+    if (!db.isOpen()) await db.open();
+    await db.transaction(
+      'rw',
+      db.tasks,
+      db.timeSessions,
+      db.reminderRecords,
+      db.taskEvents,
+      db.settings,
+      async () => {
+        await db.tasks.clear();
+        await db.timeSessions.clear();
+        await db.reminderRecords.clear();
+        await db.taskEvents.clear();
+        await db.settings.clear();
+      },
+    );
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+    window.location.hash = '#/today';
+    await db.settings.put({ ...DEFAULT_SETTINGS, id: 'app', name: 'Aarav Sharma', onboardingComplete: true });
+  });
+
+  it('moves the deadline countdown and the clock without a reload', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date(2026, 9, 21, 10, 0, 0));
+    try {
+      render(<StrictMode><App /></StrictMode>);
+
+      const quickAdd = await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+      fireEvent.change(quickAdd, { target: { value: 'Send the deck 4pm' } });
+      fireEvent.keyDown(quickAdd, { key: 'Enter', code: 'Enter' });
+
+      expect(await screen.findByText(/Next in 5h 5\dm|Next in 6h/)).toBeTruthy();
+      expect(document.querySelector('.live-clock')?.textContent).toContain('10:00');
+
+      // Two hours later, with no reload and no new fetch.
+      await act(async () => {
+        vi.setSystemTime(new Date(2026, 9, 21, 12, 0, 0));
+        vi.advanceTimersByTime(60_000);
+      });
+
+      expect(await screen.findByText(/Next in 3h 5\dm|Next in 4h/)).toBeTruthy();
+      expect(document.querySelector('.live-clock')?.textContent).toContain('12:00');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 40000);
+
+  it('collapses, expands and remembers the sidebar choice', async () => {
+    // jsdom answers every media query with false; pin the desktop breakpoint on.
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: (query: string) =>
+        query.includes('min-width: 1081px')
+          ? { ...(originalMatchMedia as any)(query), matches: true }
+          : originalMatchMedia(query),
+    });
+    render(<StrictMode><App /></StrictMode>);
+    await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+
+    const shell = document.querySelector('.app-shell') as HTMLElement;
+    expect(shell.dataset.sidebar).toBe('full');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    await waitFor(() => expect(document.querySelector('.app-shell')?.getAttribute('data-sidebar')).toBe('rail'));
+    expect(window.localStorage.getItem('workday.sidebar')).toBe('collapsed');
+    // The label is visually hidden in rail mode but stays reachable for assistive tech.
+    expect(within(document.querySelector('.sidebar-nav') as HTMLElement).getByRole('button', { name: 'Inbox' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
+    await waitFor(() => expect(document.querySelector('.app-shell')?.getAttribute('data-sidebar')).toBe('full'));
+    expect(window.localStorage.getItem('workday.sidebar')).toBe('expanded');
+
+    Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
+  }, 30000);
+
+  it('gives Overdue its own icon so no two nav items look alike', async () => {
+    render(<StrictMode><App /></StrictMode>);
+    await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    const sidebar = document.querySelector('.sidebar-nav') as HTMLElement;
+    const icons = Array.from(sidebar.querySelectorAll('.nav-item svg')).map((svg) => svg.innerHTML);
+    expect(icons.length).toBeGreaterThan(4);
+    expect(new Set(icons).size).toBe(icons.length);
   }, 30000);
 });
