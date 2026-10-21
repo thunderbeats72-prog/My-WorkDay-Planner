@@ -13,7 +13,7 @@ import {
   Plus,
   Search,
   Settings as SettingsIcon,
-  Sparkles,
+  ListChecks,
   Wifi,
 } from 'lucide-react';
 import type { PageId, Task } from '../lib/types';
@@ -130,7 +130,7 @@ export function CommandPalette({
         label: task.title,
         hint: task.client || task.priority,
         group: 'Tasks',
-        icon: Sparkles,
+        icon: ListChecks,
         run: () => onOpenTask(task.id),
       }));
     const ordered: PaletteItem[] = [...matchingPages, ...matchingActions, ...matchingTasks];

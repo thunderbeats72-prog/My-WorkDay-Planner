@@ -6,7 +6,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Shield,
-  Sparkles,
+  ScanText,
   TriangleAlert,
   Upload,
 } from 'lucide-react';
@@ -212,7 +212,7 @@ export function ImportPage({
               </Button>
               <Button
                 variant="secondary"
-                icon={Sparkles}
+                icon={ScanText}
                 onClick={() => {
                   setRawText(SAMPLE_TEXT);
                   setOcrState('done');

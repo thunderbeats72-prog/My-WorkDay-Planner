@@ -1,4 +1,4 @@
-import { ChartColumn as ChartIcon, Clock, Download, Sparkles, Target, TrendingUp } from 'lucide-react';
+import { ChartColumn as ChartIcon, Clock, Download, Target, TrendingUp } from 'lucide-react';
 import { CATEGORIES } from '../lib/types';
 import { formatDuration, humanDateRange, percent } from '../lib/dates';
 import { buildWeeklyReport } from '../lib/reports';
@@ -131,7 +131,7 @@ export function ReportsPage({ tasks, now, timer, addToast, onExportCsv }: Common
         <section className="card">
           <div className="section-head">
             <h2>
-              <Sparkles size={16} /> Insights from your own data
+              <TrendingUp size={16} /> Insights from your own data
             </h2>
             {insights.hasEnoughData ? <Badge tone="success">on-device</Badge> : <Badge tone="neutral">learning</Badge>}
           </div>

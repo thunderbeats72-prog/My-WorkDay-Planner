@@ -6,7 +6,7 @@ import {
   ChevronRight,
   Coffee,
   Info,
-  Sparkles,
+  ArrowRight,
   TriangleAlert,
 } from 'lucide-react';
 import type { DayPlan } from '../lib/engine';
@@ -72,7 +72,7 @@ export function SchedulePage({
                 { value: 'week', label: 'Week' },
               ]}
             />
-            <Button variant="primary" icon={Sparkles} onClick={() => setConfirmOpen(true)}>
+            <Button variant="primary" icon={ArrowRight} onClick={() => setConfirmOpen(true)}>
               Apply suggestions
             </Button>
           </>
