@@ -1,8 +1,8 @@
 # My Workday Planner
 
-Private workday planner for a Business Development Executive at Clouder Technologies (previously built as BD Command Center — same IndexedDB database name, so existing tasks/timer data carry over untouched).
+Private workday planner for a Business Development Executive (previously built as BD Command Center — same IndexedDB database name, so existing tasks/timer data carry over untouched).
 
-Private, local-first PWA for a Business Development Executive at Clouder Technologies. ₹0/month target: React + TypeScript + IndexedDB (Dexie) + Tesseract.js in-browser OCR. No paid AI, no Teams API, no data leaves the browser.
+Private, local-first PWA for a Business Development Executive. ₹0/month target: React + TypeScript + IndexedDB (Dexie) + Tesseract.js in-browser OCR. No paid AI, no Teams API, no data leaves the browser.
 
 ## Run
 ```bash
@@ -121,5 +121,42 @@ rather than layered decoration:
   blinking caret, the live clock, the "Next in …" countdown and the `NOW`
   marker in the plan are the only "alive" elements.
 - **Cleanup.** Sparkle icons replaced with functional ones, the emoji vibe
-  glyph replaced by a status dot, the default "Clouder Technologies" company
-  value removed, and the greeting no longer says "Good morning, there".
+  glyph replaced by a status dot, the default company value removed, and the
+  greeting no longer says "Good morning, there".
+
+## Design v4 — monochrome, Geist, and one planner
+
+A second pass tightened the product rather than restyling it.
+
+- **Type.** Geist (self-hosted variable font, `@fontsource-variable/geist`)
+  replaces Inter as the single universal family. It is a contemporary
+  grotesque built for interfaces: tighter apertures, clearer numerals, and
+  it holds up at 10px labels as well as 30px headings.
+- **No blue.** Every brand blue is gone. Actions are ink (`#17181d` light,
+  `#f3f3f5` dark), state is grey, and the only saturated colours left are
+  semantic — red overdue, amber warning, green done.
+- **A real clock.** The digital readout became an **analogue dial** in the
+  utility bar: hairline face, three hands, four quarter ticks and a small
+  digital readout beside it so the time still scans instantly. It re-renders
+  once a second and re-syncs when the tab regains visibility.
+- **A new mark.** The logo is now a "day arc": a nearly-complete ring with a
+  gap and a single pin at the start, on flat near-black. No gradients, no
+  glow, no spark. It ships as SVG plus regenerated PNG icons (192, 512,
+  maskable, apple-touch, favicon).
+- **One planner instead of four pages.** Inbox, Schedule, Overdue and
+  Screenshot Import are merged into **My Tasks**: a collapsible "Today's
+  plan" strip (one row per task, live `now` marker, queued work with reasons,
+  apply suggestions), the overdue summary, filter chips, search, sort, and
+  the task list. Import opens as a dialog; the old URLs
+  (`#/inbox`, `#/schedule`, `#/overdue`, `#/import`) redirect to `#/tasks`.
+- **Sidebar.** Five destinations in two groups (Work / Review) with Settings
+  anchored at the foot beside the profile card. Collapse to a rail still
+  works and is remembered.
+- **Phones.** The sidebar is gone entirely below 768px. The bottom bar has
+  exactly four destinations — Today, My Tasks, Completed, Reports — and
+  Settings lives behind the gear in the top-right corner.
+- **Onboarding and settings** were brought into the same language: a black
+  brand panel, no oversized "W" watermark, a flat capacity meter, ink day
+  chips and stepper dots.
+- **Branding.** Every "Clouder Technologies" reference is gone from the app,
+  the README and the default settings.

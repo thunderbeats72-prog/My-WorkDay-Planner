@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlarmClock,
-  CalendarDays,
+  CalendarClock,
   ChartColumn,
   CircleCheck,
   Command,
   Keyboard,
   House,
-  Image as ImageIcon,
-  Inbox,
   Plus,
   Search,
   Settings as SettingsIcon,
@@ -23,12 +20,9 @@ import { Badge } from './ui';
 
 const PAGE_ICONS: Record<PageId, IconComponent> = {
   today: House,
-  inbox: Inbox,
-  schedule: CalendarDays,
-  overdue: AlarmClock,
+  tasks: CalendarClock,
   completed: CircleCheck,
   reports: ChartColumn,
-  import: ImageIcon,
   settings: SettingsIcon,
 };
 
@@ -86,11 +80,11 @@ export function CommandPalette({
       { id: 'action-new', label: 'Add a new task', hint: 'Create', group: 'Actions', icon: Plus, run: onNewTask },
       {
         id: 'action-import',
-        label: 'Import a screenshot',
-        hint: 'OCR wizard',
+        label: 'Go to My Tasks',
+        hint: 'Planner',
         group: 'Actions',
-        icon: ImageIcon,
-        run: () => onNavigate('import'),
+        icon: ListChecks,
+        run: () => onNavigate('tasks'),
       },
       {
         id: 'action-reports',

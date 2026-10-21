@@ -174,10 +174,7 @@ export function TodayPage({
       <section className="hero" data-tod={timeOfDay}>
         <div className="hero-copy">
           <p className="eyebrow">{formatDateLong(today)}</p>
-          <h1>
-            {greetingForHour(now.getHours())}
-            {firstName ? `, ${firstName}` : ''}
-          </h1>
+          <h1>{`${greetingForHour(now.getHours())}${firstName ? `, ${firstName}` : ''}`}</h1>
           <p className="hero-sub">
             {overdue.length > 0
               ? overdue.length === 1
@@ -524,8 +521,8 @@ export function TodayPage({
               <h2>
                 <CalendarRange size={16} /> Next 7 days
               </h2>
-              <Button size="sm" variant="ghost" onClick={() => onOpenPage('schedule')}>
-                Open schedule
+              <Button size="sm" variant="ghost" onClick={() => onOpenPage('tasks')}>
+                Open My Tasks
               </Button>
             </div>
             <div className="week-strip">
@@ -534,7 +531,7 @@ export function TodayPage({
                   key={day.iso}
                   type="button"
                   className={`week-strip-day ${index === 0 ? 'today' : ''}`.trim()}
-                  onClick={() => onOpenPage('schedule')}
+                  onClick={() => onOpenPage('tasks')}
                 >
                   <span>{formatWeekday(day.iso)}</span>
                   <strong>{formatDayNumber(day.iso)}</strong>
@@ -620,7 +617,7 @@ export function TodayPage({
                 <h2>
                   <Inbox size={16} /> Next up
                 </h2>
-                <Button size="sm" variant="ghost" onClick={() => onOpenPage('inbox')}>
+                <Button size="sm" variant="ghost" onClick={() => onOpenPage('tasks')}>
                   View all open tasks
                 </Button>
               </div>
@@ -636,8 +633,8 @@ export function TodayPage({
                 />
               ))}
               {remaining.length > 6 ? (
-                <button type="button" className="link-button more-link" onClick={() => onOpenPage('inbox')}>
-                  +{remaining.length - 6} more open tasks in Inbox
+                <button type="button" className="link-button more-link" onClick={() => onOpenPage('tasks')}>
+                  +{remaining.length - 6} more open tasks in My Tasks
                 </button>
               ) : null}
             </section>
@@ -654,7 +651,7 @@ export function TodayPage({
                     <Button variant="primary" icon={Plus} onClick={onNewTask}>
                       New task
                     </Button>
-                    <Button variant="secondary" onClick={() => onOpenPage('import')}>
+                    <Button variant="secondary" onClick={() => onOpenPage('tasks')}>
                       Import screenshot
                     </Button>
                   </div>
@@ -704,8 +701,8 @@ export function TodayPage({
               ) : (
                 <span />
               )}
-              <Button size="sm" variant="secondary" onClick={() => onOpenPage('schedule')}>
-                Open schedule
+              <Button size="sm" variant="secondary" onClick={() => onOpenPage('tasks')}>
+                Open My Tasks
               </Button>
             </div>
           </section>

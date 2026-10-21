@@ -54,15 +54,13 @@ import {
 } from './hooks/useEnvironment';
 import { Sidebar, MobileTopBar, BottomNav, ScrollProgress, BackToTop, LiveClock } from './components/Shell';
 import type { NavCounts } from './components/Shell';
-import { Button, ConfirmDialog, Confetti, SkeletonScreen, ToastStack } from './components/ui';
+import { Button, ConfirmDialog, Confetti, Modal, SkeletonScreen, ToastStack } from './components/ui';
 import type { ToastItem, ToastTone } from './components/ui';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { TodayPage } from './components/TodayPage';
-import { InboxPage } from './components/InboxPage';
-import { OverduePage } from './components/OverduePage';
+import { MyTasksPage } from './components/MyTasksPage';
 import { CompletedPage } from './components/CompletedPage';
-import { SchedulePage } from './components/SchedulePage';
 import { ReportsPage } from './components/ReportsPage';
 import { ImportPage } from './components/ImportPage';
 import { SettingsPage } from './components/SettingsPage';
@@ -74,14 +72,26 @@ import { Onboarding } from './components/Onboarding';
 import type { QuickAddDraft } from './lib/quickAdd';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
-import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun } from 'lucide-react';
+import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun, ScanText } from 'lucide-react';
 
-const PAGE_IDS: PageId[] = ['today', 'inbox', 'schedule', 'overdue', 'completed', 'reports', 'import', 'settings'];
+const PAGE_IDS: PageId[] = ['today', 'tasks', 'completed', 'reports', 'settings'];
 const SIDEBAR_STORAGE_KEY = 'workday.sidebar';
+
+/* Bookmarks and old links keep working: the retired pages were merged into
+   My Tasks, so every alias lands there. */
+const LEGACY_HASHES: Record<string, PageId> = {
+  inbox: 'tasks',
+  schedule: 'tasks',
+  overdue: 'tasks',
+  import: 'tasks',
+  planner: 'tasks',
+  tasks: 'tasks',
+};
 
 function pageFromHash(): PageId {
   const raw = window.location.hash.replace(/^#\/?/, '').trim();
-  return PAGE_IDS.includes(raw as PageId) ? (raw as PageId) : 'today';
+  if (PAGE_IDS.includes(raw as PageId)) return raw as PageId;
+  return LEGACY_HASHES[raw] ?? 'today';
 }
 
 function prefersReducedMotion(): boolean {
@@ -132,6 +142,7 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -724,9 +735,9 @@ export default function App() {
       for (const task of created) {
         void logEvent(task.id, 'created', `Created from reviewed screenshot text (${task.source})`);
       }
-      setPage('inbox');
+      setPage('tasks');
       addToast(
-        `${created.length} screenshot task${created.length === 1 ? '' : 's'} saved to Inbox after review.`,
+        `${created.length} screenshot task${created.length === 1 ? '' : 's'} saved to My Tasks after review.`,
         'success',
       );
     },
@@ -1028,9 +1039,9 @@ export default function App() {
       } else if (event.key === 'd' || event.key === 'D') {
         setPage('today');
       } else if (event.key === 'i' || event.key === 'I') {
-        setPage('inbox');
+        setPage('tasks');
       } else if (event.key === 'c' || event.key === 'C') {
-        setPage('schedule');
+        setPage('completed');
       } else if (event.key === 'r' || event.key === 'R') {
         setPage('reports');
       }
@@ -1045,7 +1056,7 @@ export default function App() {
     const open = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
     const today = todayISO(now);
     return {
-      inbox: open.length,
+      tasks: open.length,
       overdue: open.filter((task) => task.dueDate !== null && task.dueDate < today).length,
       today: open.filter((task) => task.dueDate === today).length,
       completed: tasks.filter((task) => task.status === 'completed' && task.deletedAt === null).length,
@@ -1167,18 +1178,18 @@ export default function App() {
             onDeferTodayToTomorrow={() => void deferTodayToTomorrow()}
           />
         );
-      case 'inbox':
-        return <InboxPage {...common} />;
-      case 'overdue':
-        return <OverduePage {...common} />;
+      case 'tasks':
+        return (
+          <MyTasksPage
+            {...common}
+            onOpenImport={() => setImportOpen(true)}
+            onApplyPlan={applyPlan}
+          />
+        );
       case 'completed':
         return <CompletedPage {...common} />;
-      case 'schedule':
-        return <SchedulePage {...common} onApplyPlan={applyPlan} />;
       case 'reports':
         return <ReportsPage {...common} onExportCsv={handleExportCsv} />;
-      case 'import':
-        return <ImportPage {...common} onImportDrafts={importDrafts} />;
       case 'settings':
         return (
           <SettingsPage
@@ -1232,8 +1243,7 @@ export default function App() {
           online={online}
           onToggleTheme={toggleTheme}
           onOpenPalette={() => setPaletteOpen(true)}
-          onOpenNav={() => setNavOpen((current) => !current)}
-          navOpen={navOpen}
+          onOpenSettings={() => setPage('settings')}
         />
         <div className={`utility-bar ${scrolled > 4 ? 'is-scrolled' : ''}`.trim()}>
           <button type="button" className="utility-search" onClick={() => setPaletteOpen(true)}>
@@ -1242,6 +1252,15 @@ export default function App() {
             <kbd>⌘K</kbd>
           </button>
           <div className="utility-actions">
+            <button
+              type="button"
+              className="utility-import"
+              onClick={() => setImportOpen(true)}
+              title="Import tasks from a screenshot"
+            >
+              <ScanText size={15} aria-hidden="true" />
+              <span>Import</span>
+            </button>
             <LiveClock />
             <span className={`status-pill ${online ? 'online' : 'offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
@@ -1294,6 +1313,17 @@ export default function App() {
         onShowShortcuts={() => setShortcutsOpen(true)}
       />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <Modal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import from a screenshot"
+        subtitle="Everything stays in this browser — the image is never uploaded."
+        size="lg"
+      >
+        <div className="import-embed">
+          <ImportPage {...common} onImportDrafts={(drafts) => { importDrafts(drafts); setImportOpen(false); }} />
+        </div>
+      </Modal>
       <TaskPanel
         task={panelTask}
         tasks={tasks}

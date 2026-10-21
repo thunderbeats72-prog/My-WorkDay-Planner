@@ -1,15 +1,10 @@
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
 import {
-  AlarmClock,
   ArrowUp,
-  CalendarDays,
+  CalendarClock,
   ChartColumn,
   CircleCheck as CheckCircleIcon,
   House,
-  Image as ImageIcon,
-  Inbox,
-  Menu,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -17,34 +12,28 @@ import {
   Search,
   Settings as SettingsIcon,
   Sun,
-  Wifi,
-  WifiOff,
 } from 'lucide-react';
 import type { PageId, Settings } from '../lib/types';
 import { IconButton } from './ui';
 import { BrandMark } from './BrandMark';
+import { AnalogClock } from './AnalogClock';
 
 export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House; mobile?: boolean }> = [
   { page: 'today', label: 'Today', icon: House, mobile: true },
-  { page: 'inbox', label: 'Inbox', icon: Inbox, mobile: true },
-  { page: 'schedule', label: 'Schedule', icon: CalendarDays, mobile: true },
-  /* Schedule and Overdue both used a calendar glyph — one of them had to change. */
-  { page: 'overdue', label: 'Overdue', icon: AlarmClock },
-  { page: 'completed', label: 'Completed', icon: CheckCircleIcon },
-  { page: 'reports', label: 'Reports', icon: ChartColumn },
-  { page: 'import', label: 'Screenshot Import', icon: ImageIcon, mobile: true },
-  { page: 'settings', label: 'Settings', icon: SettingsIcon, mobile: true },
+  { page: 'tasks', label: 'My Tasks', icon: CalendarClock, mobile: true },
+  { page: 'completed', label: 'Completed', icon: CheckCircleIcon, mobile: true },
+  { page: 'reports', label: 'Reports', icon: ChartColumn, mobile: true },
+  { page: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 
-/** Sidebar is grouped so the busy pages read as "now" and the rest as "later". */
+/** Fewer, calmer groups: what is now, what you look back at. */
 const NAV_GROUPS: Array<{ label: string; pages: PageId[] }> = [
-  { label: 'Now', pages: ['today', 'inbox', 'schedule', 'overdue'] },
-  { label: 'Reflect', pages: ['completed', 'reports'] },
-  { label: 'Tools', pages: ['import', 'settings'] },
+  { label: 'Work', pages: ['today', 'tasks'] },
+  { label: 'Review', pages: ['completed', 'reports'] },
 ];
 
 export interface NavCounts {
-  inbox: number;
+  tasks: number;
   overdue: number;
   today: number;
   completed: number;
@@ -76,11 +65,14 @@ export function Sidebar({
   onNavigate: (page: PageId) => void;
   /** Icon rail when true. Driven by the user's choice on desktop, forced on tablets. */
   collapsed: boolean;
-  /** Slide-over drawer (tablet/mobile). */
+  /** Slide-over drawer (tablet). Never used on phones — they get the bottom bar. */
   open: boolean;
   onToggle: () => void;
 }) {
   const state = collapsed && !open ? 'rail' : 'full';
+  const badgeFor = (pageId: PageId) =>
+    pageId === 'tasks' ? counts.tasks : pageId === 'today' ? counts.today : pageId === 'completed' ? counts.completed : 0;
+
   return (
     <aside
       id="app-sidebar"
@@ -92,7 +84,7 @@ export function Sidebar({
         <div className="brand">
           <BrandMark size="md" />
           <span className="brand-copy">
-            <strong>My Workday</strong>
+            <strong>Workday</strong>
             <small>Planner</small>
           </span>
         </div>
@@ -108,6 +100,7 @@ export function Sidebar({
           {collapsed && !open ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
         </button>
       </div>
+
       <nav className="sidebar-nav">
         {NAV_GROUPS.map((group) => (
           <div className="nav-group" key={group.label}>
@@ -118,16 +111,7 @@ export function Sidebar({
               const item = NAV_ITEMS.find((candidate) => candidate.page === pageId);
               if (!item) return null;
               const Icon = item.icon;
-              const badge =
-                item.page === 'inbox'
-                  ? counts.inbox
-                  : item.page === 'overdue'
-                    ? counts.overdue
-                    : item.page === 'today'
-                      ? counts.today
-                      : item.page === 'completed'
-                        ? counts.completed
-                        : 0;
+              const badge = badgeFor(item.page);
               return (
                 <button
                   key={item.page}
@@ -138,24 +122,44 @@ export function Sidebar({
                   title={item.label}
                 >
                   <span className="nav-icon" aria-hidden="true">
-                    <Icon size={18} />
+                    <Icon size={17} />
                   </span>
                   <span className="nav-label">{item.label}</span>
-                  {badge > 0 ? <span className="nav-badge">{badge > 99 ? '99+' : badge}</span> : null}
+                  {item.page === 'tasks' && counts.overdue > 0 ? (
+                    <span className="nav-badge is-danger" title={`${counts.overdue} overdue`}>
+                      {counts.overdue > 99 ? '99+' : counts.overdue}
+                    </span>
+                  ) : badge > 0 ? (
+                    <span className="nav-badge">{badge > 99 ? '99+' : badge}</span>
+                  ) : null}
                 </button>
               );
             })}
           </div>
         ))}
       </nav>
+
       <div className="sidebar-footer">
+        <button
+          type="button"
+          className={`nav-item settings-item ${page === 'settings' ? 'active' : ''}`.trim()}
+          aria-current={page === 'settings' ? 'page' : undefined}
+          onClick={() => onNavigate('settings')}
+          title="Settings"
+        >
+          <span className="nav-icon" aria-hidden="true">
+            <SettingsIcon size={17} />
+          </span>
+          <span className="nav-label">Settings</span>
+        </button>
+
         <div className="profile-card">
           <span className="avatar" aria-hidden="true">
             {initials(settings.name)}
           </span>
           <span className="profile-copy">
             <strong>{settings.name || 'Your workday'}</strong>
-            <small>{settings.role || 'Business Development'}</small>
+            <small>{settings.role || 'Add your role in Settings'}</small>
           </span>
           <span className={`online-dot ${online ? 'is-online' : 'is-offline'}`} aria-label={online ? 'Online' : 'Offline'} />
         </div>
@@ -166,40 +170,37 @@ export function Sidebar({
 
 export function MobileTopBar({
   isDark,
-  online,
+  online: _online,
   onToggleTheme,
   onOpenPalette,
-  onOpenNav,
-  navOpen,
+  onOpenSettings,
 }: {
   isDark: boolean;
   online: boolean;
   onToggleTheme: () => void;
   onOpenPalette: () => void;
-  onOpenNav: () => void;
-  navOpen: boolean;
+  onOpenSettings: () => void;
 }) {
   return (
     <header className="mobile-topbar">
-      <IconButton
-        label={navOpen ? 'Close navigation' : 'Open navigation'}
-        icon={Menu}
-        onClick={onOpenNav}
-        aria-expanded={navOpen}
-        aria-controls="app-sidebar"
-      />
       <BrandMark size="sm" />
-      <span className="mobile-brand">My Workday Planner</span>
-      <span className={`status-pill ${online ? 'online' : 'offline'}`}>
-        {online ? <Wifi size={12} /> : <WifiOff size={12} />}
-        {online ? 'Online' : 'Offline'}
-      </span>
+      <span className="mobile-brand">Workday</span>
+      <span className="mobile-spacer" />
       <IconButton label="Open command palette" icon={Search} onClick={onOpenPalette} />
-      <IconButton label={isDark ? 'Switch to light theme' : 'Switch to dark theme'} icon={isDark ? Sun : Moon} onClick={onToggleTheme} />
+      <IconButton
+        label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+        icon={isDark ? Sun : Moon}
+        onClick={onToggleTheme}
+      />
+      <IconButton label="Settings" icon={SettingsIcon} onClick={onOpenSettings} />
     </header>
   );
 }
 
+/**
+ * Phones get four destinations and nothing else. Everything about the app's
+ * configuration lives behind the gear in the top bar.
+ */
 export function BottomNav({
   page,
   onNavigate,
@@ -223,17 +224,15 @@ export function BottomNav({
               aria-current={page === item.page ? 'page' : undefined}
               onClick={() => onNavigate(item.page)}
             >
-              <Icon size={20} />
-              <span>{item.page === 'import' ? 'Import' : item.label}</span>
+              <Icon size={19} />
+              <span>{item.label}</span>
             </button>
           );
         })}
       </nav>
-      {/* Today already has an inline quick-add, so the floating button would only
-          cover it on small screens. */}
-      {page !== 'today' ? (
+      {page !== 'today' && page !== 'tasks' ? (
         <button type="button" className="fab" aria-label="Add task" onClick={onAddTask}>
-          <Plus size={24} />
+          <Plus size={22} />
         </button>
       ) : null}
     </>
@@ -241,27 +240,11 @@ export function BottomNav({
 }
 
 /**
- * Second-accurate local clock. It owns its own interval so the whole app is not
- * re-rendered once a second just to move the seconds hand.
+ * A real analogue clock: hour, minute and second hands on a hairline dial.
+ * Positioned in the utility bar where it reads as instrument, not ornament.
  */
-export function LiveClock() {
-  const [time, setTime] = useState(() => new Date());
-  useEffect(() => {
-    const timer = window.setInterval(() => setTime(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const hh = String(time.getHours()).padStart(2, '0');
-  const mm = String(time.getMinutes()).padStart(2, '0');
-  const ss = String(time.getSeconds()).padStart(2, '0');
-  return (
-    <span className="live-clock" title={time.toLocaleString()}>
-      <span className="live-clock-dot" aria-hidden="true" />
-      <time dateTime={time.toISOString()} aria-label={`Local time ${hh}:${mm}:${ss}`}>
-        {hh}:{mm}
-        <span className="live-clock-seconds">:{ss}</span>
-      </time>
-    </span>
-  );
+export function LiveClock({ compact = false }: { compact?: boolean }) {
+  return <AnalogClock size={compact ? 30 : 36} />;
 }
 
 export function ScrollProgress({ value }: { value: number }) {
