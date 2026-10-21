@@ -1,6 +1,6 @@
 /* My Workday Planner — minimal app-shell service worker (local-first, no sync). */
-const CACHE = 'workday-shell-v1';
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const CACHE = 'workday-shell-v2';
+const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

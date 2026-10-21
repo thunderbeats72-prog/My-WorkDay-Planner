@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { PageId, Settings } from '../lib/types';
 import { IconButton } from './ui';
+import { BrandMark } from './BrandMark';
 
 export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House; mobile?: boolean }> = [
   { page: 'today', label: 'Today', icon: House, mobile: true },
@@ -61,9 +62,7 @@ export function Sidebar({
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true">
-          MW
-        </span>
+        <BrandMark size="md" />
         <span className="brand-copy">
           <strong>My Workday</strong>
           <small>Planner</small>
@@ -131,9 +130,7 @@ export function MobileTopBar({
 }) {
   return (
     <header className="mobile-topbar">
-      <span className="brand-mark small" aria-hidden="true">
-        MW
-      </span>
+      <BrandMark size="sm" />
       <span className="mobile-brand">My Workday Planner</span>
       <span className={`status-pill ${online ? 'online' : 'offline'}`}>
         {online ? <Wifi size={12} /> : <WifiOff size={12} />}

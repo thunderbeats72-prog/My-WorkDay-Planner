@@ -5,24 +5,15 @@ import { useEffect } from 'react';
  * wiring animation state into every component:
  *
  *  - a soft ripple that grows from the pointer on any button
- *  - a cursor-tracking spotlight on cards, panels and the hero
+ *  - a soft cursor highlight on the hero banner
  *
  * Everything is skipped when the visitor prefers reduced motion or is on a
  * coarse pointer (touch) device, and every listener is cleaned up on unmount.
  */
 
-const SPOTLIGHT_SELECTOR = [
-  '.card',
-  '.task-card',
-  '.stat-card',
-  '.hero',
-  '.timer-card',
-  '.onboarding-preview',
-  '.dropzone',
-  '.palette',
-  '.modal',
-  '.task-panel',
-].join(', ');
+/* The hero is the only surface that tracks the pointer — cards and panels
+   stay calm. */
+const SPOTLIGHT_SELECTOR = '.hero';
 
 const RIPPLE_EXCLUDE_SELECTOR = '[data-no-ripple], .menu, .toast-close, .switch';
 

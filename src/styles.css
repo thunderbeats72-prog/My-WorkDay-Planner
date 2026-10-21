@@ -354,30 +354,28 @@ kbd {
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #356ae6, #6b9aff);
-  color: #fff;
-  font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  box-shadow: 0 6px 16px rgba(53, 106, 230, 0.35);
   flex-shrink: 0;
+  line-height: 0;
+  border-radius: 13px;
+  box-shadow:
+    0 10px 22px -14px rgba(8, 15, 30, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.14) inset;
 }
 
-.brand-mark.small {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  font-size: 11px;
+.brand-mark svg {
+  display: block;
+  border-radius: inherit;
 }
 
-.brand-mark.large {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  font-size: 18px;
+.brand-mark-sm {
+  border-radius: 10px;
+}
+
+.brand-mark-lg {
+  border-radius: 18px;
+  box-shadow:
+    0 22px 44px -24px rgba(8, 15, 30, 0.9),
+    0 1px 0 rgba(255, 255, 255, 0.16) inset;
 }
 
 .brand-copy {
@@ -387,13 +385,18 @@ kbd {
 }
 
 .brand-copy strong {
-  color: #fff;
+  color: #f4f7ff;
   font-size: 15px;
+  letter-spacing: -0.012em;
 }
 
 .brand-copy small {
   color: #8fa1c0;
-  font-size: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-top: 2px;
 }
 
 .sidebar-nav {
@@ -550,8 +553,9 @@ kbd {
 }
 
 .mobile-brand {
-  font-weight: 700;
+  font-weight: 650;
   font-size: 13px;
+  letter-spacing: -0.01em;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1862,8 +1866,7 @@ a.btn {
 
 .task-card:hover,
 .task-card:focus-within {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  background: var(--surface-2);
   border-color: var(--border-strong);
   z-index: 20;
 }
@@ -5324,33 +5327,42 @@ a.btn {
 
 .brand-mark {
   position: relative;
-  background: var(--grad-primary);
-  background-size: 180% 180%;
-  animation: brand-hue 9s var(--ease-in-out) infinite alternate;
+  overflow: hidden;
   transition: transform var(--dur-3) var(--ease-spring), box-shadow var(--dur-3) ease;
 }
 
 .brand:hover .brand-mark {
-  transform: rotate(-6deg) scale(1.06);
-  box-shadow: 0 10px 26px rgba(53, 106, 230, 0.55);
+  transform: translateY(-1px) scale(1.04);
+  box-shadow:
+    0 16px 30px -16px rgba(6, 12, 24, 0.95),
+    0 0 0 1px rgba(157, 184, 255, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.18) inset;
 }
 
+/* one-shot sheen across the tile on hover */
 .brand-mark::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.45), transparent 55%);
-  opacity: 0.6;
+  background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.4) 48%, transparent 76%);
+  transform: translateX(-140%);
+  opacity: 0;
   pointer-events: none;
 }
 
-@keyframes brand-hue {
-  from {
-    background-position: 0% 50%;
+.brand:hover .brand-mark::after {
+  animation: brand-sheen 900ms var(--ease-out) forwards;
+}
+
+@keyframes brand-sheen {
+  0% {
+    opacity: 0.9;
+    transform: translateX(-140%);
   }
-  to {
-    background-position: 100% 50%;
+  100% {
+    opacity: 0;
+    transform: translateX(140%);
   }
 }
 
@@ -5768,52 +5780,19 @@ a.btn {
 }
 
 
-/* ---------- Cards & cursor spotlight ---------- */
+/* ---------- Cards ---------- */
 
 .card {
   position: relative;
   transition:
     background-color var(--dur-2) ease,
     border-color var(--dur-3) ease,
-    box-shadow var(--dur-3) var(--ease-out),
-    transform var(--dur-3) var(--ease-out);
+    box-shadow var(--dur-3) var(--ease-out);
 }
 
 .card:hover {
   border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
   box-shadow: var(--shadow-md);
-}
-
-.card.spotlight-active,
-.task-card.spotlight-active,
-.stat-card.spotlight-active,
-.timer-card.spotlight-active,
-.dropzone.spotlight-active,
-.onboarding-preview.spotlight-active,
-.palette.spotlight-active,
-.modal.spotlight-active,
-.task-panel.spotlight-active {
-  background-image: radial-gradient(
-    340px circle at var(--mx, 50%) var(--my, 0%),
-    color-mix(in srgb, var(--primary) 9%, transparent),
-    transparent 68%
-  );
-}
-
-[data-theme='dark'] .card.spotlight-active,
-[data-theme='dark'] .task-card.spotlight-active,
-[data-theme='dark'] .stat-card.spotlight-active,
-[data-theme='dark'] .timer-card.spotlight-active,
-[data-theme='dark'] .dropzone.spotlight-active,
-[data-theme='dark'] .onboarding-preview.spotlight-active,
-[data-theme='dark'] .palette.spotlight-active,
-[data-theme='dark'] .modal.spotlight-active,
-[data-theme='dark'] .task-panel.spotlight-active {
-  background-image: radial-gradient(
-    340px circle at var(--mx, 50%) var(--my, 0%),
-    color-mix(in srgb, var(--primary) 16%, transparent),
-    transparent 68%
-  );
 }
 
 /* ---------- Page header ---------- */
@@ -6253,7 +6232,6 @@ a.btn {
 }
 
 .stat-card:hover {
-  transform: translateY(-3px);
   box-shadow: 0 16px 34px -22px rgba(23, 36, 59, 0.5), var(--shadow-md);
   border-color: color-mix(in srgb, var(--primary) 22%, var(--border));
 }
@@ -6361,8 +6339,7 @@ a.btn {
 .task-card {
   animation: task-in 480ms var(--ease-out) both;
   transition:
-    transform var(--dur-3) var(--ease-out),
-    box-shadow var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-2) ease,
     border-color var(--dur-2) ease,
     opacity var(--dur-2) ease;
 }
@@ -6398,51 +6375,6 @@ a.btn {
   }
 }
 
-.task-card::before {
-  transition: top var(--dur-3) var(--ease-out), bottom var(--dur-3) var(--ease-out), box-shadow var(--dur-3) ease;
-  background: linear-gradient(180deg, #94a3b8, #cbd5e1);
-}
-
-.task-card.priority-accent-critical::before {
-  background: linear-gradient(180deg, #c93b3b, #f07777);
-  box-shadow: 0 0 10px rgba(201, 59, 59, 0.45);
-}
-
-.task-card.priority-accent-high::before {
-  background: linear-gradient(180deg, #d97706, #f5b04c);
-}
-
-.task-card.priority-accent-medium::before {
-  background: linear-gradient(180deg, #356ae6, #7aa2ff);
-}
-
-.task-card.priority-accent-low::before {
-  background: linear-gradient(180deg, #94a3b8, #cbd5e1);
-}
-
-@keyframes priority-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 8px rgba(201, 59, 59, 0.35);
-  }
-  50% {
-    box-shadow: 0 0 16px rgba(201, 59, 59, 0.6);
-  }
-}
-
-.task-card:hover,
-.task-card:focus-within {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 32px -24px rgba(23, 36, 59, 0.55), var(--shadow-md);
-  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
-}
-
-.task-card:hover::before,
-.task-card:focus-within::before {
-  top: 6px;
-  bottom: 6px;
-}
-
 .task-card.completed {
   transition: opacity var(--dur-3) ease, transform var(--dur-3) var(--ease-out), background var(--dur-2) ease;
 }
@@ -6453,34 +6385,7 @@ a.btn {
 
 .task-card.is-running {
   border-color: color-mix(in srgb, var(--success) 42%, var(--border));
-  box-shadow: 0 10px 28px -22px rgba(22, 133, 104, 0.8), inset 0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent);
-}
-
-.task-card.is-running::after {
-  content: '';
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--success), transparent);
-  background-size: 220% 100%;
-  animation: running-sweep 2.4s var(--ease-in-out) infinite;
-}
-
-@keyframes running-sweep {
-  0% {
-    background-position: -120% 0;
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    background-position: 120% 0;
-    opacity: 0.5;
-  }
+  background: color-mix(in srgb, var(--success-soft) 22%, var(--surface));
 }
 
 .task-check {
@@ -6504,26 +6409,6 @@ a.btn {
 
 .task-check.checked svg {
   animation: check-pop 360ms var(--ease-spring) both;
-}
-
-.task-check.checked::after {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--success) 55%, transparent);
-  animation: check-burst 620ms var(--ease-out) forwards;
-}
-
-@keyframes check-burst {
-  from {
-    transform: scale(0.55);
-    opacity: 0.9;
-  }
-  to {
-    transform: scale(1.5);
-    opacity: 0;
-  }
 }
 
 .task-title {
