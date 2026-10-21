@@ -1070,6 +1070,10 @@ export default function App() {
             <kbd>⌘K</kbd>
           </button>
           <div className="utility-actions">
+            <span className="live-clock" title="Local time">
+              <span className="live-clock-dot" aria-hidden="true" />
+              {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}
+            </span>
             <span className={`status-pill ${online ? 'online' : 'offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
               {online ? 'Online' : 'Offline'}

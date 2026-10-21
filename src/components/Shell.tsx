@@ -30,6 +30,13 @@ export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House;
   { page: 'settings', label: 'Settings', icon: SettingsIcon, mobile: true },
 ];
 
+/** Sidebar is grouped so the busy pages read as "now" and the rest as "later". */
+const NAV_GROUPS: Array<{ label: string; pages: PageId[] }> = [
+  { label: 'Now', pages: ['today', 'inbox', 'schedule', 'overdue'] },
+  { label: 'Reflect', pages: ['completed', 'reports'] },
+  { label: 'Tools', pages: ['import', 'settings'] },
+];
+
 export interface NavCounts {
   inbox: number;
   overdue: number;
@@ -69,33 +76,44 @@ export function Sidebar({
         </span>
       </div>
       <nav className="sidebar-nav">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const badge =
-            item.page === 'inbox'
-              ? counts.inbox
-              : item.page === 'overdue'
-                ? counts.overdue
-                : item.page === 'today'
-                  ? counts.today
-                  : item.page === 'completed'
-                    ? counts.completed
-                    : 0;
-          return (
-            <button
-              key={item.page}
-              type="button"
-              className={`nav-item ${page === item.page ? 'active' : ''}`.trim()}
-              aria-current={page === item.page ? 'page' : undefined}
-              onClick={() => onNavigate(item.page)}
-              title={item.label}
-            >
-              <Icon size={19} />
-              <span className="nav-label">{item.label}</span>
-              {badge > 0 ? <span className="nav-badge">{badge > 99 ? '99+' : badge}</span> : null}
-            </button>
-          );
-        })}
+        {NAV_GROUPS.map((group) => (
+          <div className="nav-group" key={group.label}>
+            <p className="nav-group-label" aria-hidden="true">
+              {group.label}
+            </p>
+            {group.pages.map((pageId) => {
+              const item = NAV_ITEMS.find((candidate) => candidate.page === pageId);
+              if (!item) return null;
+              const Icon = item.icon;
+              const badge =
+                item.page === 'inbox'
+                  ? counts.inbox
+                  : item.page === 'overdue'
+                    ? counts.overdue
+                    : item.page === 'today'
+                      ? counts.today
+                      : item.page === 'completed'
+                        ? counts.completed
+                        : 0;
+              return (
+                <button
+                  key={item.page}
+                  type="button"
+                  className={`nav-item ${page === item.page ? 'active' : ''}`.trim()}
+                  aria-current={page === item.page ? 'page' : undefined}
+                  onClick={() => onNavigate(item.page)}
+                  title={item.label}
+                >
+                  <span className="nav-icon" aria-hidden="true">
+                    <Icon size={18} />
+                  </span>
+                  <span className="nav-label">{item.label}</span>
+                  {badge > 0 ? <span className="nav-badge">{badge > 99 ? '99+' : badge}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       <div className="sidebar-footer">
         <div className="profile-card">
@@ -171,9 +189,13 @@ export function BottomNav({
           );
         })}
       </nav>
-      <button type="button" className="fab" aria-label="Add task" onClick={onAddTask}>
-        <Plus size={24} />
-      </button>
+      {/* Today already has an inline quick-add, so the floating button would only
+          cover it on small screens. */}
+      {page !== 'today' ? (
+        <button type="button" className="fab" aria-label="Add task" onClick={onAddTask}>
+          <Plus size={24} />
+        </button>
+      ) : null}
     </>
   );
 }

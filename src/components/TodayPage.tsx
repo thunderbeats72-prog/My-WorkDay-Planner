@@ -31,6 +31,7 @@ import {
 import { buildDayPlan } from '../lib/engine';
 import type { ReminderItem } from '../lib/engine';
 import { deadlineRisk, learnDurations } from '../lib/ml';
+import { dayVibe } from '../lib/vibe';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
 import { AnimatedValue, Badge, Button, EmptyState, ProgressBar, Ring, StatCard } from './ui';
@@ -91,15 +92,26 @@ export function TodayPage({
     .sort((a, b) => b.risk.score - a.risk.score)
     .slice(0, 4);
   const firstName = settings.name.split(/\s+/)[0] || 'there';
+  const plannedPercent = percent(planned, capacity);
+  const vibe = dayVibe({
+    overdue: overdue.length,
+    dueToday: dueToday.length,
+    completedToday,
+    plannedPercent,
+    openCount: openTasks.length,
+  });
   const nextDays = Array.from({ length: 7 }, (_, index) => {
     const iso = index === 0 ? today : daysFromNow(index, now);
     const due = openTasks.filter((task) => task.dueDate === iso).length;
     return { iso, due, overdue: index === 0 ? overdue.length : 0 };
   });
 
+  const hour = now.getHours();
+  const timeOfDay = hour < 5 ? 'night' : hour < 9 ? 'dawn' : hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night';
+
   return (
     <div className="page today-page">
-      <section className="hero">
+      <section className="hero" data-tod={timeOfDay}>
         <div className="hero-aurora" aria-hidden="true">
           <span className="hero-orb hero-orb-1" />
           <span className="hero-orb hero-orb-2" />
@@ -118,6 +130,16 @@ export function TodayPage({
                 : `${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} · ${formatDuration(freeMinutes)} still free today.`}
           </p>
           <div className="hero-chips">
+            <span className={`vibe-chip vibe-${vibe.tone}`} title={vibe.note}>
+              <span className="vibe-glyph" aria-hidden="true">
+                {vibe.glyph}
+              </span>
+              <span className="vibe-label">{vibe.label}</span>
+              <span className="vibe-meter" aria-hidden="true">
+                <i style={{ width: `${vibe.score}%` }} />
+              </span>
+              <span className="sr-only">Day vibe: {vibe.note}</span>
+            </span>
             <span className={`chip ${online ? 'chip-online' : 'chip-offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
               {online ? 'Online' : 'Offline — local data still works'}
@@ -159,10 +181,10 @@ export function TodayPage({
         </div>
         <div className="hero-ring">
           <Ring
-            value={percent(planned, capacity)}
+            value={plannedPercent}
             size={168}
             stroke={12}
-            label={`${percent(planned, capacity)}%`}
+            label={`${plannedPercent}%`}
             sublabel="day planned"
           />
           <p>
