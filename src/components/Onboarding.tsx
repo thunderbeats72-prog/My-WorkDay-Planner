@@ -4,6 +4,7 @@ import type { Settings } from '../lib/types';
 import { DAY_SHORT, DEFAULT_SETTINGS, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import { formatDuration, parseTimeToMinutes } from '../lib/dates';
 import { Badge, Button, Field, Segmented } from './ui';
+import { BrandMark } from './BrandMark';
 
 const WORKING_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
@@ -51,10 +52,8 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
   return (
     <div className="onboarding">
       <section className="onboarding-brand">
-        <span className="brand-mark large" aria-hidden="true">
-          MW
-        </span>
-        <p className="eyebrow">Clouder Technologies</p>
+        <BrandMark size="lg" />
+        <p className="eyebrow">Private workday workspace</p>
         <h1>My Workday Planner</h1>
         <p className="onboarding-tagline">
           A private, local-first command center for business development work. Your tasks, timers and screenshots stay in
@@ -103,7 +102,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         </ol>
 
         {step === 1 ? (
-          <div className="onboarding-step">
+          <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 1 of 3</p>
             <h2>Let's set up your workday</h2>
             <p className="muted">
@@ -141,7 +140,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         ) : null}
 
         {step === 2 ? (
-          <div className="onboarding-step">
+          <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 2 of 3</p>
             <h2>When do you actually work?</h2>
             <p className="muted">
@@ -217,7 +216,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         ) : null}
 
         {step === 3 ? (
-          <div className="onboarding-step">
+          <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 3 of 3</p>
             <h2>Your defaults</h2>
             <p className="muted">Sensible starting points — the on-device model adapts as you track real work.</p>

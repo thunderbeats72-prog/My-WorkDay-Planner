@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
-import type { PageId, Priority, ReminderRecord, Settings, Task } from './lib/types';
+import type { CSSProperties, ReactNode } from 'react';
+import type { PageId, ReminderRecord, Settings, Task } from './lib/types';
 import { DEFAULT_SETTINGS } from './lib/types';
 import {
   combineDateTime,
+  daysFromNow,
   dueLabel,
   formatDateLong,
   formatDuration,
+  formatSecondsLabel,
   isQuietNow,
+  relativeDayLabel,
   todayISO,
 } from './lib/dates';
 import {
@@ -41,17 +44,20 @@ import {
 import type { GraphAccount, GraphHighlight, GraphToken } from './lib/graph';
 import { tasksToCsv } from './lib/reports';
 import { useTimer } from './hooks/useTimer';
+import { useAmbientEffects } from './hooks/useAmbientEffects';
 import {
   useMediaQuery,
   useNotificationPermission,
+  useNow,
   useOnline,
   useScrollPosition,
 } from './hooks/useEnvironment';
-import { Sidebar, MobileTopBar, BottomNav, ScrollProgress, BackToTop } from './components/Shell';
+import { Sidebar, MobileTopBar, BottomNav, ScrollProgress, BackToTop, LiveClock } from './components/Shell';
 import type { NavCounts } from './components/Shell';
 import { Button, ConfirmDialog, Confetti, SkeletonScreen, ToastStack } from './components/ui';
 import type { ToastItem, ToastTone } from './components/ui';
 import { CommandPalette } from './components/CommandPalette';
+import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { TodayPage } from './components/TodayPage';
 import { InboxPage } from './components/InboxPage';
 import { OverduePage } from './components/OverduePage';
@@ -65,11 +71,13 @@ import { TaskForm } from './components/TaskForm';
 import type { TaskDraft } from './components/TaskForm';
 import { GraphCard } from './components/GraphCard';
 import { Onboarding } from './components/Onboarding';
+import type { QuickAddDraft } from './lib/quickAdd';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
-import { Search, Plus, Wifi, WifiOff, Moon, Sun } from 'lucide-react';
+import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun } from 'lucide-react';
 
 const PAGE_IDS: PageId[] = ['today', 'inbox', 'schedule', 'overdue', 'completed', 'reports', 'import', 'settings'];
+const SIDEBAR_STORAGE_KEY = 'workday.sidebar';
 
 function pageFromHash(): PageId {
   const raw = window.location.hash.replace(/^#\/?/, '').trim();
@@ -112,9 +120,18 @@ export default function App() {
   const [reminders, setReminders] = useState<ReminderRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<PageId>(() => pageFromHash());
-  const [now, setNow] = useState(() => new Date());
+  const now = useNow(15_000);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'collapsed';
+    } catch {
+      return false;
+    }
+  });
+  const [navOpen, setNavOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -128,8 +145,46 @@ export default function App() {
   const graphRedirectHandled = useRef(false);
   const [notificationPermission, requestNotificationPermission] = useNotificationPermission();
 
+  useAmbientEffects(!loading);
+
   const online = useOnline();
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
+  const wideSidebar = useMediaQuery('(min-width: 1081px)');
+  const drawerOpen = !wideSidebar && navOpen;
+
+  const toggleSidebar = useCallback(() => {
+    if (wideSidebar) {
+      setSidebarCollapsed((current) => !current);
+    } else {
+      setNavOpen((current) => !current);
+    }
+  }, [wideSidebar]);
+
+  const navigate = useCallback((next: PageId) => {
+    setPage(next);
+    setNavOpen(false);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarCollapsed ? 'collapsed' : 'expanded');
+    } catch {
+      // Storage can be blocked in private mode; the sidebar still works for this session.
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNavOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.body.classList.add('nav-drawer-open');
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.classList.remove('nav-drawer-open');
+    };
+  }, [navOpen]);
   const { scrolled, atTop } = useScrollPosition();
 
   const settingsRef = useRef(settings);
@@ -165,12 +220,12 @@ export default function App() {
     const root = document.documentElement;
     root.dataset.theme = isDark ? 'dark' : 'light';
     root.style.colorScheme = isDark ? 'dark' : 'light';
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) themeColor.setAttribute('content', isDark ? '#0b1220' : '#17243B');
+    root.classList.add('theme-fade');
+    const timer = window.setTimeout(() => root.classList.remove('theme-fade'), 480);
+    return () => window.clearTimeout(timer);
   }, [isDark]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setNow(new Date()), 30_000);
-    return () => window.clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -313,25 +368,27 @@ export default function App() {
   );
 
   const handleQuickAdd = useCallback(
-    (title: string, priority: Priority) => {
+    (draft: QuickAddDraft) => {
       const task = buildTask(
         {
-          title,
+          title: draft.title,
           notes: '',
-          client: '',
-          category: 'other',
-          priority,
-          estimatedMinutes: settingsRef.current.defaultEstimateMinutes,
-          dueDate: todayISO(),
-          dueTime: '',
+          client: draft.client,
+          category: draft.category,
+          priority: draft.priority,
+          estimatedMinutes: draft.estimatedMinutes,
+          dueDate: draft.dueDate,
+          dueTime: draft.dueTime,
           blocked: false,
           dependencyIds: [],
         },
         { status: 'todo' },
       );
       persistTasks([...tasksRef.current, task], [task]);
-      void logEvent(task.id, 'created', 'Task created from Quick Add for today');
-      addToast(`Added “${task.title}” for today.`, 'success', {
+      void logEvent(task.id, 'created', 'Task created from Quick Add');
+      const when = task.dueDate ? relativeDayLabel(task.dueDate) : null;
+      const whenLabel = when === 'Today' || when === 'Tomorrow' ? when.toLowerCase() : when;
+      addToast(`Added “${task.title}”${whenLabel ? ` for ${whenLabel}` : ''}.`, 'success', {
         label: 'Open',
         onAction: () => setPanelId(task.id),
       });
@@ -546,13 +603,70 @@ export default function App() {
             if (!updated) return;
             await logEvent(task.id, 'status', 'Task deleted (soft delete)');
             if (panelId === task.id) setPanelId(null);
-            addToast('Task deleted.', 'info');
+            addToast('Task deleted.', 'info', {
+              label: 'Undo',
+              onAction: () => {
+                const restored = updateTaskById(task.id, (current) => ({ ...current, deletedAt: null }));
+                if (!restored) return;
+                void logEvent(task.id, 'restored', 'Delete undone from the toast');
+                addToast('Task restored.', 'success', { label: 'Open', onAction: () => setPanelId(task.id) });
+              },
+            });
           })();
         },
       });
     },
     [addToast, panelId, timer, updateTaskById],
   );
+
+  const deferTodayToTomorrow = useCallback(async () => {
+    const today = todayISO();
+    const targets = tasksRef.current.filter(
+      (task) => task.deletedAt === null && task.status !== 'completed' && task.dueDate === today,
+    );
+    if (targets.length === 0) {
+      addToast('Nothing is left for today.', 'success');
+      return;
+    }
+    const tomorrow = daysFromNow(1);
+    const previous = new Map(targets.map((task) => [task.id, { dueDate: task.dueDate, deferrals: task.deferrals }]));
+    const changed: Task[] = [];
+    const next = tasksRef.current.map((task) => {
+      const before = previous.get(task.id);
+      if (!before) return task;
+      const updated: Task = {
+        ...task,
+        dueDate: tomorrow,
+        deferrals: task.deferrals + 1,
+        suggestedDate: null,
+        suggestedStart: null,
+        updatedAt: new Date().toISOString(),
+      };
+      changed.push(updated);
+      return updated;
+    });
+    persistTasks(next, changed);
+    for (const task of targets) {
+      void logEvent(task.id, 'deferral', 'Moved to tomorrow from the end-of-day wrap-up');
+    }
+    addToast(
+      `Moved ${targets.length} task${targets.length === 1 ? '' : 's'} to tomorrow.`,
+      'info',
+      {
+        label: 'Undo',
+        onAction: () => {
+          const restored = tasksRef.current.map((task) => {
+            const before = previous.get(task.id);
+            if (!before) return task;
+            return { ...task, dueDate: before.dueDate, deferrals: before.deferrals, updatedAt: new Date().toISOString() };
+          });
+          persistTasks(restored, restored.filter((task) => previous.has(task.id)));
+          for (const task of targets) void logEvent(task.id, 'deferral', 'Wrap-up rollover undone');
+          addToast('Moved back to today.', 'info');
+        },
+      },
+    );
+  }, [addToast, persistTasks]);
 
   const applySuggestion = useCallback(
     async (taskId: string, suggestion: { category: Task['category']; priority: Task['priority']; estimatedMinutes: number }) => {
@@ -890,7 +1004,25 @@ export default function App() {
         setPaletteOpen((open) => !open);
         return;
       }
+      // A dialog already has the keyboard; do not navigate or stack another one.
+      if (document.querySelector('[role="dialog"]')) return;
       if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === '?') {
+        event.preventDefault();
+        setShortcutsOpen((open) => !open);
+        return;
+      }
+      if (event.key === '/') {
+        // Quick capture from anywhere: land on Today and put the caret in the bar.
+        event.preventDefault();
+        setPage('today');
+        window.setTimeout(() => {
+          const input = document.querySelector<HTMLInputElement>('.quick-add-input');
+          input?.focus();
+          input?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+        }, 60);
+        return;
+      }
       if (event.key === 'n' || event.key === 'N') {
         setFormState({ open: true, task: null, initialDraft: null });
       } else if (event.key === 'd' || event.key === 'D') {
@@ -920,6 +1052,34 @@ export default function App() {
       reports: 0,
     };
   }, [tasks, now]);
+
+  // The tab title is the one place the planner can be honest while you are elsewhere.
+  // A running timer takes precedence: it is the only live number that matters.
+  const runningTask = timer.activeSession
+    ? tasks.find((task) => task.id === timer.activeSession?.taskId) ?? null
+    : null;
+  const runningClock = runningTask ? formatSecondsLabel(Math.floor(timer.elapsedMsFor(runningTask.id) / 1000)) : '';
+
+  useEffect(() => {
+    if (runningClock) {
+      document.title = `${runningClock} · ${runningTask?.title ?? 'Timing'} — My Workday Planner`;
+      return;
+    }
+    const parts: string[] = [];
+    if (counts.overdue > 0) parts.push(`${counts.overdue} overdue`);
+    if (counts.today > 0) parts.push(`${counts.today} due today`);
+    document.title = parts.length > 0 ? `${parts.join(' · ')} — My Workday Planner` : 'My Workday Planner';
+  }, [counts.overdue, counts.today, runningClock, runningTask?.title]);
+
+  // Crossing midnight while the app is open should re-frame the board, not leave
+  // yesterday's "due today" numbers on screen.
+  const dayRef = useRef(todayISO(now));
+  useEffect(() => {
+    const today = todayISO(now);
+    if (dayRef.current === today) return;
+    dayRef.current = today;
+    addToast('A new day — the board has rolled over.', 'info');
+  }, [now, addToast]);
 
   const taskHandlers = useCallback(
     (task: Task): TaskCardHandlers => ({
@@ -959,7 +1119,7 @@ export default function App() {
     now,
     timer,
     taskHandlers,
-    onOpenPage: setPage,
+    onOpenPage: navigate,
     onQuickAdd: handleQuickAdd,
     onNewTask: () => setFormState({ open: true, task: null, initialDraft: null }),
     onEditTask: (task) => {
@@ -1002,7 +1162,9 @@ export default function App() {
             onSnoozeReminder={(taskId) => void snoozeTask(taskId)}
             onDismissReminder={(taskId) => void dismissReminder(taskId)}
             onStartTask={(taskId) => void startTask(taskId)}
+            onResumeTask={(taskId) => void resumeTask(taskId)}
             onCompleteReminder={(taskId) => void toggleComplete(taskId)}
+            onDeferTodayToTomorrow={() => void deferTodayToTomorrow()}
           />
         );
       case 'inbox':
@@ -1045,23 +1207,42 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-sidebar={wideSidebar ? (sidebarCollapsed ? 'rail' : 'full') : 'responsive'}
+      style={wideSidebar ? ({ '--sidebar-width': sidebarCollapsed ? '78px' : '264px' } as CSSProperties) : undefined}
+    >
       <ScrollProgress value={scrolled} />
-      <Sidebar page={page} settings={settings} counts={counts} online={online} onNavigate={setPage} />
+      <Sidebar
+        page={page}
+        settings={settings}
+        counts={counts}
+        online={online}
+        onNavigate={navigate}
+        collapsed={wideSidebar ? sidebarCollapsed : !drawerOpen}
+        open={drawerOpen}
+        onToggle={toggleSidebar}
+      />
+      {drawerOpen ? (
+        <div className="sidebar-scrim" role="presentation" onMouseDown={() => setNavOpen(false)} />
+      ) : null}
       <div className="app-main">
         <MobileTopBar
           isDark={isDark}
           online={online}
           onToggleTheme={toggleTheme}
           onOpenPalette={() => setPaletteOpen(true)}
+          onOpenNav={() => setNavOpen((current) => !current)}
+          navOpen={navOpen}
         />
-        <div className="utility-bar">
+        <div className={`utility-bar ${scrolled > 4 ? 'is-scrolled' : ''}`.trim()}>
           <button type="button" className="utility-search" onClick={() => setPaletteOpen(true)}>
             <Search size={16} />
             <span>Search pages, tasks and actions…</span>
             <kbd>⌘K</kbd>
           </button>
           <div className="utility-actions">
+            <LiveClock />
             <span className={`status-pill ${online ? 'online' : 'offline'}`}>
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
               {online ? 'Online' : 'Offline'}
@@ -1069,7 +1250,16 @@ export default function App() {
             <span className="sync-chip">Local-only · Sync not configured</span>
             <button
               type="button"
-              className="icon-btn"
+              className="icon-btn shortcut-hint-btn"
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+              onClick={() => setShortcutsOpen(true)}
+            >
+              <Keyboard size={18} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn theme-toggle"
               aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
               onClick={toggleTheme}
             >
@@ -1088,7 +1278,7 @@ export default function App() {
       </div>
       <BottomNav
         page={page}
-        onNavigate={setPage}
+        onNavigate={navigate}
         onAddTask={() => setFormState({ open: true, task: null, initialDraft: null })}
       />
       <BackToTop visible={!atTop} />
@@ -1097,11 +1287,13 @@ export default function App() {
         open={paletteOpen}
         tasks={tasks}
         onClose={() => setPaletteOpen(false)}
-        onNavigate={setPage}
+        onNavigate={navigate}
         onNewTask={() => setFormState({ open: true, task: null, initialDraft: null })}
         onOpenTask={(id) => setPanelId(id)}
         onCheckGraph={graphConnected ? () => void checkGraph() : null}
+        onShowShortcuts={() => setShortcutsOpen(true)}
       />
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <TaskPanel
         task={panelTask}
         tasks={tasks}

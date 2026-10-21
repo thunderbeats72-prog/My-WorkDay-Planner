@@ -136,7 +136,6 @@ export function TaskForm({
             id="task-title"
             className={`input ${errors.title ? 'invalid' : ''}`.trim()}
             value={draft.title}
-            autoFocus
             placeholder="e.g. Follow up with Acme on the proposal"
             onChange={(event) => setDraft({ ...draft, title: event.target.value })}
           />

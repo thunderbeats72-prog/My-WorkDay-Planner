@@ -1,5 +1,5 @@
 {
-  "name": "My Workday Planner — Clouder Technologies",
+  "name": "My Workday Planner",
   "short_name": "Workday",
   "description": "Private, local-first workday planner for business development: tasks, explainable scheduling, timers, screenshot OCR and on-device insights.",
   "start_url": "/",
@@ -7,13 +7,31 @@
   "display": "standalone",
   "orientation": "any",
   "background_color": "#F4F6FA",
-  "theme_color": "#17243B",
+  "theme_color": "#132542",
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

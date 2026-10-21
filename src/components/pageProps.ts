@@ -1,4 +1,5 @@
-import type { PageId, Priority, Settings, Task } from '../lib/types';
+import type { PageId, Settings, Task } from '../lib/types';
+import type { QuickAddDraft } from '../lib/quickAdd';
 import type { TimerApi } from '../hooks/useTimer';
 import type { TaskCardHandlers } from './TaskCard';
 import type { ToastTone } from './ui';
@@ -14,7 +15,7 @@ export interface CommonPageProps {
   timer: TimerApi;
   taskHandlers: (task: Task) => TaskCardHandlers;
   onOpenPage: (page: PageId) => void;
-  onQuickAdd: (title: string, priority: Priority) => void;
+  onQuickAdd: (draft: QuickAddDraft) => void;
   onNewTask: () => void;
   onEditTask: (task: Task) => void;
   addToast: AddToast;

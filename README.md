@@ -91,3 +91,12 @@ On-device ML (no external model/API; trained only on your saved data, `src/lib/m
 - **Deadline-risk scoring:** transparent 0–100 score (deadline proximity, deferrals, blocked/dependency, inbox age, remaining capacity) with every factor listed — surfaced as the "At-risk & likely to slip" card on Today.
 - **Reports insights:** sharpest working hour, categories whose estimates are systematically off, and a "what things really take you" table.
 - Small samples are always labelled as such; with no history the system says so instead of guessing.
+
+## Premium pass 4 — smart capture, focus suggestion, wrap-up
+- **Smart Quick add:** one line can carry the whole task. Dates ("tomorrow", "Fri", "21 Oct", `2026-10-24`), times ("3pm", "15:30", "eod"), priority (`!high`, `p1`, `!!`), duration (`45m`, `1.5h`), category (`#proposal`, `#follow-up`) and client (`@Nova`, expanded against your saved clients) are parsed live, shown as chips before you press Enter, and stripped from the title. A bare time that already passed today rolls to tomorrow and says so. Parsing lives in `src/lib/quickAdd.ts` (10 unit tests); unparseable words stay in the title untouched.
+- **Do this next:** `src/lib/focus.ts` turns the scheduler's score into one explainable suggestion — overdue first, quick wins flagged, blocked/unmet-dependency tasks excluded, work that fits the time actually left preferred, and a running timer always wins. "Another" cycles suggestions; the score and reason are visible rather than hidden. 8 unit tests.
+- **End-of-day wrap-up:** after `workdayEnd`, Today offers to roll still-open tasks to tomorrow in one click (deferrals counted, undo from the toast).
+- **Undo delete:** soft-deleted tasks can be restored from the toast as well as reopening them.
+- **Keyboard:** `?` opens a shortcut sheet (or the palette action), `/` jumps to Quick add from any page, and dialogs now trap Tab and restore focus to the trigger on close. Global shortcuts stand down while a dialog is open.
+- **Truthful day state:** free time is now the smaller of uncommitted capacity and the hours left; after hours it reads zero, non-working days show "No working hours today", and the hero copy adapts instead of promising an unavailable 8h.
+- **Responsive:** quick-add tokens and the focus card reflow at 1100/900/560px, reminder actions become a 2×2 grid on phones, stat cards drop to two columns below 1240px, and the 320px layout was checked end to end.
