@@ -11,9 +11,9 @@ import {
   Inbox,
   MoonStar,
   Play,
+  CornerDownLeft,
   Plus,
   RefreshCw,
-  Sparkles,
   Target,
   Wifi,
   WifiOff,
@@ -114,7 +114,7 @@ export function TodayPage({
     .filter((entry) => entry.risk.score >= 40)
     .sort((a, b) => b.risk.score - a.risk.score)
     .slice(0, 4);
-  const firstName = settings.name.split(/\s+/)[0] || 'there';
+  const firstName = settings.name.trim().split(/\s+/)[0] ?? '';
   const plannedPercent = percent(planned, capacity);
   const vibe = dayVibe({
     overdue: overdue.length,
@@ -172,15 +172,11 @@ export function TodayPage({
   return (
     <div className="page today-page">
       <section className="hero" data-tod={timeOfDay}>
-        <div className="hero-aurora" aria-hidden="true">
-          <span className="hero-orb hero-orb-1" />
-          <span className="hero-orb hero-orb-2" />
-          <span className="hero-orb hero-orb-3" />
-        </div>
         <div className="hero-copy">
           <p className="eyebrow">{formatDateLong(today)}</p>
           <h1>
-            {greetingForHour(now.getHours())}, {firstName}
+            {greetingForHour(now.getHours())}
+            {firstName ? `, ${firstName}` : ''}
           </h1>
           <p className="hero-sub">
             {overdue.length > 0
@@ -203,9 +199,7 @@ export function TodayPage({
           </p>
           <div className="hero-chips">
             <span className={`vibe-chip vibe-${vibe.tone}`} title={vibe.note}>
-              <span className="vibe-glyph" aria-hidden="true">
-                {vibe.glyph}
-              </span>
+              <span className="vibe-glyph" aria-hidden="true" />
               <span className="vibe-label">{vibe.label}</span>
               <span className="vibe-meter" aria-hidden="true">
                 <i style={{ width: `${vibe.score}%` }} />
@@ -250,6 +244,14 @@ export function TodayPage({
               <span>Free capacity</span>
             </div>
           </div>
+          <p className="hero-readout">
+            <kbd>⌘K</kbd> search
+            <span aria-hidden="true">·</span>
+            <kbd>/</kbd> quick add
+            <span aria-hidden="true">·</span>
+            <kbd>?</kbd> shortcuts
+            <span className="readout-caret" aria-hidden="true" />
+          </p>
         </div>
         <div className="hero-ring">
           <Ring
@@ -322,7 +324,7 @@ export function TodayPage({
             </>
           ) : (
             <p className="quick-tip">
-              <Sparkles size={12} aria-hidden="true" />
+              <CornerDownLeft size={12} aria-hidden="true" />
               Type naturally — “email Sam tomorrow 3pm !high 30m #email @Nova”
             </p>
           )}
@@ -358,7 +360,7 @@ export function TodayPage({
         <section className={`card focus-card focus-${focus.kind}`} aria-label="Suggested next task">
           <div className="focus-top">
             <span className="focus-eyebrow">
-              <Sparkles size={13} aria-hidden="true" /> Do this next
+              <Target size={13} aria-hidden="true" /> Do this next
             </span>
             <span className="focus-score" title="Scheduler score: priority, deadline, deferrals and age">
               <strong>{focus.score}</strong>
@@ -644,7 +646,7 @@ export function TodayPage({
           {openTasks.length === 0 ? (
             <div className="card">
               <EmptyState
-                icon={Sparkles}
+                icon={Check}
                 title="Your day is clear"
                 message="Nothing overdue, nothing due, nothing waiting. Add something small, or import a screenshot and let the parser do the typing."
                 action={

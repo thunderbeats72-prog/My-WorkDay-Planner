@@ -184,7 +184,7 @@ export const DEFAULT_SETTINGS: Settings = {
   id: 'app',
   name: '',
   role: 'Business Development Executive',
-  company: 'Clouder Technologies',
+  company: '',
   workdayStart: '09:00',
   workdayEnd: '18:00',
   lunchStart: '13:00',

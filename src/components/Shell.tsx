@@ -156,7 +156,6 @@ export function Sidebar({
           <span className="profile-copy">
             <strong>{settings.name || 'Your workday'}</strong>
             <small>{settings.role || 'Business Development'}</small>
-            <small>{settings.company}</small>
           </span>
           <span className={`online-dot ${online ? 'is-online' : 'is-offline'}`} aria-label={online ? 'Online' : 'Offline'} />
         </div>

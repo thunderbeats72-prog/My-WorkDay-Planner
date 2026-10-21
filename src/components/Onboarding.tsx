@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Shield, Sparkles } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Cpu, Shield } from 'lucide-react';
 import type { Settings } from '../lib/types';
 import { DAY_SHORT, DEFAULT_SETTINGS, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import { formatDuration, parseTimeToMinutes } from '../lib/dates';
@@ -70,7 +70,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
             <Clock size={16} /> Timestamp-based timer that survives refreshes
           </li>
           <li>
-            <Sparkles size={16} /> On-device learning from your own completed work
+            <Cpu size={16} /> On-device learning from your own completed work
           </li>
         </ul>
         <div className="onboarding-preview">

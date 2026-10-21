@@ -100,3 +100,26 @@ On-device ML (no external model/API; trained only on your saved data, `src/lib/m
 - **Keyboard:** `?` opens a shortcut sheet (or the palette action), `/` jumps to Quick add from any page, and dialogs now trap Tab and restore focus to the trigger on close. Global shortcuts stand down while a dialog is open.
 - **Truthful day state:** free time is now the smaller of uncommitted capacity and the hours left; after hours it reads zero, non-working days show "No working hours today", and the hero copy adapts instead of promising an unavailable 8h.
 - **Responsive:** quick-add tokens and the focus card reflow at 1100/900/560px, reminder actions become a 2×2 grid on phones, stat cards drop to two columns below 1240px, and the 320px layout was checked end to end.
+
+## Design pass — quiet ink
+
+The interface was rebuilt around a deliberately small design vocabulary
+rather than layered decoration:
+
+- **One neutral palette.** Paper greys in light, near-black in dark
+  (`#08080a` canvas, `#101012` surface) with no navy cast. A single muted
+  cobalt is reserved for state; actions are ink.
+- **No aurora, no glow.** The hero is one flat panel; the time-of-day
+  gradients, radial blobs, dotted grid, dashed ring orbit, gradient-clipped
+  numbers and coloured stat bars are gone.
+- **Hairlines over shadows.** Cards are white/black paper with a 1px border,
+  12px radius and no drop shadow. Inputs, chips and badges follow the same rule.
+- **Typography carries the hierarchy.** One family, tighter tracking
+  (`-0.028em` on headings), smaller uppercase labels with far less letter
+  spacing, and tabular numerals for anything that counts.
+- **Personality, not noise.** The keyboard readout (`⌘K` · `/` · `?`) with a
+  blinking caret, the live clock, the "Next in …" countdown and the `NOW`
+  marker in the plan are the only "alive" elements.
+- **Cleanup.** Sparkle icons replaced with functional ones, the emoji vibe
+  glyph replaced by a status dot, the default "Clouder Technologies" company
+  value removed, and the greeting no longer says "Good morning, there".
