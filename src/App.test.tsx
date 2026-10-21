@@ -19,7 +19,7 @@ async function seedOnboarded(overrides: Partial<typeof DEFAULT_SETTINGS> = {}) {
 }
 
 function sidebarButton(label: string): HTMLElement {
-  const sidebar = document.querySelector('.sidebar-nav');
+  const sidebar = document.querySelector('.sidebar');
   if (!sidebar) throw new Error('Sidebar not found');
   return within(sidebar as HTMLElement).getByTitle(label);
 }
@@ -85,19 +85,20 @@ describe('My Workday Planner app', () => {
       expect(cardScope.getByText('Paused')).toBeTruthy();
     });
 
-    await user.click(sidebarButton('Inbox'));
-    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeTruthy();
+    await user.click(sidebarButton('My Tasks'));
+    expect(await screen.findByRole('heading', { name: 'My Tasks' })).toBeTruthy();
     expect(screen.getAllByText('Follow up with Acme').length).toBeGreaterThan(0);
-
-    await user.click(sidebarButton('Schedule'));
-    expect(await screen.findByRole('heading', { name: 'Schedule' })).toBeTruthy();
-    expect(screen.getByText('Unscheduled queue')).toBeTruthy();
+    // The schedule lives inside My Tasks now.
+    expect(screen.getByText(/Today’s plan/i)).toBeTruthy();
 
     await user.click(sidebarButton('Reports'));
     expect(await screen.findByRole('heading', { name: 'Reports' })).toBeTruthy();
 
-    await user.click(sidebarButton('Screenshot Import'));
+    // Import is an action on My Tasks, not a destination.
+    await user.click(sidebarButton('My Tasks'));
+    await user.click(await screen.findByRole('button', { name: 'Import screenshot' }));
     expect(await screen.findByText(/Turn a screenshot into reviewed tasks/)).toBeTruthy();
+    await user.keyboard('{Escape}');
 
     await user.click(sidebarButton('Settings'));
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeTruthy();
@@ -167,7 +168,8 @@ describe('My Workday Planner app', () => {
       expect(screen.queryByRole('button', { name: 'Draft proposal for Orion' })).toBeNull();
     });
 
-    await user.click(sidebarButton('Screenshot Import'));
+    await user.click(sidebarButton('My Tasks'));
+    await user.click(await screen.findByRole('button', { name: 'Import screenshot' }));
     await screen.findByText(/Turn a screenshot into reviewed tasks/);
     await user.click(screen.getByRole('button', { name: 'Use sample text' }));
     expect(await screen.findByText('Extract text')).toBeTruthy();
@@ -178,12 +180,14 @@ describe('My Workday Planner app', () => {
     expect(await screen.findByText('Confirm import')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /Save 3 tasks/ }));
 
-    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'My Tasks' })).toBeTruthy();
+    // The plan strip may repeat a title, so assert inside the task list itself.
+    const list = document.querySelector('.task-list') as HTMLElement;
     expect(
-      await screen.findByRole('button', { name: 'Follow up with Acme Industries on the proposal' }),
+      await within(list).findByRole('button', { name: 'Follow up with Acme Industries on the proposal' }),
     ).toBeTruthy();
     expect(
-      await screen.findByRole('button', { name: 'Send revised pricing deck to Nexus Retail — urgent' }),
+      await within(list).findByRole('button', { name: 'Send revised pricing deck to Nexus Retail — urgent' }),
     ).toBeTruthy();
   }, 30000);
 
@@ -224,8 +228,8 @@ describe('My Workday Planner app', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull());
 
     // Quick capture works from any page.
-    await user.click(sidebarButton('Inbox'));
-    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeTruthy();
+    await user.click(sidebarButton('My Tasks'));
+    expect(await screen.findByRole('heading', { name: 'My Tasks' })).toBeTruthy();
     await user.keyboard('/');
     const focusedBar = await screen.findByPlaceholderText(/Quick add for today/);
     await waitFor(() => expect(document.activeElement).toBe(focusedBar));
@@ -291,7 +295,7 @@ describe('live behaviour', () => {
       fireEvent.keyDown(quickAdd, { key: 'Enter', code: 'Enter' });
 
       expect(await screen.findByText(/Next in 5h 5\dm|Next in 6h/)).toBeTruthy();
-      expect(document.querySelector('.live-clock')?.textContent).toContain('10:00');
+      expect(document.querySelector('.analog-clock')?.getAttribute('aria-label')).toContain('10:00');
 
       // Two hours later, with no reload and no new fetch.
       await act(async () => {
@@ -300,7 +304,8 @@ describe('live behaviour', () => {
       });
 
       expect(await screen.findByText(/Next in 3h 5\dm|Next in 4h/)).toBeTruthy();
-      expect(document.querySelector('.live-clock')?.textContent).toContain('12:00');
+      const clock = document.querySelector('.analog-clock');
+      expect(clock?.getAttribute('aria-label')).toContain('12:00');
     } finally {
       vi.useRealTimers();
     }
@@ -326,7 +331,7 @@ describe('live behaviour', () => {
     await waitFor(() => expect(document.querySelector('.app-shell')?.getAttribute('data-sidebar')).toBe('rail'));
     expect(window.localStorage.getItem('workday.sidebar')).toBe('collapsed');
     // The label is visually hidden in rail mode but stays reachable for assistive tech.
-    expect(within(document.querySelector('.sidebar-nav') as HTMLElement).getByRole('button', { name: 'Inbox' })).toBeTruthy();
+    expect(within(document.querySelector('.sidebar-nav') as HTMLElement).getByRole('button', { name: 'My Tasks' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
     await waitFor(() => expect(document.querySelector('.app-shell')?.getAttribute('data-sidebar')).toBe('full'));
@@ -335,12 +340,13 @@ describe('live behaviour', () => {
     Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
   }, 30000);
 
-  it('gives Overdue its own icon so no two nav items look alike', async () => {
+  it('keeps the sidebar to five destinations with no repeated icons', async () => {
     render(<StrictMode><App /></StrictMode>);
     await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
-    const sidebar = document.querySelector('.sidebar-nav') as HTMLElement;
+    const sidebar = document.querySelector('.sidebar') as HTMLElement;
     const icons = Array.from(sidebar.querySelectorAll('.nav-item svg')).map((svg) => svg.innerHTML);
-    expect(icons.length).toBeGreaterThan(4);
+    // Today, My Tasks, Completed, Reports + Settings.
+    expect(icons.length).toBe(5);
     expect(new Set(icons).size).toBe(icons.length);
   }, 30000);
 });

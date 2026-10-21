@@ -75,7 +75,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         </ul>
         <div className="onboarding-preview">
           <span className="preview-label">Live preview</span>
-          <h2>Good morning, {draft.name || 'there'}</h2>
+          <h2>{draft.name ? `Good morning, ${draft.name.split(/\s+/)[0]}` : 'Good morning'}</h2>
           <p>
             {daysLabel || 'No working days yet'} · {draft.workdayStart}–{draft.workdayEnd}
           </p>

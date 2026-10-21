@@ -23,9 +23,9 @@ const GROUPS: ShortcutGroup[] = [
     title: 'Jump to a page',
     rows: [
       { keys: ['D'], label: 'Today' },
-      { keys: ['I'], label: 'Inbox' },
-      { keys: ['C'], label: 'Schedule' },
+      { keys: ['I'], label: 'My Tasks' },
       { keys: ['R'], label: 'Reports' },
+      { keys: ['C'], label: 'Completed' },
     ],
   },
   {
