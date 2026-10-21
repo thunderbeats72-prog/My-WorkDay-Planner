@@ -6,13 +6,14 @@ Private, local-first PWA for a Business Development Executive at Clouder Technol
 
 ## Run
 ```bash
-npx -y pnpm@9 install
-npx -y pnpm@9 dev
-# build check
-npx -y pnpm@9 build
+npx -y pnpm@10 install
+npx -y pnpm@10 dev        # http://localhost:5173
+npx -y pnpm@10 build      # type-check + production build
+npx -y pnpm@10 test       # engine, ML and full-app tests
+npx -y pnpm@10 lint
 ```
 
-## What's working (Stages 1–4 + 6, local)
+## What's working
 - Onboarding & working-hours settings, deep-navy responsive layout, mobile bottom nav
 - Task CRUD, priorities, categories, deadlines, undo completion, soft delete, search — persisted in IndexedDB across refresh/restart
 - Screenshot Import: drag/drop or upload, Tesseract.js OCR with progress, editable raw text, deterministic parsing, confidence + ambiguous-date warnings, duplicate detection, **mandatory review before saving**, plus a sample-text mode
@@ -28,6 +29,12 @@ npx -y pnpm@9 build
 - **OCR:** quality depends on screenshot clarity; inferred dates are flagged and never auto-confirmed.
 - IndexedDB is per-browser/device and can be cleared — export backups regularly.
 
+## Deploy
+Vercel (or any static host) with **build command** `pnpm build` and **output directory** `dist`. The repo pins its dependency graph in `pnpm-lock.yaml`; no environment variables are required. Service-worker caching only activates in production builds.
+
+## Tests
+`npx -y pnpm@10 test` runs Vitest with jsdom + Testing Library: pure scheduling/scoring/date-parsing/OCR tests (`src/lib/engine.test.ts`), on-device ML tests (`src/lib/ml.test.ts`), and a full-app integration test covering onboarding, task CRUD, timer start/pause, rescheduling, completion + undo, screenshot import and reload persistence (`src/App.test.tsx`), backed by `fake-indexeddb`.
+
 ## Architecture
 `src/lib/types.ts` (domain models) · `src/lib/db.ts` (Dexie/IndexedDB) · `src/lib/engine.ts` (pure scheduling + OCR parsing — unit-testable) · `src/App.tsx` (UI, timer, reminders)
 
@@ -39,7 +46,6 @@ npx -y pnpm@9 build
 - Screenshot import is a guided 4-step wizard (Upload → Extract → Review → Confirm) with an explicit consequences summary before anything is saved.
 - Schedule "Apply suggestions" now asks first, listing how many tasks move, how many stay queued, and confirming no deadline changes. Daily view interleaves the protected break; proposal blocks are labelled focus blocks; weekly view shows real due dates only.
 - Dashboard header shows live Online/Offline, notification-permission, and truthful "Local-only · Sync not configured" chips. Overdue is computed only from real deadlines — suggested times passing never marks a task overdue.
-- Known gap: no headless browser in the build sandbox, so viewport acceptance was verified by build + CSS breakpoint implementation, not screenshot testing. Resize the preview (or use device toolbar) to confirm at 390px / 820px / 1440px.
 
 ## Outlook & Teams connection (Microsoft Graph)
 - Settings → **Connected accounts**: paste your own free Azure App Registration **Application (client) ID** (SPA platform, redirect URI shown in-app), then **Connect with Microsoft** — OAuth 2.0 + PKCE in the browser, no client secret, read-only scopes `User.Read, Mail.Read, Chat.ReadBasic, ChatMessage.Read`.
@@ -67,7 +73,6 @@ npx -y pnpm@9 build
 - **Scroll progress bar** at the very top + a **back-to-top** button after scrolling.
 - **Mobile top bar** (sticky, blurred): brand, live online status, command-palette and theme buttons — since the sidebar is hidden on phones.
 - **Responsive hardening:** dedicated breakpoints at 1500 / 1200 / 1024 / 900 / 767 / 420px; global `overflow-x: clip` guards, `min-width: 0` flex fixes and word-wrapping so long titles/clients can't stretch the layout; schedule timeline stacks vertically on phones; weekly grid collapses 7 → 3 → 2 → 1 columns; task actions go full-width on touch; inputs use 16px text on mobile to stop iOS focus-zoom; toasts dock above the bottom nav; safe-area padding on sheets.
-- Sandbox limitation remains: no headless browser, so breakpoints are implemented + build-verified rather than screenshot-verified. Please spot-check at ~390px (phone), ~820px (tablet) and full width.
 
 ## Logic audit + on-device ML
 Scenario fixes (all covered by tests where the logic is pure):
