@@ -14764,3 +14764,24 @@ kbd {
 .task-check {
   margin-top: 0.5px;
 }
+
+/* The unread count was being sliced in half. `.icon-btn` sets
+   `overflow: hidden`, and the badge is deliberately hung off the top-right
+   corner, so the button clipped the corner off the circle and took half the
+   number with it. The bell has nothing that needs clipping (no sweep, no
+   slide), so it may overflow; the badge is sized to clear the glyph. */
+.notify-bell {
+  overflow: visible;
+  z-index: 1;
+}
+
+.notify-badge {
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 9px;
+  z-index: 2;
+}
