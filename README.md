@@ -269,3 +269,19 @@ visible on the Completed page. The control now resets its padding, centres on
 the grid, locks `flex`/`aspect-ratio` so an empty circle can never stretch into
 a stadium, and sits 0.75px from the title's optical centre. Measured, not
 eyeballed: the browser offset is now `0.00 × 0.00`.
+
+### Why the installed app kept the old name and icon
+
+The window title of an installed PWA is `{name stored in the OS shortcut} -
+{document title}`. Windows copies **both** the name and the icon when the app is
+installed and never re-reads them on a refresh or a redeploy, so an app installed
+under an older name keeps that name in its title bar indefinitely. No amount of
+refreshing, and no change to the manifest, can reach it — the shortcut has to be
+reinstalled.
+
+What the app *can* do is make sure the next install lands correct, so the
+manifest now calls itself `My Workday Planner` (it said `Workday Planner`, which
+is not the name anywhere else in the product), the icon URLs moved to a new
+generation (`?v=5`), and a new service worker reloads an open tab once when it
+takes control — previously the first refresh after a deploy kept painting the
+cached shell, which is indistinguishable from "nothing happened".
