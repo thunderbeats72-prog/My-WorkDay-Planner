@@ -5,7 +5,7 @@
  * — on Android, for an installed app — during a periodic background check.
  */
 
-const CACHE = 'workday-shell-v3';
+const CACHE = 'workday-shell-v4';
 const SHELL = [
   '/',
   '/index.html',
@@ -13,8 +13,12 @@ const SHELL = [
   '/icon.svg',
   '/icon-192.png',
   '/icon-512.png',
+  '/icon-maskable-512.png',
   '/apple-touch-icon.png',
+  '/favicon.ico',
+  '/favicon-16.png',
   '/favicon-32.png',
+  '/favicon-48.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -55,6 +59,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Icons and the manifest are network-first: an outdated logo is worse than
+  // a slightly slower icon request.
+  const isBrandAsset =
+    /\.(png|svg|ico)$/i.test(url.pathname) || url.pathname.endsWith('manifest.webmanifest');
+
+  if (isBrandAsset) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached ?? Response.error())),
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
@@ -72,8 +96,8 @@ self.addEventListener('fetch', (event) => {
 /* Notifications                                                       */
 /* ------------------------------------------------------------------ */
 
-const ICON = '/icon-192.png';
-const BADGE = '/favicon-32.png';
+const ICON = '/icon-192.png?v=4';
+const BADGE = '/favicon-32.png?v=4';
 
 async function showNotification(title, options) {
   try {

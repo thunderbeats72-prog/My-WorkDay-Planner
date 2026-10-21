@@ -1,5 +1,3 @@
-const SIZES = { sm: 32, md: 40, lg: 56 } as const;
-
 /**
  * The app mark: a quiet "day arc" — a nearly-complete ring with a gap and a
  * single pin at its start — on a flat near-black tile.
@@ -7,7 +5,16 @@ const SIZES = { sm: 32, md: 40, lg: 56 } as const;
  * Deliberately free of gradients, glows or sparks: the mark should read as a
  * precision instrument at 16px and as a considered logo at 96px. The arc is
  * the day; the gap is what is still left of it.
+ *
+ * The geometry comes from `lib/brandGeometry` so the mark here, the tab icon
+ * and the generated PNGs cannot drift into different logos. `pnpm brand:icons`
+ * regenerates the assets from the same module.
  */
+
+import { MARK } from '../lib/brandGeometry';
+
+const SIZES = { sm: 32, md: 40, lg: 56 } as const;
+
 export function BrandMark({
   size = 'md',
   className = '',
@@ -27,13 +34,13 @@ export function BrandMark({
       role={decorative ? undefined : 'img'}
       aria-label={decorative ? undefined : 'My Workday Planner'}
     >
-      <svg viewBox="0 0 512 512" width={px} height={px} focusable="false">
-        <rect width="512" height="512" rx="112" fill="#0B0B0D" />
+      <svg viewBox={`0 0 ${MARK.size} ${MARK.size}`} width={px} height={px} focusable="false">
+        <rect width={MARK.size} height={MARK.size} rx="112" fill={MARK.tile} />
         <rect
           x="3"
           y="3"
-          width="506"
-          height="506"
+          width={MARK.size - 6}
+          height={MARK.size - 6}
           rx="109"
           fill="none"
           stroke="#FFFFFF"
@@ -41,21 +48,36 @@ export function BrandMark({
           strokeWidth="6"
         />
         {/* Track: the whole day, barely there. */}
-        <circle cx="256" cy="256" r="132" fill="none" stroke="#FFFFFF" strokeOpacity="0.16" strokeWidth="30" />
-        {/* Arc: the part of the day already lived. 268° starting at 12 o'clock. */}
         <circle
-          cx="256"
-          cy="256"
-          r="132"
+          cx={MARK.size / 2}
+          cy={MARK.size / 2}
+          r={MARK.radius}
           fill="none"
           stroke="#FFFFFF"
-          strokeWidth="30"
+          strokeOpacity="0.16"
+          strokeWidth={MARK.stroke}
+        />
+        {/* Arc: the part of the day already lived. */}
+        <circle
+          cx={MARK.size / 2}
+          cy={MARK.size / 2}
+          r={MARK.radius}
+          fill="none"
+          stroke="#FFFFFF"
+          strokeWidth={MARK.stroke}
           strokeLinecap="round"
-          strokeDasharray="407 422"
-          transform="rotate(-90 256 256)"
+          strokeDasharray={`${MARK.dash} ${MARK.gap}`}
+          transform={`rotate(-90 ${MARK.size / 2} ${MARK.size / 2})`}
         />
         {/* The pin: now. */}
-        <circle cx="256" cy="124" r="17" fill="#0B0B0D" stroke="#FFFFFF" strokeWidth="9" />
+        <circle
+          cx={MARK.size / 2}
+          cy={MARK.pinY}
+          r={MARK.pinRadius}
+          fill={MARK.tile}
+          stroke="#FFFFFF"
+          strokeWidth={MARK.pinStroke}
+        />
       </svg>
     </span>
   );
