@@ -69,9 +69,10 @@ export function AuthForm({
       return;
     }
 
-    // Signing in succeeds locally even when the sync project refuses; say so
-    // rather than letting someone believe both devices now match.
-    if (result.error) addToast?.(`Signed in on this device — ${result.error}`, 'warning');
+    // A success can still carry a sentence: this account only exists here, or it
+    // was just added to the shared database. Show it as written — prefixing it
+    // with "signed in on this device" made the synced case read like a failure.
+    if (result.error) addToast?.(result.error, 'info');
     else addToast?.(mode === 'signup' ? 'Account created. Welcome in.' : 'Signed in.', 'success');
 
     setPassword('');

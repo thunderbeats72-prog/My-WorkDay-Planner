@@ -14,6 +14,80 @@ import type { BackupFile } from './db';
 
 const BASE = '/api';
 
+/**
+ * What this deployment's own API looks like from the browser.
+ *
+ * The build-time flag `VITE_SYNC_MODE=neon` was the only way to switch sync on,
+ * so a deployment that forgot it behaved as if it had no database at all: the
+ * phone fell back to local accounts and said "no account with that user ID",
+ * while the laptop — which had created one locally — kept working. The API is
+ * now asked directly. If `/api/version` answers like our own server, sync is
+ * on, flag or no flag.
+ */
+export type ApiStatus = 'unknown' | 'ready' | 'no-database' | 'missing' | 'unreachable';
+
+let status: ApiStatus = 'unknown';
+
+/** Last known state, without waiting for a round trip. */
+export function apiStatus(): ApiStatus {
+  return status;
+}
+
+/** Only a real deployment can answer; dev servers and tests use the local path. */
+function canProbe(): boolean {
+  return Boolean(import.meta.env.PROD) && typeof fetch === 'function';
+}
+
+/**
+ * Ask the site whether it is serving its own API.
+ *
+ * A static host answers an unknown path with its 404 page (or, with a rewrite,
+ * with index.html and a 200), and neither is JSON — that is what "the functions
+ * did not deploy" looks like from here. A 401 with a JSON body is a pass: the
+ * function ran and only wants a token. A 500 that names DATABASE_URL means the
+ * functions are alive but the database is not attached, which is a different
+ * sentence and deserves a different message.
+ */
+export async function detectApi(force = false): Promise<ApiStatus> {
+  if (!force && !canProbe()) return status;
+  // A definite answer is cached for the life of the page. "Unreachable" is not
+  // definite — someone who opened the app on a bad train signal should be able
+  // to sign in once the signal returns, without reloading.
+  if (!force && (status === 'ready' || status === 'no-database' || status === 'missing')) return status;
+  try {
+    const response = await fetch(`${BASE}/health`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const text = await response.text();
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = null;
+    }
+    if (!body || typeof body !== 'object') {
+      // A web page came back, so this host is static: the functions did not
+      // deploy, or they were never part of this project.
+      status = 'missing';
+      return status;
+    }
+    const record = body as { database?: unknown };
+    if (record.database === 'ready') status = 'ready';
+    else if (record.database === 'absent' || record.database === 'error') status = 'no-database';
+    else status = response.status === 404 ? 'missing' : 'ready';
+  } catch {
+    status = 'unreachable';
+  }
+  return status;
+}
+
+/** Test-only: forget the cached answer. */
+export function resetApiStatus(): void {
+  status = 'unknown';
+}
+
 export interface NeonSessionPayload {
   userId: string;
   token: string;
@@ -23,6 +97,8 @@ export interface NeonSessionPayload {
 export interface NeonResult<T> {
   ok: boolean;
   error?: string;
+  /** HTTP status when the server answered at all. */
+  status?: number;
   data?: T;
 }
 
@@ -37,16 +113,34 @@ async function call<T>(path: string, init: RequestInit, token?: string): Promise
       },
     });
     const text = await response.text();
-    const body: unknown = text ? JSON.parse(text) : null;
-    if (!response.ok) {
-      const record = (body ?? {}) as { error?: string };
-      return { ok: false, error: record.error ?? `Sync request failed (HTTP ${response.status}).` };
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = null;
     }
+    if (!body || typeof body !== 'object') {
+      // A web page came back where data should have been: the site is static.
+      status = 'missing';
+      return {
+        ok: false,
+        status: response.status,
+        error: `This site is not answering on ${BASE} — the sign-in server did not deploy.`,
+      };
+    }
+    if (!response.ok) {
+      const record = body as { error?: string };
+      const error = record.error ?? `Sync request failed (HTTP ${response.status}).`;
+      if (response.status === 500 && /DATABASE_URL/i.test(error)) status = 'no-database';
+      return { ok: false, status: response.status, error };
+    }
+    status = 'ready';
     return { ok: true, data: body as T };
   } catch {
+    if (status === 'unknown') status = 'unreachable';
     return {
       ok: false,
-      error: 'Could not reach the sync API. Your tasks are still safe on this device.',
+      error: 'Could not reach the sync API — check the connection. Your tasks are still safe on this device.',
     };
   }
 }

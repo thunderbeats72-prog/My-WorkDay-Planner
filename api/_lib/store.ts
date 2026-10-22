@@ -1,4 +1,5 @@
 import { neon } from '@neondatabase/serverless';
+import { pickDatabaseUrl } from '../../src/lib/databaseUrl.js';
 
 /**
  * The whole server side of Neon sync: three tables, no ORM.
@@ -43,16 +44,21 @@ async function rows<T>(query: ReturnType<ReturnType<typeof neon>>): Promise<T[]>
  * 'process'` on this exact line, which stopped the function deploying and left
  * /api returning 404 at runtime. Reading it structurally compiles either way.
  */
-function env(name: string): string | undefined {
+function env(): Record<string, string | undefined> {
   const scope = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
-  return scope.process?.env?.[name];
+  return scope.process?.env ?? {};
+}
+
+/** True when some spelling of the connection string reached this function. */
+export function databaseUrlPresent(): boolean {
+  return Boolean(pickDatabaseUrl(env()));
 }
 
 export function sql() {
-  const url = env('DATABASE_URL') ?? env('NEON_DATABASE_URL');
+  const url = pickDatabaseUrl(env());
   if (!url) {
     throw new Error(
-      'DATABASE_URL is not set. Copy the connection string from Neon → Connection Details and add it to the deployment.',
+      'No database is attached to this deployment: no DATABASE_URL reached the function. In Vercel → Storage, connect the Neon database to this project (Production and Preview), then redeploy.',
     );
   }
   if (!client) client = neon(url);
@@ -88,7 +94,7 @@ export function fail(res: ApiResponse, status: number, error: string): void {
 /** Turns a thrown error into a message a person can act on, never a stack. */
 export function explain(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  if (/DATABASE_URL is not set/i.test(message)) return message;
+  if (/no database is attached/i.test(message)) return message;
   if (/relation .* does not exist/i.test(message)) {
     return 'The database refused to create its tables. Check that DATABASE_URL points at a database you own and try again.';
   }

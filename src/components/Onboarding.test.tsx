@@ -22,6 +22,7 @@ function fakeAccount(overrides: Partial<AccountApi> = {}): AccountApi {
     removeAccount: vi.fn(async () => ({ ok: true })),
     connectCloud: vi.fn(async () => ({ ok: true })),
     disconnectCloud: vi.fn(),
+    publishAccount: vi.fn(async () => ({ ok: true })),
     ...overrides,
   };
 }

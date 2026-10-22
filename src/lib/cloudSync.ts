@@ -12,7 +12,18 @@
  */
 
 import type { BackupFile } from './db';
-import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, neonVersion, type NeonSessionPayload } from './neonBackend';
+import {
+  apiStatus,
+  detectApi,
+  neonProbe,
+  neonPull,
+  neonPush,
+  neonSignIn,
+  neonSignOut,
+  neonSignUp,
+  neonVersion,
+  type NeonSessionPayload,
+} from './neonBackend';
 
 export interface CloudConfig {
   url: string;
@@ -31,6 +42,8 @@ export interface CloudSession {
 export interface CloudResult<T = undefined> {
   ok: boolean;
   error?: string;
+  /** HTTP status when a server answered, so callers can say what happened. */
+  status?: number;
   data?: T;
 }
 
@@ -71,7 +84,30 @@ export function syncProvider(): SyncProvider | null {
 
 /** True when the deployment itself supplies a sync backend. */
 export const MANAGED_SYNC = envUrl.length > 0 && envKey.length > 0;
-export const IS_NEON = neonMode && !MANAGED_SYNC;
+
+/**
+ * Is Neon sync available here?
+ *
+ * The build flag is the fast answer, but it is not the only one: a deployment
+ * whose `/api` answers is a deployment with sync, whether or not somebody
+ * remembered to set `VITE_SYNC_MODE`. That mistake used to look like a wrong
+ * password on the phone, so the server gets the final word.
+ */
+export function neonEnabled(): boolean {
+  if (MANAGED_SYNC) return false;
+  if (neonMode) return true;
+  const state = apiStatus();
+  return state === 'ready' || state === 'no-database';
+}
+
+/**
+ * Make sure we know what this deployment is before deciding anything about a
+ * sign-in. Cheap: one request, cached for the life of the page.
+ */
+export async function ensureBackend(): Promise<boolean> {
+  if (!isCloudConfigured()) await detectApi();
+  return isCloudConfigured();
+}
 
 function read<T>(key: string): T | null {
   try {
@@ -99,7 +135,7 @@ export function loadCloudConfig(): CloudConfig | null {
   // default can be overridden per device without a redeploy.
   if (MANAGED_SYNC) return { url: envUrl, anonKey: envKey };
   // Neon runs behind this deployment's own /api routes.
-  if (IS_NEON) return { url: '/api', anonKey: '' };
+  if (neonEnabled()) return { url: '/api', anonKey: '' };
   return null;
 }
 
@@ -226,9 +262,9 @@ function sessionFromToken(payload: NeonSessionPayload | null, userId: string): C
 }
 
 export async function cloudSignUp(userId: string, password: string, displayName?: string): Promise<CloudResult<CloudSession>> {
-  if (IS_NEON) {
+  if (neonEnabled()) {
     const result = await neonSignUp(userId, password, displayName);
-    if (!result.ok) return { ok: false, error: result.error };
+    if (!result.ok) return { ok: false, error: result.error, status: result.status };
     return sessionFromToken(result.data ?? null, userId);
   }
   const config = loadCloudConfig();
@@ -247,9 +283,9 @@ export async function cloudSignUp(userId: string, password: string, displayName?
 }
 
 export async function cloudSignIn(userId: string, password: string): Promise<CloudResult<CloudSession>> {
-  if (IS_NEON) {
+  if (neonEnabled()) {
     const result = await neonSignIn(userId, password);
-    if (!result.ok) return { ok: false, error: result.error };
+    if (!result.ok) return { ok: false, error: result.error, status: result.status };
     return sessionFromToken(result.data ?? null, userId);
   }
   const config = loadCloudConfig();
@@ -258,7 +294,7 @@ export async function cloudSignIn(userId: string, password: string): Promise<Clo
     method: 'POST',
     body: JSON.stringify({ email: cloudEmail(userId), password }),
   });
-  if (!result.ok) return { ok: false, error: result.error };
+  if (!result.ok) return { ok: false, error: result.error, status: result.status };
   return sessionFrom(result.data ?? null, userId);
 }
 
@@ -267,7 +303,7 @@ export async function cloudSignOut(): Promise<void> {
   const session = loadCloudSession();
   saveCloudSession(null);
   if (!config || !session) return;
-  if (IS_NEON) {
+  if (neonEnabled()) {
     await neonSignOut(session.accessToken);
     return;
   }
@@ -291,7 +327,7 @@ async function freshSession(): Promise<CloudSession | null> {
 }
 
 export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null>> {
-  if (IS_NEON) {
+  if (neonEnabled()) {
     const neonSession = loadCloudSession();
     if (!neonSession) return { ok: false, error: 'Sign in again — the sync token has expired.' };
     return neonPull(neonSession.accessToken);
@@ -307,7 +343,7 @@ export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null
     { method: 'GET' },
     session.accessToken,
   );
-  if (!result.ok) return { ok: false, error: result.error };
+  if (!result.ok) return { ok: false, error: result.error, status: result.status };
   const row = result.data?.[0];
   return { ok: true, data: row?.payload ?? null };
 }
@@ -321,7 +357,7 @@ export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null
  * back to full syncs.
  */
 export async function pullVersion(): Promise<CloudResult<string | null>> {
-  if (IS_NEON) {
+  if (neonEnabled()) {
     const neonSession = loadCloudSession();
     if (!neonSession) return { ok: false, error: 'Sign in again — the sync token has expired.' };
     return neonVersion(neonSession.accessToken);
@@ -330,7 +366,7 @@ export async function pullVersion(): Promise<CloudResult<string | null>> {
 }
 
 export async function pushCloudSnapshot(snapshot: BackupFile): Promise<CloudResult> {
-  if (IS_NEON) {
+  if (neonEnabled()) {
     const neonSession = loadCloudSession();
     if (!neonSession) return { ok: false, error: 'Sign in again — the sync token has expired.' };
     return neonPush(neonSession.accessToken, snapshot);
@@ -355,7 +391,7 @@ export async function pushCloudSnapshot(snapshot: BackupFile): Promise<CloudResu
 
 /** Runs a query against the project to prove the two keys work before saving. */
 export async function testCloudConnection(url: string, anonKey: string): Promise<CloudResult> {
-  if (IS_NEON) return neonProbe();
+  if (neonEnabled()) return neonProbe();
   const trimmedUrl = url.trim().replace(/\/+$/, '');
   try {
     const response = await fetch(`${trimmedUrl}/rest/v1/${TABLE}?select=updated_at&limit=1`, {

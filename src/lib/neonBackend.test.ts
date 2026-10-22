@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, neonVersion } from './neonBackend';
+import { apiStatus, detectApi, neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, neonVersion, resetApiStatus } from './neonBackend';
 
 function mockFetch(handler: (url: string, init: RequestInit) => { status: number; body: unknown }) {
   const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -117,5 +117,61 @@ describe('version polling — the real-time beat', () => {
     const result = await neonVersion('stale');
     expect(result.ok).toBe(false);
     expect(result.error).toContain('expired');
+  });
+});
+
+describe('finding the API without being told where it is', () => {
+  /**
+   * The build flag `VITE_SYNC_MODE=neon` used to be the only switch. A deploy
+   * that lacked it looked exactly like a wrong password on the phone, because
+   * the app quietly fell back to local accounts. The deployment now answers for
+   * itself through /api/health, and these are the shapes that answer takes.
+   */
+  function respondWith(status: number, text: string) {
+    const spy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => text,
+    }));
+    vi.stubGlobal('fetch', spy);
+    return spy;
+  }
+
+  afterEach(() => {
+    resetApiStatus();
+  });
+
+  it('says ready when the API reports a reachable database', async () => {
+    const spy = respondWith(200, JSON.stringify({ api: 'ok', database: 'ready' }));
+    expect(await detectApi(true)).toBe('ready');
+    expect(spy.mock.calls[0][0]).toBe('/api/health');
+    expect(apiStatus()).toBe('ready');
+  });
+
+  it('separates "no API" from "API but no database"', async () => {
+    respondWith(200, JSON.stringify({ api: 'ok', database: 'absent' }));
+    expect(await detectApi(true)).toBe('no-database');
+  });
+
+  it('treats a database that is attached but unreachable as no-database, not as a healthy API', async () => {
+    respondWith(200, JSON.stringify({ api: 'ok', database: 'error', error: 'Neon rejected the connection string.' }));
+    expect(await detectApi(true)).toBe('no-database');
+  });
+
+  it('says missing when the host serves its 404 page instead', async () => {
+    respondWith(404, '<!doctype html><title>404: NOT_FOUND</title>');
+    expect(await detectApi(true)).toBe('missing');
+  });
+
+  it('says missing when a rewrite hands back index.html with a 200', async () => {
+    respondWith(200, '<!doctype html><div id="root"></div>');
+    expect(await detectApi(true)).toBe('missing');
+  });
+
+  it('does not re-ask once the answer is known', async () => {
+    const spy = respondWith(200, JSON.stringify({ api: 'ok', database: 'ready' }));
+    await detectApi(true);
+    await detectApi();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

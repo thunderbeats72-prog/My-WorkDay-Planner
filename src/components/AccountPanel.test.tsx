@@ -24,6 +24,7 @@ function fakeAccount(overrides: Partial<AccountApi> = {}): AccountApi {
     removeAccount: vi.fn(async () => ({ ok: true })),
     connectCloud: vi.fn(async () => ({ ok: true })),
     disconnectCloud: vi.fn(),
+    publishAccount: vi.fn(async () => ({ ok: true })),
     ...overrides,
   };
 }
@@ -97,10 +98,28 @@ describe('AccountPanel', () => {
     expect(addToast).toHaveBeenLastCalledWith('1 new task', 'success');
   });
 
+  it('offers the one tap that puts a device-only login into the database', async () => {
+    const publishAccount = vi.fn(async () => ({ ok: true }));
+    render(
+      <AccountPanel
+        account={fakeAccount({ account: signedIn, cloudConfigured: true, cloudConnected: false, publishAccount })}
+        addToast={addToast}
+      />,
+    );
+
+    expect(screen.getByText(/made on this device/i)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /Add to the shared database/ }));
+    await userEvent.type(screen.getByLabelText('Password for this account'), 'open sesame 72');
+    await userEvent.click(screen.getByRole('button', { name: /Add this account/ }));
+
+    expect(publishAccount).toHaveBeenCalledWith('open sesame 72');
+    expect(addToast).toHaveBeenLastCalledWith(expect.stringMatching(/works on your phone/i), 'success');
+  });
+
   it('never asks for database keys when sync is not configured', () => {
     render(<AccountPanel account={fakeAccount({ account: signedIn })} addToast={addToast} />);
 
-    expect(screen.getByText(/Not configured in this copy/)).toBeTruthy();
+    expect(screen.getByText(/No shared database in this copy/)).toBeTruthy();
     expect(screen.queryByLabelText('Project URL')).toBeNull();
     expect(screen.queryByLabelText('Anon public key')).toBeNull();
     expect(screen.queryByText(/supabase/i)).toBeNull();
