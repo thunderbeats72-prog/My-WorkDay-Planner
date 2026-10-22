@@ -5827,12 +5827,11 @@ a.btn {
   }
 }
 
+/* Page titles are solid ink. The gradient-clipped version faded out on long
+   titles in dark mode, where --primary is a mid grey. Removed rather than
+   overridden: dead paint declarations are what hid 19 other rules. */
 .page-header h1 {
-  background: linear-gradient(96deg, var(--text) 30%, color-mix(in srgb, var(--text) 62%, var(--primary)) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
+  color: var(--text);
 }
 
 .page-description {
@@ -11612,10 +11611,14 @@ body.nav-drawer-open {
   --hairline: 0 0 0 0 transparent;
   --glow-primary: none;
   --glow-success: none;
-  --grad-primary: none;
-  --grad-success: none;
-  --grad-warm: none;
-  --grad-danger: none;
+  /* These still name a gradient in 19 rules — the FAB, every progress bar,
+     the capacity bars, priority rails. Setting them to `none` made all of
+     that paint nothing at all. They are solid colours now: same rules, same
+     call sites, actually visible, and no gradients back in the product. */
+  --grad-primary: var(--ink);
+  --grad-success: var(--success);
+  --grad-warm: var(--warning);
+  --grad-danger: var(--danger);
 }
 
 :root[data-theme='dark'] {
@@ -15503,4 +15506,390 @@ kbd {
 
 .sync-chip.is-live {
   border-color: color-mix(in srgb, var(--success) 26%, var(--border));
+}
+
+/* =========================================================================
+   Design v7 — craft pass over the whole surface
+   -------------------------------------------------------------------------
+   Two real defects to start with, then a consistent layer over the things
+   the eye actually lands on: page headers, cards, empty states, stat
+   numbers, navigation and selection.
+
+   No new colours and no new effects: this is spacing, weight, rhythm and
+   contrast, all built from the existing ink/surface/border tokens.
+   ========================================================================= */
+
+/* --- 1. The eyebrow rule was invisible -------------------------------
+   `--grad-primary` was set to `none` when the gradients were removed, and
+   this rule painted itself with that token. It now paints with a solid
+   colour, so every page title keeps its small lead-in mark. */
+
+.page-header .eyebrow::before {
+  background: var(--text-soft);
+  opacity: 0.65;
+}
+
+/* --- 2. Gradient-clipped headings washed out in dark mode ------------
+   The heading text was a gradient from `--text` into `--primary`; in dark
+   mode `--primary` is a mid grey, so long titles faded as they ran right.
+   Solid ink is also crisper at these sizes. */
+
+/* --- 3. Page header rhythm ------------------------------------------ */
+
+.page-header {
+  align-items: flex-end;
+  gap: 18px 24px;
+  padding-bottom: 2px;
+}
+
+.page-header-copy {
+  gap: 7px;
+}
+
+.page-header h1 {
+  font-size: clamp(24px, 2.1vw, 30px);
+  font-weight: 640;
+  letter-spacing: -0.032em;
+  line-height: 1.12;
+  margin: 0;
+}
+
+.page-header .eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+}
+
+.page-description {
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* --- 4. Surfaces ----------------------------------------------------- */
+
+.card {
+  border-radius: 15px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs, 0 1px 1px rgba(0, 0, 0, 0.03));
+}
+
+:root[data-theme='dark'] .card {
+  box-shadow: none;
+}
+
+/* Section titles inside cards get the same editorial treatment. */
+.card h2,
+.settings-section h2 {
+  font-size: 14.5px;
+  font-weight: 620;
+  letter-spacing: -0.018em;
+}
+
+.card h3 {
+  letter-spacing: -0.014em;
+}
+
+/* --- 5. Empty states -------------------------------------------------
+   The icon gets a ring so an empty page reads as a considered state
+   rather than a missing one. */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+  padding: 44px 24px;
+}
+
+.empty-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-soft);
+}
+
+.empty-state h3 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+}
+
+.empty-state p {
+  max-width: 42ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.empty-state > .btn,
+.empty-state > button {
+  margin-top: 16px;
+}
+
+/* --- 6. Stat numbers -------------------------------------------------
+   Tabular figures, tight tracking, and a label that stays quiet. */
+
+.stat-card {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.stat-value,
+.stat-card strong {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  font-weight: 640;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat-icon {
+  color: var(--text-soft);
+}
+
+/* --- 7. Navigation --------------------------------------------------- */
+
+.nav-item {
+  position: relative;
+  border-radius: 9px;
+  transition:
+    background var(--dur-2) ease,
+    color var(--dur-2) ease;
+}
+
+.nav-item.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* One rail marker instead of a filled block: the eye finds it, the page
+   does not shout. */
+.nav-item.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 2px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 0 2px 2px 0;
+  background: var(--text);
+}
+
+.nav-item.active::before {
+  background: none;
+}
+
+/* Bottom bar on a phone: the active item gets a dot, not a block. */
+.bottom-nav-item {
+  position: relative;
+  transition: color var(--dur-2) ease;
+}
+
+.bottom-nav-item.active {
+  color: var(--text);
+}
+
+.bottom-nav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+/* --- 8. Selection and scrollbars ------------------------------------- */
+
+::selection {
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  color: var(--text);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+
+/* --- 9. Task cards: hover without movement ---------------------------
+   The lift effect was removed on request; a border and surface shift is
+   enough to say "this is interactive" without moving anything. */
+
+.task-card {
+  transition:
+    border-color var(--dur-2) ease,
+    background var(--dur-2) ease;
+}
+
+.task-card:hover,
+.task-card:focus-within {
+  border-color: var(--border-strong);
+}
+
+.task-card::before {
+  background: none;
+}
+
+/* --- 10. Breathing room on the dense pages --------------------------- */
+
+.page {
+  gap: 20px;
+}
+
+.settings-main,
+.settings-page .card {
+  --card-pad: 20px;
+}
+
+/* Long forms read better when labels and inputs share a rhythm. */
+.field {
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: -0.005em;
+  color: var(--text-soft);
+}
+
+.field-hint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* --- 11. Phone refinements ------------------------------------------- */
+
+@media (max-width: 720px) {
+  .page {
+    gap: 16px;
+  }
+
+  .page-header h1 {
+    font-size: 23px;
+    letter-spacing: -0.028em;
+  }
+
+  .page-description {
+    font-size: 12.5px;
+  }
+
+  .page-actions {
+    width: 100%;
+  }
+
+  .page-actions > .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .empty-state {
+    padding: 34px 18px;
+  }
+}
+
+/* --- 12. Print ------------------------------------------------------
+   Reports get printed; chrome does not. */
+
+@media print {
+  .sidebar,
+  .bottom-nav,
+  .mobile-topbar,
+  .utility-actions,
+  .toast-stack,
+  .notify-panel {
+    display: none !important;
+  }
+
+  .app-main {
+    margin-left: 0 !important;
+  }
+
+  .card {
+    break-inside: avoid;
+    box-shadow: none;
+    border-color: #d8d8dd;
+  }
+}
+
+/* --- 13. Bottom nav: colour and a dot, not a filled pill ------------- */
+
+.bottom-nav-item.active {
+  color: var(--text);
+  background: transparent;
+}
+
+.bottom-nav-item.active::after {
+  background: var(--text);
+}
+
+/* Phones with a home indicator need the bar lifted clear of it. */
+.bottom-nav {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.mobile-topbar {
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+
+/* The rail marker needs a hair of room so it does not sit on the icon. */
+.nav-item {
+  padding-left: 12px;
+}
+
+@media (min-width: 1081px) {
+  .app-shell[data-sidebar='collapsed'] .nav-item {
+    padding-left: 0;
+  }
 }
