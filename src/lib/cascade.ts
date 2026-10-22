@@ -157,6 +157,11 @@ function mediaMatches(query: string, view: Viewport): boolean {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return true;
 
+  // A comma is "or": `(max-width: 767px), (pointer: coarse)`.
+  if (trimmed.includes(',')) {
+    return trimmed.split(',').some((part) => mediaMatches(part, view));
+  }
+
   return trimmed.split(/\s+and\s+/).every((raw) => {
     const part = raw.trim().replace(/^\(/, '').replace(/\)$/, '');
     if (part === 'print') return Boolean(view.print);

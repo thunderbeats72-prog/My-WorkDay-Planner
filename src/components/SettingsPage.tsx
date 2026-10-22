@@ -22,6 +22,7 @@ import type { CommonPageProps } from './pageProps';
 import type { AccountApi } from '../hooks/useAccount';
 import { AccountPanel } from './AccountPanel';
 import { Badge, Button, ConfirmDialog, Field, Switch } from './ui';
+import { canHaptic, haptic, hapticsEnabled, setHapticsEnabled } from '../lib/haptics';
 import { PageHeader } from './Shell';
 
 const WORKING_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -62,6 +63,8 @@ export function SettingsPage({
   onSendTestNotification: () => void;
   account: AccountApi;
 }) {
+  /** Phone buzz. Stored on this device only — it is a hardware preference. */
+  const [buzz, setBuzz] = useState(() => hapticsEnabled());
   const [draft, setDraft] = useState<Settings>(settings);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [resetOpen, setResetOpen] = useState(false);
@@ -92,6 +95,7 @@ export function SettingsPage({
    */
   const chooseTheme = (theme: Theme) => {
     setDraft((current) => ({ ...current, theme }));
+    haptic('tap');
     onThemeChange(theme);
   };
 
@@ -453,6 +457,20 @@ export function SettingsPage({
                 ? 'Following your system right now. Pick one and it applies straight away, on this device only.'
                 : 'Applies straight away, on this device only.'}
             </p>
+            {canHaptic() ? (
+              <Switch
+                checked={buzz}
+                onChange={(enabled) => {
+                  setBuzz(enabled);
+                  setHapticsEnabled(enabled);
+                  if (enabled) haptic('press');
+                }}
+                label="Haptics"
+                description="A short buzz when you switch pages, add a task or finish one. This device only."
+              />
+            ) : (
+              <p className="field-hint">This device cannot buzz. iPhones do not let a web page use haptics.</p>
+            )}
           </section>
 
           <section className="card settings-section">

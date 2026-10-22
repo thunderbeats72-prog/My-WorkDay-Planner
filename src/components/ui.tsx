@@ -370,9 +370,21 @@ export function Modal({
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
+  /**
+   * When the sheet appeared, so the very tap that opened it cannot also
+   * dismiss it. On a phone the browser sends a compatibility mouse event after
+   * `touchend`; if the backdrop has mounted by then, that event lands on the
+   * backdrop and the sheet closes before it has been seen. It looked exactly
+   * like "the plus button does nothing".
+   */
+  const openedAt = useRef(0);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    if (open) openedAt.current = Date.now();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -428,7 +440,15 @@ export function Modal({
 
   if (!open) return null;
   return createPortal(
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (Date.now() - openedAt.current < 400) return;
+        onClose();
+      }}
+    >
       <div
         ref={dialogRef}
         className={`modal modal-${size}`}

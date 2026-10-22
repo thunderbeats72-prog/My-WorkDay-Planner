@@ -126,6 +126,27 @@ describe('the tablet bar gives way before its buttons do', () => {
   });
 });
 
+describe('phones do not zoom when a field is focused', () => {
+  it('sets every text field to 16px', () => {
+    // Safari zooms the page when a focused control is under 16px. That zoom is
+    // what pushed the New task sheet off-screen and made "+" look dead.
+    const at = css.indexOf("input:not([type='checkbox'])");
+    expect(at).toBeGreaterThan(-1);
+    const body = css.slice(at, css.indexOf('}', at));
+    expect(body).toMatch(/font-size:\s*16px/);
+    // Either a phone width or a finger. A landscape phone matches only the second.
+    const prelude = css.slice(css.lastIndexOf('@media', at), at);
+    expect(prelude).toMatch(/max-width: 767px|pointer: coarse/);
+  });
+
+  it('does not stretch page actions into full-width rows', () => {
+    const blocks = [...css.matchAll(/\.page-actions \.btn\s*\{([^}]*)\}/g)].map((match) => match[1]);
+    const last = blocks[blocks.length - 1] ?? '';
+    expect(last).toMatch(/flex:\s*0 1 auto/);
+    expect(last).toMatch(/width:\s*auto/);
+  });
+});
+
 describe('the reader itself', () => {
   it('ranks a class-selector pair above a single class', () => {
     expect(specificity('.app-shell .utility-bar')[1]).toBe(2);
@@ -140,6 +161,13 @@ describe('the reader itself', () => {
   it('lets !important beat specificity', () => {
     const sample = parseRules('.x{display:block !important}.a .x{display:none}');
     expect(resolve(sample, ['.x', '.a .x'], 'display', phone)?.value).toBe('block');
+  });
+
+  it('treats a comma as "or"', () => {
+    const sample = parseRules('@media (max-width: 767px), (pointer: coarse){.x{display:none}}');
+    expect(resolve(sample, ['.x'], 'display', phone)?.value).toBe('none');
+    // A wide screen with a mouse matches neither half.
+    expect(resolve(sample, ['.x'], 'display', laptop)).toBeNull();
   });
 
   it('evaluates a media query rather than assuming it applies', () => {
