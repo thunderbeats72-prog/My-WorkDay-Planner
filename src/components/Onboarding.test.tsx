@@ -14,6 +14,7 @@ function fakeAccount(overrides: Partial<AccountApi> = {}): AccountApi {
     syncBuiltIn: false,
     busy: false,
     syncNow: vi.fn(async () => ({ ok: true, message: 'ok' })),
+    schedulePush: vi.fn(),
     signUp: vi.fn(async () => ({ ok: true })),
     signIn: vi.fn(async () => ({ ok: true })),
     signOut: vi.fn(),

@@ -22,6 +22,14 @@ export interface MergeStats {
   remindersAdded: number;
   eventsAdded: number;
   settings: 'local' | 'remote';
+  /**
+   * True when the merged result differs from what the server already holds.
+   *
+   * This is the gate for writing back. Without it, two synced devices bounce a
+   * new `updated_at` at each other forever: each pull bumps the timestamp, the
+   * other device sees a change, pulls, writes identical bytes, and so on.
+   */
+  needsPush: boolean;
 }
 
 function newer(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -67,6 +75,26 @@ export function mergeTasks(local: Task[], remote: Task[]): { tasks: Task[]; adde
   return { tasks: [...byId.values()], added, updated, keptLocal };
 }
 
+function sameRecordSet<T extends { id: string }>(left: T[], right: T[]): boolean {
+  if (left.length !== right.length) return false;
+  const byId = new Map(right.map((row) => [row.id, row]));
+  for (const row of left) {
+    const other = byId.get(row.id);
+    if (!other) return false;
+    if (JSON.stringify(row) !== JSON.stringify(other)) return false;
+  }
+  return true;
+}
+
+/** Everything the server would receive, compared against what it already has. */
+function differs(merged: BackupFile, remote: BackupFile): boolean {
+  if (!sameRecordSet(merged.tasks, remote.tasks)) return true;
+  if (!sameRecordSet(merged.timeSessions, remote.timeSessions)) return true;
+  if (!sameRecordSet(merged.reminderRecords, remote.reminderRecords)) return true;
+  if (!sameRecordSet(merged.taskEvents, remote.taskEvents)) return true;
+  return JSON.stringify(merged.settings) !== JSON.stringify(remote.settings);
+}
+
 export function mergeSnapshots(local: BackupFile, remote: BackupFile): { merged: BackupFile; stats: MergeStats } {
   const tasks = mergeTasks(local.tasks, remote.tasks);
   const sessions = mergeById<TimeSession>(local.timeSessions, remote.timeSessions);
@@ -91,17 +119,21 @@ export function mergeSnapshots(local: BackupFile, remote: BackupFile): { merged:
 
   const remoteIsNewer = newer(remote.exportedAt, local.exportedAt);
 
+  const merged: BackupFile = {
+    app: 'my-workday-planner',
+    version: Math.max(local.version, remote.version),
+    // Keep the newest *real* change time. Stamping "now" here would make every
+    // snapshot look newer than the server's copy and defeat the settings rule.
+    exportedAt: remoteIsNewer ? remote.exportedAt : local.exportedAt,
+    settings: remoteIsNewer ? remote.settings : local.settings,
+    tasks: tasks.tasks,
+    timeSessions: sessions.rows,
+    reminderRecords: [...reminderMap.values()],
+    taskEvents: events.rows,
+  };
+
   return {
-    merged: {
-      app: 'my-workday-planner',
-      version: Math.max(local.version, remote.version),
-      exportedAt: new Date().toISOString(),
-      settings: remoteIsNewer ? remote.settings : local.settings,
-      tasks: tasks.tasks,
-      timeSessions: sessions.rows,
-      reminderRecords: [...reminderMap.values()],
-      taskEvents: events.rows,
-    },
+    merged,
     stats: {
       tasksAdded: tasks.added,
       tasksUpdated: tasks.updated,
@@ -110,6 +142,7 @@ export function mergeSnapshots(local: BackupFile, remote: BackupFile): { merged:
       remindersAdded,
       eventsAdded: events.added,
       settings: remoteIsNewer ? 'remote' : 'local',
+      needsPush: differs(merged, remote),
     },
   };
 }

@@ -262,6 +262,13 @@ export default function App() {
     onNotice: addToast,
   });
 
+  // Task and settings editing was written before sync existed, so it reaches
+  // the sync engine through a ref rather than threading a new prop everywhere.
+  const accountRef = useRef<typeof account | null>(null);
+  useEffect(() => {
+    accountRef.current = account;
+  }, [account]);
+
   const isDark = settings.theme === 'system' ? prefersDark : settings.theme === 'dark';
 
   useEffect(() => {
@@ -346,7 +353,11 @@ export default function App() {
   const persistTasks = useCallback((next: Task[], changed?: Task[]) => {
     tasksRef.current = next;
     setTasks(next);
-    if (changed && changed.length > 0) void saveTasks(changed);
+    if (changed && changed.length > 0) {
+      void saveTasks(changed);
+      // Queue a push so the other device sees this without waiting for a poll.
+      accountRef.current?.schedulePush();
+    }
   }, []);
 
   const updateTaskById = useCallback(
@@ -390,6 +401,7 @@ export default function App() {
     settingsRef.current = next;
     setSettings(next);
     await saveSettings(next);
+    accountRef.current?.schedulePush();
   }, []);
 
   const buildTask = useCallback(

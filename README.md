@@ -426,3 +426,57 @@ snapshot by naming it.
 Neon's scale-to-zero is actually *better* than Supabase's pause for this app: a
 cold start costs a few hundred milliseconds once, instead of a project that stays
 down until someone clicks Restore. The price is that you own the auth code.
+
+## One database, every user, real-time — and who has to do what
+
+There is exactly **one** setup, done once by whoever owns the deployment. After
+that:
+
+- **Every visitor** creates their own user ID and password inside the app.
+- **Nobody ever sees a database key.** Not the owner's friends, not their phone.
+- **Each account is isolated.** `planner_snapshots` is keyed by `user_id`, and
+  every route derives the user from the session token rather than the request
+  body, so one account cannot read another's tasks even by naming it.
+
+| Who | Does what | How often |
+| --- | --- | --- |
+| Deployment owner | Creates the database, sets two env vars | **Once, ever** |
+| Every user | Signs up with an ID and password in the app | Once per person |
+| Every device | Signs in with that same ID and password | Once per device |
+
+The common misreading is that each person needs a database login. They do not —
+they need an *app* login, which is just a row in a table you already created.
+
+### The shortest possible setup (no copying keys)
+
+Vercel can create the Neon project and wire it up itself:
+
+1. Vercel → your project → **Storage** tab → **Create Database** → **Neon**.
+2. Accept the defaults and connect it to this project. Vercel injects
+   `DATABASE_URL` into every environment automatically — there is nothing to
+   copy or paste.
+3. Add **one** more variable: `VITE_SYNC_MODE` = `neon`.
+4. Redeploy.
+
+That is the whole thing. The seven-step manual route in the previous section
+still works and gives you control over the region.
+
+### What "real-time" actually means here
+
+| | Latency |
+| --- | --- |
+| Edit on this device → pushed | ~2.5s (debounced, so typing is one write) |
+| Other device notices → pulls | ~4s |
+| **Worst case, phone to laptop** | **~7 seconds** |
+
+How: `api/version.ts` returns one timestamp. A visible tab polls it every 4s and
+only pulls the full snapshot when that timestamp changes. No websockets, no
+always-on server, no per-message billing — and it degrades gracefully: the poll
+slows to 30s after two minutes untouched, and stops entirely while the tab is
+hidden, so a forgotten browser tab cannot keep a database awake all night.
+
+Writing is gated on `stats.needsPush`, which is true only when the merged result
+genuinely differs from what the server holds. Without that gate, two devices
+would trade an updated timestamp forever — each pull bumping the version the
+other was watching. `src/lib/snapshot.test.ts` has a convergence group that
+fails if that ever regresses.

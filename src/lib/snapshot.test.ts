@@ -148,3 +148,69 @@ describe('mergeSnapshots', () => {
     expect(describeMerge(stats)).toBe('1 new task');
   });
 });
+
+describe('convergence — the anti-ping-pong guarantee', () => {
+  it('stops writing once both devices agree', () => {
+    // Device A edits a task and pushes.
+    const phone = snapshot({ tasks: [task('a', '2026-01-02T12:00:00.000Z', { title: 'From phone' })] });
+    const laptop = snapshot({ tasks: [task('a', '2026-01-02T10:00:00.000Z', { title: 'Old' })] });
+
+    const first = mergeSnapshots(laptop, phone);
+    expect(first.merged.tasks[0].title).toBe('From phone');
+    // The laptop's own copy was stale, so it adopts the phone's data and has
+    // nothing to send back. Writing here is what would start the ping-pong.
+    expect(first.stats.needsPush).toBe(false);
+
+    // Replaying that exact merge must be a no-op: same inputs, same output.
+    const replay = mergeSnapshots(first.merged, first.merged);
+    expect(replay.stats.needsPush).toBe(false);
+  });
+
+  it('does not write when the server already has everything', () => {
+    const server = snapshot({ tasks: [task('a', '2026-01-02T12:00:00.000Z')] });
+    const client = snapshot({ tasks: [task('a', '2026-01-02T12:00:00.000Z')] });
+    expect(mergeSnapshots(client, server).stats.needsPush).toBe(false);
+  });
+
+  it('writes when this device holds a genuinely newer task', () => {
+    const client = snapshot({ tasks: [task('a', '2026-01-03T09:00:00.000Z', { title: 'Edited offline' })] });
+    const server = snapshot({ tasks: [task('a', '2026-01-02T12:00:00.000Z', { title: 'Stale' })] });
+    const result = mergeSnapshots(client, server);
+    expect(result.stats.needsPush).toBe(true);
+    expect(result.merged.tasks[0].title).toBe('Edited offline');
+  });
+
+  it('writes when this device has a task the server has never seen', () => {
+    const client = snapshot({ tasks: [task('a', '2026-01-02T12:00:00.000Z'), task('b', '2026-01-02T13:00:00.000Z')] });
+    const server = snapshot({ tasks: [task('a', '2026-01-02T12:00:00.000Z')] });
+    expect(mergeSnapshots(client, server).stats.needsPush).toBe(true);
+  });
+
+  it('keeps the newest real change time instead of stamping "now"', () => {
+    // Stamping "now" would make every device look like the newest writer, and
+    // settings would ping-pong forever.
+    const local = snapshot({ exportedAt: '2026-01-02T10:00:00.000Z' });
+    const remote = snapshot({ exportedAt: '2026-01-05T10:00:00.000Z' });
+    expect(mergeSnapshots(local, remote).merged.exportedAt).toBe('2026-01-05T10:00:00.000Z');
+    expect(mergeSnapshots(remote, local).merged.exportedAt).toBe('2026-01-05T10:00:00.000Z');
+  });
+
+  it('converges two devices that edited different tasks at the same time', () => {
+    const phone = snapshot({
+      exportedAt: '2026-01-02T12:00:00.000Z',
+      tasks: [task('a', '2026-01-02T12:00:00.000Z', { title: 'Phone edit' }), task('b', '2026-01-02T09:00:00.000Z')],
+    });
+    const laptop = snapshot({
+      exportedAt: '2026-01-02T12:00:05.000Z',
+      tasks: [task('a', '2026-01-02T09:00:00.000Z'), task('b', '2026-01-02T12:00:05.000Z', { title: 'Laptop edit' })],
+    });
+
+    const laptopMerges = mergeSnapshots(laptop, phone).merged;
+    // The phone pulls the laptop's merged result and must be satisfied with it.
+    const phoneMerges = mergeSnapshots(phone, laptopMerges);
+    expect(phoneMerges.stats.needsPush).toBe(false);
+    // Both devices now hold both edits.
+    const titles = phoneMerges.merged.tasks.map((entry) => entry.title).sort();
+    expect(titles).toEqual(['Laptop edit', 'Phone edit']);
+  });
+});

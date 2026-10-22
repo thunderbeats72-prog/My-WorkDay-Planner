@@ -12,7 +12,7 @@
  */
 
 import type { BackupFile } from './db';
-import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, type NeonSessionPayload } from './neonBackend';
+import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, neonVersion, type NeonSessionPayload } from './neonBackend';
 
 export interface CloudConfig {
   url: string;
@@ -310,6 +310,23 @@ export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null
   if (!result.ok) return { ok: false, error: result.error };
   const row = result.data?.[0];
   return { ok: true, data: row?.payload ?? null };
+}
+
+/**
+ * When was the snapshot last written, as an ISO string?
+ *
+ * This is what makes sync feel real-time: a device asks this every few seconds
+ * and only pulls when the answer changes. `null` means "this backend cannot
+ * answer cheaply" (Supabase without an index-friendly query), and callers fall
+ * back to full syncs.
+ */
+export async function pullVersion(): Promise<CloudResult<string | null>> {
+  if (IS_NEON) {
+    const neonSession = loadCloudSession();
+    if (!neonSession) return { ok: false, error: 'Sign in again — the sync token has expired.' };
+    return neonVersion(neonSession.accessToken);
+  }
+  return { ok: true, data: null };
 }
 
 export async function pushCloudSnapshot(snapshot: BackupFile): Promise<CloudResult> {

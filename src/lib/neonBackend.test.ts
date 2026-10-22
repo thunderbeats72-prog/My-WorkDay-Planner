@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp } from './neonBackend';
+import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, neonVersion } from './neonBackend';
 
 function mockFetch(handler: (url: string, init: RequestInit) => { status: number; body: unknown }) {
   const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -92,5 +92,30 @@ describe('Neon sync client', () => {
     const spy = mockFetch(() => ({ status: 200, body: { ok: true } }));
     await neonSignOut('token');
     expect(spy.mock.calls[0][1]?.method).toBe('DELETE');
+  });
+});
+
+describe('version polling — the real-time beat', () => {
+  it('asks the cheap endpoint, not the whole snapshot', async () => {
+    const spy = mockFetch(() => ({ status: 200, body: { updatedAt: '2026-01-02T12:00:00.000Z' } }));
+    const result = await neonVersion('token');
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toBe('2026-01-02T12:00:00.000Z');
+    expect(spy.mock.calls[0][0]).toBe('/api/version');
+  });
+
+  it('reports null when this user has never pushed — a first-device case, not an error', async () => {
+    mockFetch(() => ({ status: 200, body: { updatedAt: null } }));
+    const result = await neonVersion('token');
+    expect(result.ok).toBe(true);
+    expect(result.data).toBeNull();
+  });
+
+  it('surfaces an expired session so the poller can stop asking', async () => {
+    mockFetch(() => ({ status: 401, body: { error: 'This session has expired. Sign in again.' } }));
+    const result = await neonVersion('stale');
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('expired');
   });
 });
