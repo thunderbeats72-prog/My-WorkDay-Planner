@@ -191,6 +191,14 @@ export function useAccount({
           const remote = await cloudSignUp(local.account.id, password);
           if (remote.ok) setCloudConnected(true);
           else return { ok: true, error: remote.error };
+        } else {
+          // Say the quiet part out loud: with no project there is nowhere for a
+          // second device's tasks to come from, and pretending otherwise is how
+          // "same login, empty app" happens.
+          return {
+            ok: true,
+            error: 'No sync project is connected yet, so this account lives on this device only. Connect one in Settings → Account to share it.',
+          };
         }
         return { ok: true };
       } finally {
@@ -218,7 +226,10 @@ export function useAccount({
           }
           return { ok: true, error: remote.error };
         }
-        return { ok: true };
+        return {
+          ok: true,
+          error: 'No sync project is connected, so there was nothing to fetch from your other device. Connect one in Settings → Account.',
+        };
       } finally {
         setBusy(false);
       }

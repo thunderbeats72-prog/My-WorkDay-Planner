@@ -1,17 +1,47 @@
 import { useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Cpu, Shield } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Cloud, Clock, Cpu, Shield, UserRound } from 'lucide-react';
 import type { Settings } from '../lib/types';
 import { DAY_SHORT, DEFAULT_SETTINGS, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import { formatDuration, parseTimeToMinutes } from '../lib/dates';
+import { loadSettings } from '../lib/db';
+import type { AccountApi } from '../hooks/useAccount';
+import type { AddToast } from './pageProps';
 import { Badge, Button, Field, Segmented } from './ui';
+import { AuthForm } from './AuthForm';
 import { BrandMark } from './BrandMark';
 
 const WORKING_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-export function Onboarding({ onComplete }: { onComplete: (settings: Settings) => void }) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+export function Onboarding({
+  onComplete,
+  account,
+  addToast,
+}: {
+  onComplete: (settings: Settings) => void;
+  account: AccountApi;
+  addToast?: AddToast;
+}) {
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [draft, setDraft] = useState<Settings>({ ...DEFAULT_SETTINGS, onboardingComplete: true });
   const [error, setError] = useState('');
+  const [showCloudSetup, setShowCloudSetup] = useState(false);
+  const [cloudUrl, setCloudUrl] = useState('');
+  const [cloudKey, setCloudKey] = useState('');
+  const [cloudError, setCloudError] = useState<string | null>(null);
+
+  /**
+   * Signing in on a second device is the moment its tasks arrive, so the form
+   * behind this step has to pick up the merged settings. A brand-new account
+   * carries defaults — do not stomp on whatever the user has already typed.
+   */
+  const adoptRemoteSettings = async () => {
+    const merged = await loadSettings();
+    setDraft((current) =>
+      merged.onboardingComplete
+        ? { ...merged, onboardingComplete: true }
+        : { ...current, name: current.name || merged.name },
+    );
+  };
 
   const start = parseTimeToMinutes(draft.workdayStart);
   const end = parseTimeToMinutes(draft.workdayEnd);
@@ -23,14 +53,20 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
   const next = () => {
     setError('');
     if (step === 1) {
-      if (!draft.name.trim()) {
-        setError('Add a name so greetings and the sidebar feel like yours.');
-        return;
-      }
+      // The account is optional: signing in is a separate button inside the
+      // form, so "Continue" here always means "carry on without it".
       setStep(2);
       return;
     }
     if (step === 2) {
+      if (!draft.name.trim()) {
+        setError('Add a name so greetings and the sidebar feel like yours.');
+        return;
+      }
+      setStep(3);
+      return;
+    }
+    if (step === 3) {
       if (end <= start) {
         setError('Workday end must be after the start.');
         return;
@@ -43,7 +79,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         setError('Lunch end must be after lunch start.');
         return;
       }
-      setStep(3);
+      setStep(4);
       return;
     }
     onComplete({ ...draft, name: draft.name.trim(), onboardingComplete: true });
@@ -57,11 +93,11 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
         <h1>My Workday Planner</h1>
         <p className="onboarding-tagline">
           A private, local-first command center for business development work. Your tasks, timers and screenshots stay in
-          this browser.
+          this browser unless you turn on sync — then the same login carries them between your phone and laptop.
         </p>
         <ul className="onboarding-points">
           <li>
-            <Shield size={16} /> ₹0/month · no account · no cloud sync
+            <Shield size={16} /> ₹0/month · local-first · account optional
           </li>
           <li>
             <CalendarDays size={16} /> Explainable scheduling around your real working hours
@@ -90,8 +126,8 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
 
       <section className="onboarding-card">
         <ol className="stepper compact" aria-label="Setup steps">
-          {['About you', 'Working rhythm', 'Defaults'].map((label, index) => {
-            const id = (index + 1) as 1 | 2 | 3;
+          {['Account', 'About you', 'Working rhythm', 'Defaults'].map((label, index) => {
+            const id = (index + 1) as 1 | 2 | 3 | 4;
             return (
               <li key={label} className={`${step === id ? 'active' : ''} ${step > id ? 'done' : ''}`.trim()}>
                 <span className="step-dot">{step > id ? <Check size={12} /> : id}</span>
@@ -103,8 +139,131 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
 
         {step === 1 ? (
           <div className="onboarding-step" key={step}>
-            <p className="eyebrow">Step 1 of 3</p>
-            <h2>Let's set up your workday</h2>
+            <p className="eyebrow">Step 1 of 4</p>
+            <h2>Sign in, or start fresh</h2>
+            <p className="muted">
+              One user ID and password. Use the same pair on your laptop and your phone and you get the same tasks on
+              both — nothing else to set up.
+            </p>
+
+            {account.account ? (
+              <div className="onboarding-signed-in">
+                <span className="account-state is-on">
+                  <UserRound size={13} aria-hidden="true" />@{account.account.id}
+                </span>
+                <p>
+                  {account.cloudConnected
+                    ? 'Sync is on. Anything you add on this device reaches your other device within two minutes.'
+                    : 'Signed in on this device. Turn on sync in Settings → Account to carry it to your phone.'}
+                </p>
+              </div>
+            ) : (
+              <AuthForm
+                account={account}
+                addToast={addToast}
+                onSignedIn={() => void adoptRemoteSettings()}
+                autoFocus
+              />
+            )}
+
+            {!account.cloudConfigured ? (
+              <div className="onboarding-sync">
+                <div className="onboarding-sync-head">
+                  <Cloud size={15} aria-hidden="true" />
+                  <div>
+                    <p className="onboarding-sync-title">Where does the data live?</p>
+                    <p className="onboarding-sync-sub">
+                      Without a sync project, the login stays on this device. Connect one free project and the same
+                      login carries your tasks everywhere.
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCloudSetup((open) => !open)}
+                  >
+                    {showCloudSetup ? 'Hide' : 'Set up sync'}
+                  </Button>
+                </div>
+
+                {showCloudSetup ? (
+                  <div className="onboarding-sync-panel">
+                    <ol className="account-steps">
+                      <li>
+                        Create a free project at <span className="mono">supabase.com</span>.
+                      </li>
+                      <li>
+                        Run <span className="mono">supabase/schema.sql</span> from this repo in its SQL editor.
+                      </li>
+                      <li>
+                        Turn off <em>Confirm email</em> in Authentication → Providers → Email.
+                      </li>
+                      <li>
+                        Paste the <span className="mono">Project URL</span> and <span className="mono">anon public</span>
+                        {' '}key from Project Settings → API.
+                      </li>
+                    </ol>
+                    <div className="account-fields">
+                      <Field label="Project URL" htmlFor="onboard-cloud-url">
+                        <input
+                          id="onboard-cloud-url"
+                          className="input"
+                          value={cloudUrl}
+                          spellCheck={false}
+                          placeholder="https://abcd1234.supabase.co"
+                          onChange={(event) => setCloudUrl(event.target.value)}
+                        />
+                      </Field>
+                      <Field label="Anon public key" htmlFor="onboard-cloud-key">
+                        <input
+                          id="onboard-cloud-key"
+                          className="input"
+                          value={cloudKey}
+                          spellCheck={false}
+                          placeholder="eyJhbGciOi…"
+                          onChange={(event) => setCloudKey(event.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    {cloudError ? (
+                      <p className="account-error" role="alert">
+                        {cloudError}
+                      </p>
+                    ) : null}
+                    <div className="account-actions">
+                      <Button
+                        variant="primary"
+                        icon={Cloud}
+                        loading={account.busy}
+                        onClick={async () => {
+                          setCloudError(null);
+                          const result = await account.connectCloud(cloudUrl, cloudKey);
+                          if (!result.ok) {
+                            setCloudError(result.error ?? 'Could not connect.');
+                            return;
+                          }
+                          setShowCloudSetup(false);
+                        }}
+                      >
+                        Connect sync
+                      </Button>
+                      <p className="account-fine">Stored in this browser only — never in the app bundle.</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="onboarding-sync-on">
+                <Cloud size={14} aria-hidden="true" />
+                Sync is on. The same login on your phone shows the same tasks.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div className="onboarding-step" key={step}>
+            <p className="eyebrow">Step 2 of 4</p>
             <p className="muted">
               This stays on this device. You can change everything later in Settings.
             </p>
@@ -139,9 +298,9 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
           </div>
         ) : null}
 
-        {step === 2 ? (
+        {step === 3 ? (
           <div className="onboarding-step" key={step}>
-            <p className="eyebrow">Step 2 of 3</p>
+            <p className="eyebrow">Step 3 of 4</p>
             <h2>When do you actually work?</h2>
             <p className="muted">
               The scheduler protects lunch and places buffers. Capacity is computed from these hours.
@@ -215,9 +374,9 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
           </div>
         ) : null}
 
-        {step === 3 ? (
+        {step === 4 ? (
           <div className="onboarding-step" key={step}>
-            <p className="eyebrow">Step 3 of 3</p>
+            <p className="eyebrow">Step 4 of 4</p>
             <h2>Your defaults</h2>
             <p className="muted">Sensible starting points — the on-device model adapts as you track real work.</p>
             <div className="form-grid">
@@ -292,7 +451,7 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
 
         <div className="onboarding-actions">
           {step > 1 ? (
-            <Button variant="ghost" icon={ChevronLeft} onClick={() => setStep((step - 1) as 1 | 2 | 3)}>
+            <Button variant="ghost" icon={ChevronLeft} onClick={() => setStep((step - 1) as 1 | 2 | 3 | 4)}>
               Back
             </Button>
           ) : (
@@ -304,8 +463,8 @@ export function Onboarding({ onComplete }: { onComplete: (settings: Settings) =>
               Skip setup for now
             </button>
           )}
-          <Button variant="primary" icon={step === 3 ? Check : ChevronRight} onClick={next}>
-            {step === 3 ? 'Start planning' : 'Continue'}
+          <Button variant="primary" icon={step === 4 ? Check : ChevronRight} onClick={next}>
+            {step === 4 ? 'Start planning' : step === 1 && !account.account ? 'Continue without an account' : 'Continue'}
           </Button>
         </div>
       </section>

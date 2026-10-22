@@ -54,6 +54,9 @@ describe('My Workday Planner app', () => {
       </StrictMode>,
     );
 
+    // Step 1 is the (optional) account screen — skip it and keep setting up.
+    await user.click(await screen.findByRole('button', { name: 'Continue without an account' }, { timeout: 15000 }));
+
     const nameInput = await screen.findByLabelText('Your name', {}, { timeout: 15000 });
     await user.type(nameInput, 'Aarav Sharma');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
@@ -135,6 +138,7 @@ describe('My Workday Planner app', () => {
       </StrictMode>,
     );
 
+    await user.click(await screen.findByRole('button', { name: 'Continue without an account' }, { timeout: 15000 }));
     const nameInput = await screen.findByLabelText('Your name', {}, { timeout: 15000 });
     await user.type(nameInput, 'Aarav Sharma');
     await user.click(screen.getByRole('button', { name: 'Continue' }));

@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
-import { Cloud, KeyRound, LogIn, LogOut, RefreshCw, ShieldCheck, Trash2, UserRound } from 'lucide-react';
+import { Cloud, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { Button, Field } from './ui';
+import { AuthForm } from './AuthForm';
 import type { AccountApi } from '../hooks/useAccount';
 import type { AddToast } from './pageProps';
 
@@ -13,11 +14,6 @@ import type { AddToast } from './pageProps';
  */
 export function AccountPanel({ account, addToast }: { account: AccountApi; addToast: AddToast }) {
   const idBase = useId();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
-  const [userId, setUserId] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<'password' | 'delete' | 'cloud' | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -27,29 +23,6 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
   const [cloudKey, setCloudKey] = useState('');
 
   const signedIn = account.account !== null;
-
-  const submitAuth = async () => {
-    setError(null);
-    if (mode === 'signup' && password !== confirm) {
-      setError('The two passwords do not match.');
-      return;
-    }
-    const result =
-      mode === 'signup'
-        ? await account.signUp(userId, password, displayName)
-        : await account.signIn(userId, password);
-
-    if (!result.ok) {
-      setError(result.error ?? 'That did not work.');
-      return;
-    }
-    // A sign-in can succeed locally but fail to reach the sync project; that is
-    // worth saying out loud rather than pretending everything synced.
-    if (result.error) addToast(`Signed in on this device — sync says: ${result.error}`, 'warning');
-    else addToast(mode === 'signup' ? 'Account created on this device.' : 'Signed in.', 'success');
-    setPassword('');
-    setConfirm('');
-  };
 
   const sync = async () => {
     const result = await account.syncNow();
@@ -74,111 +47,11 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
       </div>
 
       {!signedIn ? (
-        <form
-          className="account-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submitAuth();
-          }}
-        >
-          <div className="account-tabs" role="tablist" aria-label="Sign in or create an account">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'signin'}
-              className={`account-tab ${mode === 'signin' ? 'is-active' : ''}`}
-              onClick={() => {
-                setMode('signin');
-                setError(null);
-              }}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'signup'}
-              className={`account-tab ${mode === 'signup' ? 'is-active' : ''}`}
-              onClick={() => {
-                setMode('signup');
-                setError(null);
-              }}
-            >
-              Create account
-            </button>
-          </div>
-
-          <div className="account-fields">
-            <Field label="User ID" htmlFor={`${idBase}-user`} hint="Letters, numbers, dots, dashes. Case does not matter.">
-              <input
-                id={`${idBase}-user`}
-                className="input"
-                autoComplete="username"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={userId}
-                onChange={(event) => setUserId(event.target.value)}
-                placeholder="lakshit"
-              />
-            </Field>
-
-            {mode === 'signup' ? (
-              <Field label="Your name" htmlFor={`${idBase}-name`} hint="Optional — shown on your own screens only.">
-                <input
-                  id={`${idBase}-name`}
-                  className="input"
-                  autoComplete="name"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="Lakshit"
-                />
-              </Field>
-            ) : null}
-
-            <Field label="Password" htmlFor={`${idBase}-pass`} hint={mode === 'signup' ? 'At least 8 characters.' : undefined}>
-              <input
-                id={`${idBase}-pass`}
-                className="input"
-                type="password"
-                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••"
-              />
-            </Field>
-
-            {mode === 'signup' ? (
-              <Field label="Confirm password" htmlFor={`${idBase}-confirm`}>
-                <input
-                  id={`${idBase}-confirm`}
-                  className="input"
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirm}
-                  onChange={(event) => setConfirm(event.target.value)}
-                  placeholder="••••••••"
-                />
-              </Field>
-            ) : null}
-          </div>
-
-          {error ? (
-            <p className="account-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-
-          <div className="account-actions">
-            <Button variant="primary" icon={mode === 'signup' ? ShieldCheck : LogIn} type="submit" loading={account.busy}>
-              {mode === 'signup' ? 'Create account' : 'Sign in'}
-            </Button>
-            <p className="account-fine">
-              {mode === 'signup'
-                ? 'The password is hashed on this device with PBKDF2 and never leaves it.'
-                : 'Your tasks stay on this device whether or not you sign in.'}
-            </p>
-          </div>
-        </form>
+        <AuthForm
+          account={account}
+          addToast={addToast}
+          onSignedIn={() => setOpenPanel(null)}
+        />
       ) : (
         <>
           <div className="account-row">
