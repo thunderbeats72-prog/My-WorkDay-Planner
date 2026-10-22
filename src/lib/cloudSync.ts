@@ -37,6 +37,21 @@ const CONFIG_KEY = 'workday.cloud.config.v1';
 const SESSION_KEY = 'workday.cloud.session.v1';
 const TABLE = 'planner_snapshots';
 
+/**
+ * A sync project baked in at build time, so nobody has to paste keys.
+ *
+ * Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` once in the deployment
+ * (or a local `.env.local`) and every device — phone, laptop, a friend's
+ * laptop — signs up against the same project with nothing to configure. The
+ * anon key is designed to be public: row-level security in the database is what
+ * stops one user reading another's row.
+ */
+const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? '';
+const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ?? '';
+
+/** True when the deployment itself supplies a sync project. */
+export const MANAGED_SYNC = envUrl.length > 0 && envKey.length > 0;
+
 function read<T>(key: string): T | null {
   try {
     const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
@@ -56,8 +71,13 @@ function write(key: string, value: unknown): void {
 
 export function loadCloudConfig(): CloudConfig | null {
   const config = read<CloudConfig>(CONFIG_KEY);
-  if (!config || typeof config.url !== 'string' || typeof config.anonKey !== 'string') return null;
-  return config.url && config.anonKey ? config : null;
+  if (config && typeof config.url === 'string' && typeof config.anonKey === 'string' && config.url && config.anonKey) {
+    return config;
+  }
+  // A project the owner entered by hand always wins, so a deployment-level
+  // default can be overridden per device without a redeploy.
+  if (MANAGED_SYNC) return { url: envUrl, anonKey: envKey };
+  return null;
 }
 
 export function saveCloudConfig(url: string, anonKey: string): CloudResult<CloudConfig> {

@@ -352,3 +352,31 @@ exactly as before if you never do. Disconnecting returns the planner to
 local-only immediately; the tasks stay. The only data a sync project ever sees is
 the JSON snapshot of your planner, protected by a row that only your login can
 read.
+
+### Signing up during onboarding
+
+Setup is now four steps, and the **first** one is the account: sign in, create an
+account, or continue without one. Asking there matters — a user who finishes
+setup before creating the login tends never to come back to it.
+
+The step also asks the question that decides whether "same login" means anything:
+**where does the data live?** If no sync project is connected it says so plainly
+and offers the two-minute setup inline; if one is connected it confirms sync is
+on. Signing in on a second device pulls the merged snapshot before you finish
+setup, so the name and working hours you land on are the ones already in use.
+
+### Zero-setup sync (recommended)
+
+Pasting keys on every device is friction nobody should pay twice. Set two
+environment variables once, in the deployment:
+
+```
+VITE_SUPABASE_URL=https://<project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon public key>
+```
+
+Every device built from that deployment then uses the same project with nothing
+to configure — `.env.example` documents it. The anon key is public by design;
+row-level security in `supabase/schema.sql` is what keeps rows private. A project
+entered by hand in the app still wins over the build-time default, so a single
+device can be pointed elsewhere without a redeploy.

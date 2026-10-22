@@ -1063,8 +1063,11 @@ export default function App() {
       const completed = { ...next, onboardingComplete: true };
       await updateSettings(completed);
       addToast('Setup complete — welcome to your workday.', 'success');
+      // Push straight away: the whole point of signing in during setup is that
+      // the next device sees this without waiting for the two-minute tick.
+      if (account.cloudConnected) void account.syncNow();
     },
-    [addToast, updateSettings],
+    [account, addToast, updateSettings],
   );
 
   const activeReminders: ReminderItem[] = useMemo(() => {
@@ -1267,7 +1270,9 @@ export default function App() {
   }
 
   if (!settings.onboardingComplete) {
-    return <Onboarding onComplete={(next) => void handleOnboarding(next)} />;
+    return (
+      <Onboarding onComplete={(next) => void handleOnboarding(next)} account={account} addToast={addToast} />
+    );
   }
 
   const common: CommonPageProps = {

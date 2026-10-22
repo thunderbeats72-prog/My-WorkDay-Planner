@@ -15009,3 +15009,115 @@ kbd {
     justify-content: center;
   }
 }
+
+/* =========================================================================
+   Onboarding — the account step, and the sync question asked up front
+   ========================================================================= */
+
+.onboarding-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.onboarding-signed-in p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  max-width: 46ch;
+}
+
+.onboarding-sync {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.onboarding-sync-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.onboarding-sync-head > svg {
+  margin-top: 2px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.onboarding-sync-head > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.onboarding-sync-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.onboarding-sync-sub {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.onboarding-sync-panel {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-sync-on {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--success) 30%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.onboarding-sync-on svg {
+  color: var(--success);
+  flex: 0 0 auto;
+}
+
+.onboarding-step .account-form {
+  margin-top: 16px;
+}
+
+.onboarding-step .account-tabs {
+  justify-self: start;
+}
+
+/* A four-step stepper is tighter than three; keep the labels readable. */
+.onboarding-card .stepper.compact {
+  gap: 4px;
+}
+
+@media (max-width: 720px) {
+  .onboarding-sync-head {
+    flex-wrap: wrap;
+  }
+
+  .onboarding-sync-head .btn {
+    margin-left: 24px;
+  }
+}
