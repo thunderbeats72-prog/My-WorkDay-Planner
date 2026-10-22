@@ -73,11 +73,15 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
             <div>
               <p className="account-row-title">Sync across devices</p>
               <p className="account-row-sub">
-                {!account.cloudConfigured
-                  ? 'Not connected. Tasks live in this browser only.'
-                  : account.cloudConnected
-                    ? `Connected${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
-                    : 'Project connected, but this session is not signed in to it yet.'}
+                {account.syncBuiltIn
+                  ? account.cloudConnected
+                    ? `Synced automatically${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
+                    : 'Built into this deployment — sign in above to use it.'
+                  : !account.cloudConfigured
+                    ? 'Not connected. Tasks live in this browser only.'
+                    : account.cloudConnected
+                      ? `Connected${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
+                      : 'Project connected, but this session is not signed in to it yet.'}
               </p>
             </div>
             <div className="account-row-actions">
@@ -86,10 +90,17 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
                   <Button variant="secondary" icon={RefreshCw} onClick={() => void sync()} loading={account.busy}>
                     Sync now
                   </Button>
-                  <Button variant="ghost" onClick={account.disconnectCloud}>
-                    Disconnect
-                  </Button>
+                  {account.syncBuiltIn ? null : (
+                    <Button variant="ghost" onClick={account.disconnectCloud}>
+                      Disconnect
+                    </Button>
+                  )}
                 </>
+              ) : account.syncBuiltIn ? (
+                <span className="account-state is-on">
+                  <Cloud size={13} aria-hidden="true" />
+                  Sync built in
+                </span>
               ) : (
                 <Button
                   variant="secondary"

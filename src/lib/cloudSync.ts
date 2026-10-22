@@ -12,6 +12,7 @@
  */
 
 import type { BackupFile } from './db';
+import { neonProbe, neonPull, neonPush, neonSignIn, neonSignOut, neonSignUp, type NeonSessionPayload } from './neonBackend';
 
 export interface CloudConfig {
   url: string;
@@ -49,8 +50,28 @@ const TABLE = 'planner_snapshots';
 const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? '';
 const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ?? '';
 
-/** True when the deployment itself supplies a sync project. */
+/**
+ * Two backends, one interface.
+ *
+ * `neon` uses this deployment's own `/api` routes (see `neonBackend.ts`), so
+ * nothing is configured on any device. `supabase` talks to a project directly
+ * from the browser. Anything else means the planner is local-only.
+ */
+export type SyncProvider = 'supabase' | 'neon';
+
+const neonMode = (import.meta.env.VITE_SYNC_MODE as string | undefined)?.trim().toLowerCase() === 'neon';
+
+export function syncProvider(): SyncProvider | null {
+  if (MANAGED_SYNC) return 'supabase';
+  if (neonMode) return 'neon';
+  const config = read<CloudConfig>(CONFIG_KEY);
+  if (config && typeof config.url === 'string' && config.url) return 'supabase';
+  return null;
+}
+
+/** True when the deployment itself supplies a sync backend. */
 export const MANAGED_SYNC = envUrl.length > 0 && envKey.length > 0;
+export const IS_NEON = neonMode && !MANAGED_SYNC;
 
 function read<T>(key: string): T | null {
   try {
@@ -77,6 +98,8 @@ export function loadCloudConfig(): CloudConfig | null {
   // A project the owner entered by hand always wins, so a deployment-level
   // default can be overridden per device without a redeploy.
   if (MANAGED_SYNC) return { url: envUrl, anonKey: envKey };
+  // Neon runs behind this deployment's own /api routes.
+  if (IS_NEON) return { url: '/api', anonKey: '' };
   return null;
 }
 
@@ -188,7 +211,26 @@ function sessionFrom(payload: AuthPayload | null, userId: string): CloudResult<C
   return { ok: true, data: session };
 }
 
-export async function cloudSignUp(userId: string, password: string): Promise<CloudResult<CloudSession>> {
+function sessionFromToken(payload: NeonSessionPayload | null, userId: string): CloudResult<CloudSession> {
+  if (!payload?.token || !payload.userId) return { ok: false, error: 'The sync API did not return a session.' };
+  const session: CloudSession = {
+    userId: payload.userId,
+    email: userId,
+    accessToken: payload.token,
+    // Neon sessions are not refreshed; a 30-day token is renewed by signing in.
+    refreshToken: payload.token,
+    expiresAt: new Date(payload.expiresAt).getTime(),
+  };
+  saveCloudSession(session);
+  return { ok: true, data: session };
+}
+
+export async function cloudSignUp(userId: string, password: string, displayName?: string): Promise<CloudResult<CloudSession>> {
+  if (IS_NEON) {
+    const result = await neonSignUp(userId, password, displayName);
+    if (!result.ok) return { ok: false, error: result.error };
+    return sessionFromToken(result.data ?? null, userId);
+  }
   const config = loadCloudConfig();
   if (!config) return { ok: false, error: 'No sync project is connected yet.' };
   const result = await call<AuthPayload>(config, '/auth/v1/signup', {
@@ -205,6 +247,11 @@ export async function cloudSignUp(userId: string, password: string): Promise<Clo
 }
 
 export async function cloudSignIn(userId: string, password: string): Promise<CloudResult<CloudSession>> {
+  if (IS_NEON) {
+    const result = await neonSignIn(userId, password);
+    if (!result.ok) return { ok: false, error: result.error };
+    return sessionFromToken(result.data ?? null, userId);
+  }
   const config = loadCloudConfig();
   if (!config) return { ok: false, error: 'No sync project is connected yet.' };
   const result = await call<AuthPayload>(config, '/auth/v1/token?grant_type=password', {
@@ -220,6 +267,10 @@ export async function cloudSignOut(): Promise<void> {
   const session = loadCloudSession();
   saveCloudSession(null);
   if (!config || !session) return;
+  if (IS_NEON) {
+    await neonSignOut(session.accessToken);
+    return;
+  }
   // Best effort: revoke the refresh token so a stolen copy is useless.
   await call(config, '/auth/v1/logout', { method: 'POST' }, session.accessToken).catch(() => undefined);
 }
@@ -240,6 +291,11 @@ async function freshSession(): Promise<CloudSession | null> {
 }
 
 export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null>> {
+  if (IS_NEON) {
+    const neonSession = loadCloudSession();
+    if (!neonSession) return { ok: false, error: 'Sign in again — the sync token has expired.' };
+    return neonPull(neonSession.accessToken);
+  }
   const config = loadCloudConfig();
   const session = await freshSession();
   if (!config) return { ok: false, error: 'No sync project is connected yet.' };
@@ -257,6 +313,11 @@ export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null
 }
 
 export async function pushCloudSnapshot(snapshot: BackupFile): Promise<CloudResult> {
+  if (IS_NEON) {
+    const neonSession = loadCloudSession();
+    if (!neonSession) return { ok: false, error: 'Sign in again — the sync token has expired.' };
+    return neonPush(neonSession.accessToken, snapshot);
+  }
   const config = loadCloudConfig();
   const session = await freshSession();
   if (!config) return { ok: false, error: 'No sync project is connected yet.' };
@@ -277,6 +338,7 @@ export async function pushCloudSnapshot(snapshot: BackupFile): Promise<CloudResu
 
 /** Runs a query against the project to prove the two keys work before saving. */
 export async function testCloudConnection(url: string, anonKey: string): Promise<CloudResult> {
+  if (IS_NEON) return neonProbe();
   const trimmedUrl = url.trim().replace(/\/+$/, '');
   try {
     const response = await fetch(`${trimmedUrl}/rest/v1/${TABLE}?select=updated_at&limit=1`, {

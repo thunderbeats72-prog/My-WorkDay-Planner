@@ -380,3 +380,49 @@ to configure — `.env.example` documents it. The anon key is public by design;
 row-level security in `supabase/schema.sql` is what keeps rows private. A project
 entered by hand in the app still wins over the build-time default, so a single
 device can be pointed elsewhere without a redeploy.
+
+## Sync on Neon
+
+Neon is Postgres, not a backend — a browser cannot hold a connection string and
+should not. So this repo ships the missing piece: three small functions in `api/`
+that hold the connection string server-side and scope every query to the token's
+owner. The browser only ever sees a 64-character session token.
+
+```
+api/auth/signup.ts   POST  { userId, password, displayName? } -> { token }
+api/auth/signin.ts   POST  { userId, password }               -> { token }
+api/snapshot.ts      GET | POST | DELETE   (Bearer <token>)
+db/neon-schema.sql   3 tables, no extensions
+```
+
+The password is stretched with the same PBKDF2-SHA256/210k as the local accounts,
+so a user ID means one thing everywhere. Session tokens are stored **hashed**, so
+a database leak does not hand over live sessions. The user is always taken from
+the token, never from the request body, so one account cannot ask for another's
+snapshot by naming it.
+
+### Setup, once
+
+1. **Create the project** at [neon.com](https://neon.com) — free plan. Region:
+   **AWS ap-southeast-1 (Singapore)**, the closest Neon has to India.
+2. **Run `db/neon-schema.sql`** in the Neon SQL editor. Three tables.
+3. **Copy the connection string** from *Connection Details*. Use the **pooled**
+   one; serverless functions open many short-lived connections.
+4. **Add it to the deployment** as `DATABASE_URL` — a server-side variable, never
+   `VITE_`-prefixed, never shipped to the browser.
+5. **Add `VITE_SYNC_MODE=neon`** and redeploy.
+6. Open the app: onboarding step 1 now says *sync is built in*. Create the
+   account on the laptop, sign in on the phone with the same ID.
+
+### What it costs you versus Supabase
+
+| | Neon + this API | Supabase |
+| --- | --- | --- |
+| Auth | Written here (~150 lines) | Built in |
+| Region near India | Singapore | **Mumbai** |
+| Free-tier pausing | Scales to zero, resumes on request | Pauses after 7 idle days |
+| Lock-in | Plain Postgres — `pg_dump` and go | Supabase-specific |
+
+Neon's scale-to-zero is actually *better* than Supabase's pause for this app: a
+cold start costs a few hundred milliseconds once, instead of a project that stays
+down until someone clicks Restore. The price is that you own the auth code.

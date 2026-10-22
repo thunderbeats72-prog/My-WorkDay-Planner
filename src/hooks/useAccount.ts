@@ -12,6 +12,7 @@ import {
   type StoredAccount,
 } from '../lib/accounts';
 import {
+  IS_NEON,
   clearCloudConfig,
   cloudSignIn,
   cloudSignOut,
@@ -40,6 +41,8 @@ export interface AccountState {
   cloudConfigured: boolean;
   cloudConnected: boolean;
   lastSyncedAt: string | null;
+  /** True when the deployment supplies a backend, so there is nothing to paste. */
+  syncBuiltIn: boolean;
 }
 
 export interface AccountApi extends AccountState {
@@ -296,6 +299,7 @@ export function useAccount({
     cloudConfigured,
     cloudConnected,
     lastSyncedAt,
+    syncBuiltIn: IS_NEON,
     busy,
     syncNow,
     signUp,
