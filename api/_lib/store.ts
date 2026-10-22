@@ -77,7 +77,10 @@ export function explain(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (/DATABASE_URL is not set/i.test(message)) return message;
   if (/relation .* does not exist/i.test(message)) {
-    return 'The database tables are missing. Run db/neon-schema.sql once in the Neon SQL editor.';
+    return 'The database refused to create its tables. Check that DATABASE_URL points at a database you own and try again.';
+  }
+  if (/permission denied|must be owner/i.test(message)) {
+    return 'The database user in DATABASE_URL cannot create tables. Use the connection string from Neon’s Connection Details unchanged.';
   }
   if (/password authentication failed|invalid_password|does not exist/i.test(message) && /role|database/i.test(message)) {
     return 'Neon rejected the connection string. Copy it again from Neon → Connection Details.';

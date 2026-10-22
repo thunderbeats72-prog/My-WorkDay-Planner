@@ -1,4 +1,5 @@
 import { checkPassword, checkUserId, deriveHash, hashToken, randomHex } from '../_lib/crypto';
+import { ensureSchema } from '../_lib/schema';
 import { bodyOf, createSession, explain, fail, findUser, insertUser, noStore, type ApiRequest, type ApiResponse } from '../_lib/store';
 
 const SESSION_DAYS = 30;
@@ -20,6 +21,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (!passwordCheck.ok) return fail(res, 400, passwordCheck.error ?? 'Invalid password.');
 
   try {
+    await ensureSchema();
     const existing = await findUser(idCheck.id);
     if (existing) return fail(res, 409, 'That user ID already exists. Sign in instead.');
 

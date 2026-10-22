@@ -480,3 +480,14 @@ genuinely differs from what the server holds. Without that gate, two devices
 would trade an updated timestamp forever — each pull bumping the version the
 other was watching. `src/lib/snapshot.test.ts` has a convergence group that
 fails if that ever regresses.
+
+### The tables create themselves
+
+Setup used to include pasting SQL into Neon's editor — the step most likely to
+go wrong for someone who does not do this for a living. `api/_lib/schema.ts` now
+runs the same `create table if not exists` statements on the first request after
+a cold start. It is memoised per serverless instance, takes no input, and costs
+one round trip once.
+
+`db/neon-schema.sql` remains for anyone who prefers to provision explicitly, or
+who deploys somewhere without the `/api` functions.
