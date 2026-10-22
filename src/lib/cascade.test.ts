@@ -178,6 +178,39 @@ describe('one floating control, on one page', () => {
   });
 });
 
+describe('the sheet survives a phone keyboard', () => {
+  it('pins itself to the visual viewport and measures in dvh', () => {
+    // A bottom-anchored sheet behind the keyboard is what "the + does nothing"
+    // looks like. `vh` ignores the keyboard; `dvh` does not.
+    const at = css.lastIndexOf('max-height: calc(100dvh');
+    expect(at).toBeGreaterThan(-1);
+    const block = css.lastIndexOf('.modal {', at);
+    const body = css.slice(block, css.indexOf('}', block));
+    expect(body).toContain('position: fixed');
+    expect(body).toContain('bottom: 0');
+    expect(body).toMatch(/max-height: calc\(100dvh/);
+  });
+
+  it('lets the body shrink inside the sheet', () => {
+    const at = css.lastIndexOf('min-height: 0');
+    expect(at).toBeGreaterThan(css.lastIndexOf('max-height: calc(100dvh'));
+  });
+});
+
+describe('onboarding clears the notch', () => {
+  it('adds the top safe area to the cover', () => {
+    const blocks = blocksOf('.onboarding-brand').filter((b) => b.body.includes('safe-area-inset-top'));
+    expect(blocks.length).toBeGreaterThan(0);
+    const at = blocks[blocks.length - 1].index;
+    expect(css.slice(css.lastIndexOf('@media', at), at)).toMatch(/max-width: 767px/);
+  });
+
+  it('does not reserve a screenful of height under the cover', () => {
+    const blocks = blocksOf('.onboarding-card');
+    expect(blocks[blocks.length - 1].body).toMatch(/min-height:\s*0/);
+  });
+});
+
 describe('the reader itself', () => {
   it('ranks a class-selector pair above a single class', () => {
     expect(specificity('.app-shell .utility-bar')[1]).toBe(2);

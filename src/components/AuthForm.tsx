@@ -14,12 +14,18 @@ export function AuthForm({
   account,
   addToast,
   onSignedIn,
+  onProfile,
   autoFocus = false,
   compact = false,
 }: {
   account: AccountApi;
   addToast?: AddToast;
   onSignedIn?: (mode: 'signin' | 'signup') => void;
+  /**
+   * What sign-up collected about the person. Onboarding uses it to fill the
+   * "About you" step and skip it, so nobody is asked for the same role twice.
+   */
+  onProfile?: (profile: { name: string; role: string; company: string }) => void;
   autoFocus?: boolean;
   compact?: boolean;
 }) {
@@ -29,6 +35,8 @@ export function AuthForm({
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [role, setRole] = useState('');
+  const [company, setCompany] = useState('');
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(0);
@@ -77,6 +85,7 @@ export function AuthForm({
 
     setPassword('');
     setConfirm('');
+    if (mode === 'signup') onProfile?.({ name: displayName.trim(), role: role.trim(), company: company.trim() });
     onSignedIn?.(mode);
   };
 
@@ -175,7 +184,33 @@ export function AuthForm({
                 autoComplete="name"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
-                placeholder="Your name (optional)"
+                placeholder="Your name"
+              />
+            </div>
+            {/* Asked here, once. The next step used to ask for the same two
+                fields, which read as the app forgetting the account. */}
+            <div className="auth-input-wrap">
+              <UserRound size={15} className="auth-input-icon" aria-hidden="true" />
+              <input
+                id={`${idBase}-role`}
+                className="input auth-input"
+                aria-label="Your role"
+                autoComplete="organization-title"
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+                placeholder="Your role — e.g. Business development"
+              />
+            </div>
+            <div className="auth-input-wrap">
+              <UserRound size={15} className="auth-input-icon" aria-hidden="true" />
+              <input
+                id={`${idBase}-company`}
+                className="input auth-input"
+                aria-label="Your company"
+                autoComplete="organization"
+                value={company}
+                onChange={(event) => setCompany(event.target.value)}
+                placeholder="Your company"
               />
             </div>
           </>

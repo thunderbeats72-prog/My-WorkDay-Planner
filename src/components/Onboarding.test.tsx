@@ -62,6 +62,25 @@ describe('Onboarding — account step', () => {
     expect(account.signUp).toHaveBeenCalledWith('lakshit', 'open sesame 72', '');
   });
 
+  it('asks for role and company while signing up, and then stops asking', async () => {
+    const account = fakeAccount();
+    render(<Onboarding onComplete={vi.fn()} account={account} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Create account' }));
+    await userEvent.type(screen.getByLabelText('User ID'), 'lakshit');
+    await userEvent.type(screen.getByLabelText('Password'), 'open sesame 72');
+    await userEvent.type(screen.getByLabelText('Confirm password'), 'open sesame 72');
+    await userEvent.type(screen.getByLabelText('Your name'), 'Lakshit Rao');
+    await userEvent.type(screen.getByLabelText('Your role'), 'Business development');
+    await userEvent.type(screen.getByLabelText('Your company'), 'Acme');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create my account' }));
+
+    // Straight to the working rhythm: the profile questions were just answered.
+    expect(await screen.findByText('Step 3 of 4')).toBeTruthy();
+    expect(screen.queryByText('Step 2 of 4')).toBeNull();
+  });
+
   it('signs in with an existing account, which is how a new device gets its data', async () => {
     const account = fakeAccount();
     render(<Onboarding onComplete={vi.fn()} account={account} />);

@@ -76,6 +76,41 @@ describe('Modal', () => {
     clock.restore();
   });
 
+  it('does not summon the keyboard on a touch screen', async () => {
+    // Focusing a field on a phone raises the keyboard, iOS zooms to fit it, and
+    // the bottom-anchored sheet ends up behind the keyboard: "+" looked dead.
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('coarse'),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    vi.useFakeTimers();
+    renderSheet(vi.fn());
+    vi.advanceTimersByTime(100);
+
+    expect(document.activeElement).not.toBe(screen.getByLabelText('Title'));
+
+    vi.useRealTimers();
+    window.matchMedia = original;
+  });
+
+  it('lands on the first field on a laptop', async () => {
+    vi.useFakeTimers();
+    renderSheet(vi.fn());
+    vi.advanceTimersByTime(100);
+
+    expect(document.activeElement).toBe(screen.getByLabelText('Title'));
+
+    vi.useRealTimers();
+  });
+
   it('renders nothing when closed', () => {
     const onClose = vi.fn();
     const { container } = render(

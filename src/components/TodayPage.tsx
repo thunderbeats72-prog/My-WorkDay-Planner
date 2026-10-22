@@ -276,7 +276,7 @@ export function TodayPage({
         <input
           id="quick-add-input"
           className="quick-add-input"
-          placeholder="Quick add for today — type and press Enter"
+          placeholder="Add a task — press Enter"
           autoComplete="off"
           value={quickTitle}
           aria-describedby="quick-add-help"
