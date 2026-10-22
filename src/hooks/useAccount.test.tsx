@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { adoptVerifiedAccount, signIn as signInLocal, signOut } from '../lib/accounts';
+import { adoptVerifiedAccount, bindDevice, signIn as signInLocal, signOut } from '../lib/accounts';
 
 const cloud = vi.hoisted(() => ({
   isCloudConfigured: true,
@@ -17,7 +17,8 @@ const cloud = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/cloudSync', () => ({
-  IS_NEON: true,
+  neonEnabled: () => true,
+  ensureBackend: async () => cloud.isCloudConfigured,
   isCloudConfigured: () => cloud.isCloudConfigured,
   cloudSignIn: cloud.cloudSignIn,
   cloudSignUp: cloud.cloudSignUp,
@@ -97,7 +98,9 @@ describe('signing in on a device that has never seen this planner', () => {
   it('still lets you in offline when this device already holds the account', async () => {
     await adoptVerifiedAccount({ userId: 'lakshit', password: 'open sesame 72' });
     const { result } = renderAccount();
+    // Offline means the create attempt fails too, not just the sign-in.
     cloud.cloudSignIn.mockResolvedValue({ ok: false, error: 'Could not reach the sync API.' });
+    cloud.cloudSignUp.mockResolvedValue({ ok: false, error: 'Could not reach the sync API.' });
 
     let outcome: { ok: boolean; error?: string } = { ok: false };
     await act(async () => {
@@ -106,6 +109,54 @@ describe('signing in on a device that has never seen this planner', () => {
 
     expect(outcome.ok).toBe(true);
     expect(outcome.error).toContain('this device only');
+  });
+
+  it('puts an account that only exists on this device into the shared database', async () => {
+    // The laptop made the account before the API deployed; the phone has never
+    // heard of it. Signing in here should fix that instead of dead-ending.
+    await adoptVerifiedAccount({ userId: 'lakshit', password: 'open sesame 72' });
+    const { result } = renderAccount();
+    cloud.cloudSignIn.mockResolvedValue({ ok: false, error: 'That user ID and password do not match.', status: 401 });
+
+    let outcome: { ok: boolean; error?: string } = { ok: false };
+    await act(async () => {
+      outcome = await result.current.signIn('lakshit', 'open sesame 72');
+    });
+
+    expect(cloud.cloudSignUp).toHaveBeenCalledWith('lakshit', 'open sesame 72', expect.anything());
+    expect(outcome.ok).toBe(true);
+    expect(outcome.error).toContain('works on your phone');
+    expect(result.current.cloudConnected).toBe(true);
+  });
+
+  it('never invents a remote account from a wrong password', async () => {
+    await adoptVerifiedAccount({ userId: 'lakshit', password: 'open sesame 72' });
+    const { result } = renderAccount();
+    cloud.cloudSignIn.mockResolvedValue({ ok: false, error: 'That user ID and password do not match.', status: 401 });
+
+    let outcome: { ok: boolean; error?: string } = { ok: false };
+    await act(async () => {
+      outcome = await result.current.signIn('lakshit', 'not the password');
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(cloud.cloudSignUp).not.toHaveBeenCalled();
+  });
+
+  it('lets an empty device change hands instead of dead-ending', async () => {
+    // Someone tried a different ID on this phone and left nothing behind. The
+    // old guard refused the account that actually holds the tasks, and the
+    // message read like a rejected password.
+    bindDevice('someone-else');
+    const { result } = renderAccount();
+
+    let outcome: { ok: boolean; error?: string } = { ok: false };
+    await act(async () => {
+      outcome = await result.current.signIn('lakshit', 'open sesame 72');
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(result.current.account?.id).toBe('lakshit');
   });
 
   it('creates the account on the backend first when signing up', async () => {

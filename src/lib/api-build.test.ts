@@ -56,6 +56,15 @@ describe('serverless function sources', () => {
     }
   });
 
+  it('every route file exports a default handler', () => {
+    // A file that compiles but exports nothing deploys and then 500s on every
+    // call, which is the same silence as not deploying at all.
+    for (const { path, source } of files) {
+      if (/[\\/]_lib[\\/]/.test(path)) continue;
+      expect(source, `${path} has no default export`).toMatch(/export default async function handler/);
+    }
+  });
+
   it('ships a tsconfig that turns on node types', () => {
     const config = JSON.parse(readFileSync(join(API, 'tsconfig.json'), 'utf8')) as {
       compilerOptions?: { types?: string[] };

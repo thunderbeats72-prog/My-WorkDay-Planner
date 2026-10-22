@@ -13,12 +13,13 @@ import {
   type StoredAccount,
 } from '../lib/accounts';
 import {
-  IS_NEON,
   clearCloudConfig,
   cloudSignIn,
   cloudSignOut,
   cloudSignUp,
+  ensureBackend,
   isCloudConfigured,
+  neonEnabled,
   loadCloudSession,
   pullCloudSnapshot,
   pullVersion,
@@ -26,6 +27,7 @@ import {
   saveCloudConfig,
   testCloudConnection,
 } from '../lib/cloudSync';
+import { apiStatus } from '../lib/neonBackend';
 import {
   createBackupPayload,
   listAllEvents,
@@ -59,6 +61,12 @@ export interface AccountApi extends AccountState {
   removeAccount: (password: string) => Promise<{ ok: boolean; error?: string }>;
   connectCloud: (url: string, anonKey: string) => Promise<{ ok: boolean; error?: string }>;
   disconnectCloud: () => void;
+  /**
+   * Put an account that only exists on this device into the shared database,
+   * with the password the person already knows. This is the one tap that makes
+   * a laptop-only login work on a phone.
+   */
+  publishAccount: (password: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const LAST_SYNC_KEY = 'workday.cloud.last-sync.v1';
@@ -124,6 +132,41 @@ export async function buildLocalSnapshot(exportedAt?: string): Promise<BackupFil
   return exportedAt ? { ...snapshot, exportedAt } : snapshot;
 }
 
+/**
+ * Turn the server's refusal into the next thing a person should try.
+ *
+ * "That user ID and password do not match" is deliberate — the endpoint must not
+ * double as a way to discover which IDs exist — so the guidance has to be
+ * generic: an account made before the database existed is the common case, and
+ * `Create account` with the same pair is the fix.
+ */
+function signInFailure(error: string | undefined, status: number | undefined): string {
+  const base = error ?? 'That user ID and password do not match.';
+  if (status === 401) {
+    return `${base} If this account was only ever created on one device, tap “Create account” and use the same user ID and password — that adds it to the shared database.`;
+  }
+  if (status === 404 || /did not deploy|not answering/i.test(base)) {
+    return `${base} Nothing is wrong with your account or your password. (API 404)`;
+  }
+  if (status && status >= 500) return `${base} (API ${status})`;
+  return base;
+}
+
+/** Why a login that only knows this device did not work. */
+function noBackendReason(localError: string | undefined): string {
+  const state = apiStatus();
+  if (state === 'missing') {
+    return 'This site is not serving its own sign-in server, so it cannot check a shared account. Your password is fine — nothing was sent. (API 404)';
+  }
+  if (state === 'no-database') {
+    return 'This site has its sign-in server but no database attached to it. Your password is fine — nothing was sent. (API 500 · DATABASE_URL missing)';
+  }
+  if (state === 'unreachable') {
+    return 'The connection dropped before the sign-in server answered. Your tasks are still safe on this device.';
+  }
+  return localError ?? 'That user ID and password do not match.';
+}
+
 export function useAccount({
   onDataChanged,
   onNotice,
@@ -145,6 +188,25 @@ export function useAccount({
   useEffect(() => {
     refreshData.current = onDataChanged;
   }, [onDataChanged]);
+
+  /**
+   * Find out whether this deployment has a database behind it.
+   *
+   * Runs once, before anyone tries to sign in, so the form knows which sentence
+   * is true. It is the difference between "your password is wrong" and "this
+   * copy has no shared database", and those are very different sentences for
+   * someone signing in on a phone.
+   */
+  useEffect(() => {
+    if (cloudConfigured) return;
+    let cancelled = false;
+    void ensureBackend().then(() => {
+      if (!cancelled) setCloudConfigured(isCloudConfigured());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudConfigured]);
 
   /**
    * Full round trip: read local, read remote, merge, write back if — and only
@@ -333,12 +395,28 @@ export function useAccount({
     [],
   );
 
-  const guardDevice = useCallback((userId: string): string | null => {
+  /**
+   * One planner, one account per device — but only to protect data that exists.
+   *
+   * A phone someone experimented on, with nothing in it, refused the account
+   * that actually holds everything, and the message read like a wrong password.
+   * An empty device has nothing to protect, so it simply changes hands.
+   */
+  const guardDevice = useCallback(async (userId: string): Promise<string | null> => {
     const owner = getDeviceOwner();
-    if (owner && owner.userId !== userId) {
-      return `This device's tasks belong to @${owner.userId}. Sign in as @${owner.userId}, or reset data in Settings before using another account.`;
+    if (!owner || owner.userId === userId) return null;
+
+    const [tasks, sessions, reminderRows, events] = await Promise.all([
+      listTasks(),
+      listSessions(),
+      listReminders(),
+      listAllEvents(),
+    ]);
+    if (tasks.length === 0 && sessions.length === 0 && reminderRows.length === 0 && events.length === 0) {
+      bindDevice(userId);
+      return null;
     }
-    return null;
+    return `This device's tasks belong to @${owner.userId}. Sign in as @${owner.userId}, or reset data in Settings before using another account.`;
   }, []);
 
   /**
@@ -351,7 +429,7 @@ export function useAccount({
   const signUp = useCallback(
     async (userId: string, password: string, displayName?: string) => {
       const id = userId.trim().replace(/^@+/, '').toLowerCase();
-      const blocked = guardDevice(id);
+      const blocked = await guardDevice(id);
       if (blocked) return { ok: false, error: blocked };
       setBusy(true);
       try {
@@ -400,11 +478,16 @@ export function useAccount({
   const signIn = useCallback(
     async (userId: string, password: string) => {
       const id = userId.trim().replace(/^@+/, '').toLowerCase();
-      const blocked = guardDevice(id);
+      const blocked = await guardDevice(id);
       if (blocked) return { ok: false, error: blocked };
       setBusy(true);
       try {
+        // Ask the deployment before judging the password. A phone that has never
+        // seen this planner is exactly where a build without the flag used to
+        // fail, silently, as "no account on this device".
+        await ensureBackend();
         if (isCloudConfigured()) {
+          setCloudConfigured(true);
           const remote = await cloudSignIn(id, password);
           if (remote.ok) {
             const adopted = await adoptVerifiedAccount({ userId: id, password });
@@ -417,19 +500,41 @@ export function useAccount({
 
           const local = await signInLocal(id, password);
           if (local.ok && local.account) {
-            bindDevice(local.account.id);
-            return { ok: true, error: `Signed in on this device only — ${remote.error}` };
+            const already = local.account;
+            // The password is right for this device, but the shared database has
+            // no such account — the state a laptop reaches when it made the
+            // account before the database existed. Put it in the database with
+            // the password just proved here, and the phone will find it.
+            const published = await cloudSignUp(id, password, already.displayName);
+            if (published.ok) {
+              const adopted = await adoptVerifiedAccount({ userId: id, password });
+              bindDevice((adopted.account ?? already).id);
+              setCloudConnected(true);
+              const result = await syncNow({ quiet: true });
+              return {
+                ok: true,
+                error: result.ok
+                  ? 'Signed in. This account is now in the shared database, so the same user ID works on your phone.'
+                  : result.message,
+              };
+            }
+            bindDevice(already.id);
+            return {
+              ok: true,
+              error:
+                'Signed in on this device only. The shared database does not have this account yet — open Settings → Account and tap “Add to the shared database”.',
+            };
           }
-          return { ok: false, error: remote.error };
+          return { ok: false, error: signInFailure(remote.error, remote.status) };
         }
 
         const local = await signInLocal(id, password);
-        if (!local.ok || !local.account) return { ok: false, error: local.error };
+        if (!local.ok || !local.account) return { ok: false, error: noBackendReason(local.error) };
         bindDevice(local.account.id);
         return {
           ok: true,
           error:
-            'No sync database is deployed with this copy, so there was nothing to fetch from your other device. The login works here; the tasks stay here too.',
+            'No shared database is attached to this copy, so there was nothing to fetch from your other device. The login works here; the tasks stay here too.',
         };
       } finally {
         setBusy(false);
@@ -484,6 +589,38 @@ export function useAccount({
     [],
   );
 
+  const publishAccount = useCallback(
+    async (password: string) => {
+      if (!account) return { ok: false, error: 'Sign in first.' };
+      await ensureBackend();
+      if (!isCloudConfigured()) {
+        return { ok: false, error: 'This copy has no shared database, so there is nowhere to add it yet.' };
+      }
+      setBusy(true);
+      try {
+        // Prove the password on this device before using it to create a server
+        // account: otherwise a typo here would create a second identity.
+        const proof = await signInLocal(account.id, password);
+        if (!proof.ok || !proof.account) return { ok: false, error: 'That password does not match this device.' };
+
+        let remote = await cloudSignUp(account.id, password, account.displayName);
+        if (!remote.ok) {
+          // It may already exist remotely with the same password — then this is
+          // simply a sign-in, and the local copy gets adopted properly.
+          remote = await cloudSignIn(account.id, password);
+          if (!remote.ok) return { ok: false, error: signInFailure(remote.error, remote.status) };
+        }
+        setCloudConnected(true);
+        setCloudConfigured(true);
+        const result = await syncNow({ quiet: true });
+        return { ok: true, error: result.ok ? undefined : result.message };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [account, syncNow],
+  );
+
   const disconnectCloud = useCallback(() => {
     void cloudSignOut();
     clearCloudConfig();
@@ -497,7 +634,7 @@ export function useAccount({
     cloudConfigured,
     cloudConnected,
     lastSyncedAt,
-    syncBuiltIn: IS_NEON,
+    syncBuiltIn: neonEnabled(),
     busy,
     syncNow: syncNowPublic,
     schedulePush,
@@ -508,5 +645,6 @@ export function useAccount({
     removeAccount,
     connectCloud,
     disconnectCloud,
+    publishAccount,
   };
 }

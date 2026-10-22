@@ -5,7 +5,7 @@
  * — on Android, for an installed app — during a periodic background check.
  */
 
-const CACHE = 'workday-shell-v5';
+const CACHE = 'workday-shell-v6';
 const SHELL = [
   '/',
   '/index.html',
@@ -79,16 +79,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Built assets are network-first, cache-second.
+  //
+  // They used to be cache-first, which is right for an icon and wrong for the
+  // application bundle: a phone could keep running last week's code and report
+  // last week's bugs while the laptop was fixed. A file whose name is a content
+  // hash can never be stale, so asking the network first costs one round trip
+  // and buys correctness.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        if (!response || response.status !== 200 || response.type !== 'basic') return response;
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
         return response;
-      });
-    }),
+      })
+      .catch(() => caches.match(request).then((cached) => cached ?? Response.error())),
   );
 });
 

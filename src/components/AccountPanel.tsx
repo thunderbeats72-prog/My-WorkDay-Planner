@@ -6,6 +6,24 @@ import type { AccountApi } from '../hooks/useAccount';
 import type { AddToast } from './pageProps';
 
 /**
+ * One sentence for the state the account is actually in.
+ *
+ * These used to be a four-way nested ternary, which is how "connected to a
+ * database, but this login is not in it" quietly fell through to a sentence
+ * about a session. The states are named here instead of deduced inline.
+ */
+function syncSentence(account: AccountApi): string {
+  const last = account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : '';
+  if (!account.cloudConfigured) {
+    return 'No shared database in this copy, so tasks live in this browser only. Deploying with the database turns it on by itself — there is nothing to paste here.';
+  }
+  if (account.cloudConnected) {
+    return account.syncBuiltIn ? `Synced automatically${last}` : `Connected${last}`;
+  }
+  return 'The database is ready, but this login was made on this device. Add it once and the same user ID works on your phone.';
+}
+
+/**
  * Account, in Settings.
  *
  * Two honest states: either this device is the whole story (local account), or
@@ -15,10 +33,11 @@ import type { AddToast } from './pageProps';
 export function AccountPanel({ account, addToast }: { account: AccountApi; addToast: AddToast }) {
   const idBase = useId();
   const [error, setError] = useState<string | null>(null);
-  const [openPanel, setOpenPanel] = useState<'password' | 'delete' | null>(null);
+  const [openPanel, setOpenPanel] = useState<'password' | 'delete' | 'publish' | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [nextPassword, setNextPassword] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
+  const [publishPassword, setPublishPassword] = useState('');
 
   const signedIn = account.account !== null;
 
@@ -71,29 +90,31 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
             <div>
               <p className="account-row-title">Sync across devices</p>
               <p className="account-row-sub">
-                {account.syncBuiltIn
-                  ? account.cloudConnected
-                    ? `Synced automatically${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
-                    : 'Built into this deployment — sign in above to use it.'
-                  : !account.cloudConfigured
-                    ? 'Not configured in this copy — tasks live in this browser only. Deploy with the database and it turns on by itself, with nothing to paste here.'
-                    : account.cloudConnected
-                      ? `Connected${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
-                      : 'Project connected, but this session is not signed in to it yet.'}
+                {syncSentence(account)}
               </p>
             </div>
             <div className="account-row-actions">
               {account.cloudConfigured ? (
-                <>
-                  <Button variant="secondary" icon={RefreshCw} onClick={() => void sync()} loading={account.busy}>
-                    Sync now
-                  </Button>
-                  {account.syncBuiltIn ? null : (
-                    <Button variant="ghost" onClick={account.disconnectCloud}>
-                      Disconnect
+                account.cloudConnected ? (
+                  <>
+                    <Button variant="secondary" icon={RefreshCw} onClick={() => void sync()} loading={account.busy}>
+                      Sync now
                     </Button>
-                  )}
-                </>
+                    {account.syncBuiltIn ? null : (
+                      <Button variant="ghost" onClick={account.disconnectCloud}>
+                        Disconnect
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    icon={Cloud}
+                    onClick={() => setOpenPanel(openPanel === 'publish' ? null : 'publish')}
+                  >
+                    Add to the shared database
+                  </Button>
+                )
               ) : account.syncBuiltIn ? (
                 <span className="account-state is-on">
                   <Cloud size={13} aria-hidden="true" />
@@ -130,6 +151,53 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
               </Button>
             </div>
           </div>
+
+          {openPanel === 'publish' ? (
+            <div className="account-subpanel">
+              <p className="account-subpanel-lead">
+                This account was made on this device before the database was attached, so the other device has never
+                heard of it. Add it once with the same password — after that the same user ID works everywhere.
+              </p>
+              <div className="account-fields">
+                <Field label="Password for this account" htmlFor={`${idBase}-publish`}>
+                  <input
+                    id={`${idBase}-publish`}
+                    className="input"
+                    type="password"
+                    autoComplete="current-password"
+                    value={publishPassword}
+                    onChange={(event) => setPublishPassword(event.target.value)}
+                  />
+                </Field>
+              </div>
+              {error ? (
+                <p className="account-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className="account-actions">
+                <Button
+                  variant="primary"
+                  icon={Cloud}
+                  loading={account.busy}
+                  onClick={async () => {
+                    setError(null);
+                    const result = await account.publishAccount(publishPassword);
+                    if (!result.ok) {
+                      setError(result.error ?? 'Could not add the account.');
+                      return;
+                    }
+                    addToast('Added. This user ID now works on your phone and laptop.', 'success');
+                    setPublishPassword('');
+                    setOpenPanel(null);
+                  }}
+                >
+                  Add this account
+                </Button>
+                <p className="account-fine">The password is checked here first, then stretched the same way on the server.</p>
+              </div>
+            </div>
+          ) : null}
 
           {openPanel === 'password' ? (
             <div className="account-subpanel">
