@@ -83,22 +83,14 @@ describe('Onboarding — account step', () => {
     expect(screen.getByText('Step 2 of 4')).toBeTruthy();
   });
 
-  it('tells the truth when no sync project is connected', () => {
+  it('tells the truth when no sync database is deployed, and asks nothing of the user', () => {
     render(<Onboarding onComplete={vi.fn()} account={fakeAccount()} />);
-    expect(screen.getByText(/the login stays on this device/i)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Set up sync' })).toBeTruthy();
-  });
 
-  it('offers the two-minute sync setup without leaving onboarding', async () => {
-    const account = fakeAccount();
-    render(<Onboarding onComplete={vi.fn()} account={account} />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Set up sync' }));
-    await userEvent.type(screen.getByLabelText('Project URL'), 'https://abcd1234.supabase.co');
-    await userEvent.type(screen.getByLabelText('Anon public key'), 'k'.repeat(40));
-    await userEvent.click(screen.getByRole('button', { name: 'Connect sync' }));
-
-    expect(account.connectCloud).toHaveBeenCalledWith('https://abcd1234.supabase.co', 'k'.repeat(40));
+    expect(screen.getByText(/keeps everything on this device/i)).toBeTruthy();
+    // No URLs, no keys, no homework on the front door.
+    expect(screen.queryByLabelText('Project URL')).toBeNull();
+    expect(screen.queryByLabelText('Anon public key')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Set up sync/i })).toBeNull();
   });
 
   it('confirms sync is on when the deployment supplies a project', () => {
@@ -106,7 +98,7 @@ describe('Onboarding — account step', () => {
       <Onboarding onComplete={vi.fn()} account={fakeAccount({ account: signedIn, cloudConfigured: true, cloudConnected: true })} />,
     );
     expect(screen.getAllByText(/Sync is on/).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: 'Set up sync' })).toBeNull();
+    expect(screen.queryByText(/keeps everything on this device/i)).toBeNull();
   });
 
   it('still allows skipping the account entirely', async () => {

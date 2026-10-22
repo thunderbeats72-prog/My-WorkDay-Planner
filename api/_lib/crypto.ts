@@ -8,6 +8,27 @@
 
 export const PBKDF2_ITERATIONS = 210_000;
 
+/**
+ * Web Crypto, typed structurally.
+ *
+ * Same reason as the env helper in `store.ts`: this file has to type-check under
+ * whatever lib settings the host uses, including ones without DOM typings.
+ */
+interface CryptoLike {
+  getRandomValues(bytes: Uint8Array): Uint8Array;
+  subtle: {
+    importKey(format: string, material: Uint8Array, algorithm: unknown, extractable: boolean, usages: string[]): Promise<unknown>;
+    deriveBits(algorithm: unknown, baseKey: unknown, length: number): Promise<ArrayBuffer>;
+    digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer>;
+  };
+}
+
+function webCrypto(): CryptoLike {
+  return (globalThis as unknown as { crypto: CryptoLike }).crypto;
+}
+
+const encoder = new TextEncoder();
+
 const USER_ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{2,31})$/;
 const RESERVED_IDS = new Set(['admin', 'root', 'system', 'support', 'workday', 'anonymous']);
 
@@ -41,20 +62,19 @@ function toHex(bytes: Uint8Array): string {
 
 export function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
-  globalThis.crypto.getRandomValues(bytes);
+  webCrypto().getRandomValues(bytes);
   return toHex(bytes);
 }
 
 export async function deriveHash(password: string, saltHex: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await globalThis.crypto.subtle.importKey(
+  const keyMaterial = await webCrypto().subtle.importKey(
     'raw',
     encoder.encode(password),
     'PBKDF2',
     false,
     ['deriveBits'],
   );
-  const bits = await globalThis.crypto.subtle.deriveBits(
+  const bits = await webCrypto().subtle.deriveBits(
     { name: 'PBKDF2', salt: encoder.encode(saltHex), iterations, hash: 'SHA-256' },
     keyMaterial,
     256,
@@ -64,7 +84,7 @@ export async function deriveHash(password: string, saltHex: string, iterations =
 
 /** Sessions store the digest, so a database leak does not hand over live tokens. */
 export async function hashToken(token: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  const digest = await webCrypto().subtle.digest('SHA-256', encoder.encode(token));
   return toHex(new Uint8Array(digest));
 }
 

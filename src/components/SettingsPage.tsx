@@ -557,7 +557,7 @@ export function SettingsPage({
               <CloudOff size={16} /> Honest limitations
             </h2>
             <ul className="limit-list">
-              <li>Cloud sync is not configured. See SUPABASE.md for the RLS-first plan; a service-role key must never be in the frontend.</li>
+              <li>Cloud sync is off in this copy, so the account lives on this device. Deploying with the database turns it on for every device at once — no keys to paste.</li>
               <li>Reminders in a closed browser are not guaranteed — this is a web app, not a native scheduler.</li>
               <li>OCR quality depends on screenshot clarity. Parsed dates are flagged and reviewed.</li>
               <li>IndexedDB can be cleared by the browser; export backups regularly.</li>

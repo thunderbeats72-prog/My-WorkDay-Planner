@@ -1,6 +1,6 @@
-import { checkPassword, checkUserId, deriveHash, hashToken, randomHex } from '../_lib/crypto';
-import { ensureSchema } from '../_lib/schema';
-import { bodyOf, createSession, explain, fail, findUser, insertUser, noStore, type ApiRequest, type ApiResponse } from '../_lib/store';
+import { checkPassword, checkUserId, deriveHash, hashToken, randomHex } from '../_lib/crypto.js';
+import { ensureSchema } from '../_lib/schema.js';
+import { bodyOf, createSession, explain, fail, findUser, insertUser, noStore, type ApiRequest, type ApiResponse } from '../_lib/store.js';
 
 const SESSION_DAYS = 30;
 

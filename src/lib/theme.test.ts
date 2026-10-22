@@ -83,6 +83,26 @@ describe('decorative rules are not painted with a dead token', () => {
   });
 });
 
+describe('no gradient-clipped text anywhere', () => {
+  it('nothing hides its own text behind a background clip', () => {
+    // Each occurrence was invisible or low-contrast in at least one theme: the
+    // clip keeps only the background, and the background was `none` or a
+    // near-white gradient on a near-white panel. The onboarding title was the
+    // visible symptom — a ghost heading on the front door.
+    expect(css).not.toContain('-webkit-text-fill-color: transparent');
+    expect(css).not.toContain('background-clip: text');
+    expect(css).not.toContain('-webkit-background-clip: text');
+  });
+
+  it('the onboarding cover is an ink panel, so its light type has contrast', () => {
+    // Media queries re-declare padding, so look for the paint, not the last block.
+    const blocks = [...css.matchAll(/\.onboarding-brand\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    const painted = blocks.find((body) => body.includes('#0b0b0e'));
+    expect(painted, 'no onboarding-brand rule paints the ink cover').toBeTruthy();
+    expect(painted).toContain('color: #f4f4f6');
+  });
+});
+
 describe('motion is opt-out-able', () => {
   it('a reduced-motion block exists and kills animation', () => {
     // Several layers each added one; the last one must be the global opt-out.

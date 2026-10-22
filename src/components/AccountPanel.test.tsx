@@ -80,7 +80,7 @@ describe('AccountPanel', () => {
     render(<AccountPanel account={fakeAccount({ account: signedIn })} addToast={addToast} />);
     expect(screen.getAllByText(/@lakshit/).length).toBeGreaterThan(0);
     expect(screen.getByText(/this device only/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Use on phone and laptop/ })).toBeTruthy();
+    expect(screen.getByText('Local only')).toBeTruthy();
   });
 
   it('offers Sync now once a project is connected', async () => {
@@ -97,12 +97,12 @@ describe('AccountPanel', () => {
     expect(addToast).toHaveBeenLastCalledWith('1 new task', 'success');
   });
 
-  it('opens the two-minute Supabase setup when sync is not configured', async () => {
+  it('never asks for database keys when sync is not configured', () => {
     render(<AccountPanel account={fakeAccount({ account: signedIn })} addToast={addToast} />);
 
-    await userEvent.click(screen.getByRole('button', { name: /Use on phone and laptop/ }));
-    expect(screen.getByLabelText('Project URL')).toBeTruthy();
-    expect(screen.getByLabelText('Anon public key')).toBeTruthy();
-    expect(screen.getByText(/schema.sql/)).toBeTruthy();
+    expect(screen.getByText(/Not configured in this copy/)).toBeTruthy();
+    expect(screen.queryByLabelText('Project URL')).toBeNull();
+    expect(screen.queryByLabelText('Anon public key')).toBeNull();
+    expect(screen.queryByText(/supabase/i)).toBeNull();
   });
 });

@@ -35,8 +35,21 @@ async function rows<T>(query: ReturnType<ReturnType<typeof neon>>): Promise<T[]>
   return (await query) as unknown as T[];
 }
 
+/**
+ * Environment variables, read through `globalThis`.
+ *
+ * Vercel type-checks each function on its own terms, and its defaults do not
+ * always include `@types/node` — the real failure was `Cannot find name
+ * 'process'` on this exact line, which stopped the function deploying and left
+ * /api returning 404 at runtime. Reading it structurally compiles either way.
+ */
+function env(name: string): string | undefined {
+  const scope = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
+  return scope.process?.env?.[name];
+}
+
 export function sql() {
-  const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
+  const url = env('DATABASE_URL') ?? env('NEON_DATABASE_URL');
   if (!url) {
     throw new Error(
       'DATABASE_URL is not set. Copy the connection string from Neon → Connection Details and add it to the deployment.',

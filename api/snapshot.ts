@@ -1,5 +1,5 @@
-import { hashToken } from './_lib/crypto';
-import { ensureSchema } from './_lib/schema';
+import { hashToken } from './_lib/crypto.js';
+import { ensureSchema } from './_lib/schema.js';
 import {
   bearerToken,
   bodyOf,
@@ -12,7 +12,7 @@ import {
   writeSnapshot,
   type ApiRequest,
   type ApiResponse,
-} from './_lib/store';
+} from './_lib/store.js';
 
 /**
  * GET  /api/snapshot  — this user's planner snapshot, or null.

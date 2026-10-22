@@ -15,12 +15,10 @@ import type { AddToast } from './pageProps';
 export function AccountPanel({ account, addToast }: { account: AccountApi; addToast: AddToast }) {
   const idBase = useId();
   const [error, setError] = useState<string | null>(null);
-  const [openPanel, setOpenPanel] = useState<'password' | 'delete' | 'cloud' | null>(null);
+  const [openPanel, setOpenPanel] = useState<'password' | 'delete' | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [nextPassword, setNextPassword] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
-  const [cloudUrl, setCloudUrl] = useState('');
-  const [cloudKey, setCloudKey] = useState('');
 
   const signedIn = account.account !== null;
 
@@ -78,7 +76,7 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
                     ? `Synced automatically${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
                     : 'Built into this deployment — sign in above to use it.'
                   : !account.cloudConfigured
-                    ? 'Not connected. Tasks live in this browser only.'
+                    ? 'Not configured in this copy — tasks live in this browser only. Deploy with the database and it turns on by itself, with nothing to paste here.'
                     : account.cloudConnected
                       ? `Connected${account.lastSyncedAt ? ` · last sync ${new Date(account.lastSyncedAt).toLocaleTimeString()}` : ''}`
                       : 'Project connected, but this session is not signed in to it yet.'}
@@ -102,89 +100,13 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
                   Sync built in
                 </span>
               ) : (
-                <Button
-                  variant="secondary"
-                  icon={Cloud}
-                  onClick={() => setOpenPanel(openPanel === 'cloud' ? null : 'cloud')}
-                >
-                  Use on phone and laptop
-                </Button>
+                <span className="account-state account-state-off">
+                  <Cloud size={13} aria-hidden="true" />
+                  Local only
+                </span>
               )}
             </div>
           </div>
-
-          {openPanel === 'cloud' && !account.cloudConfigured ? (
-            <div className="account-subpanel">
-              <p className="account-subpanel-lead">
-                Sync needs somewhere both devices can reach. A free Supabase project costs nothing and takes about two
-                minutes — paste its URL and public key here, once.
-              </p>
-              <ol className="account-steps">
-                <li>
-                  Create a project at <span className="mono">supabase.com</span> (free tier).
-                </li>
-                <li>
-                  In the SQL editor, run the setup in <span className="mono">supabase/schema.sql</span> from this repo —
-                  it creates one table and locks it to your own user.
-                </li>
-                <li>
-                  Turn off <em>Confirm email</em> under Authentication → Providers → Email, so a user ID can sign in
-                  without an inbox.
-                </li>
-                <li>
-                  Copy <span className="mono">Project URL</span> and the <span className="mono">anon public</span> key from
-                  Project Settings → API.
-                </li>
-              </ol>
-              <div className="account-fields">
-                <Field label="Project URL" htmlFor={`${idBase}-cloud-url`}>
-                  <input
-                    id={`${idBase}-cloud-url`}
-                    className="input"
-                    value={cloudUrl}
-                    onChange={(event) => setCloudUrl(event.target.value)}
-                    placeholder="https://abcd1234.supabase.co"
-                    spellCheck={false}
-                  />
-                </Field>
-                <Field label="Anon public key" htmlFor={`${idBase}-cloud-key`}>
-                  <input
-                    id={`${idBase}-cloud-key`}
-                    className="input"
-                    value={cloudKey}
-                    onChange={(event) => setCloudKey(event.target.value)}
-                    placeholder="eyJhbGciOi…"
-                    spellCheck={false}
-                  />
-                </Field>
-              </div>
-              {error ? (
-                <p className="account-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <div className="account-actions">
-                <Button
-                  variant="primary"
-                  icon={Cloud}
-                  loading={account.busy}
-                  onClick={async () => {
-                    setError(null);
-                    const result = await account.connectCloud(cloudUrl, cloudKey);
-                    if (!result.ok) {
-                      setError(result.error ?? 'Could not connect.');
-                      return;
-                    }
-                    addToast('Sync connected. Sign in again to link this device.', 'success');
-                    setOpenPanel(null);
-                  }}
-                >
-                  Connect sync
-                </Button>
-                <p className="account-fine">The key is stored in this browser only, never in the app bundle.</p>
-              </div>
-            </div>
-          ) : null}
 
           <div className="account-row account-row-danger">
             <div>
