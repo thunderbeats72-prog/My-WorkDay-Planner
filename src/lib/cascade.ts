@@ -86,9 +86,14 @@ function splitDeclarations(body: string): string[] {
   return parts;
 }
 
+/** Comments carry no meaning and used to swallow the declaration after them. */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+}
+
 function parseDeclarations(body: string): Declaration[] {
   const declarations: Declaration[] = [];
-  for (const raw of splitDeclarations(body)) {
+  for (const raw of splitDeclarations(stripComments(body))) {
     const colon = raw.indexOf(':');
     if (colon === -1) continue;
     const property = raw.slice(0, colon).trim().toLowerCase();

@@ -245,8 +245,8 @@ export function BottomNav({
               className={`bottom-nav-item ${page === item.page ? 'active' : ''}`.trim()}
               aria-current={page === item.page ? 'page' : undefined}
               onClick={() => {
-                haptic('tap');
                 onNavigate(item.page);
+                haptic('tap');
               }}
             >
               <Icon size={19} />
@@ -263,8 +263,8 @@ export function BottomNav({
           className="fab"
           aria-label="Add task"
           onClick={() => {
-            haptic('press');
             onAddTask();
+            haptic('press');
           }}
         >
           <Plus size={22} />

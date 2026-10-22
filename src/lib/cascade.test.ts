@@ -178,22 +178,30 @@ describe('one floating control, on one page', () => {
   });
 });
 
-describe('the sheet survives a phone keyboard', () => {
-  it('pins itself to the visual viewport and measures in dvh', () => {
-    // A bottom-anchored sheet behind the keyboard is what "the + does nothing"
-    // looks like. `vh` ignores the keyboard; `dvh` does not.
-    const at = css.lastIndexOf('max-height: calc(100dvh');
-    expect(at).toBeGreaterThan(-1);
-    const block = css.lastIndexOf('.modal {', at);
-    const body = css.slice(block, css.indexOf('}', block));
-    expect(body).toContain('position: fixed');
-    expect(body).toContain('bottom: 0');
-    expect(body).toMatch(/max-height: calc\(100dvh/);
+describe('the sheet is a plain child of the screen', () => {
+  it('is in normal flow, not positioned off the viewport', () => {
+    // Every earlier attempt gave the sheet `position: fixed`, `inset: 0` or a
+    // `dvh` height, and each was a way for it to end up somewhere other than
+    // in front of the reader. A normal flex child cannot leave the screen.
+    expect(resolve(rules, ['.modal-backdrop .modal'], 'position', phone)?.value).toBe('relative');
+    expect(resolve(rules, ['.modal-backdrop .modal'], 'height', phone)?.value).toBe('auto');
+    expect(resolve(rules, ['.modal-backdrop .modal'], 'inset', phone)?.value).toBe('auto');
   });
 
-  it('lets the body shrink inside the sheet', () => {
-    const at = css.lastIndexOf('min-height: 0');
-    expect(at).toBeGreaterThan(css.lastIndexOf('max-height: calc(100dvh'));
+  it('caps itself as a share of the backdrop, which has a definite height', () => {
+    const value = resolve(rules, ['.modal-backdrop .modal'], 'max-height', phone)?.value ?? '';
+    expect(value).toMatch(/%$/);
+  });
+
+  it('sits above the bottom bar, the add button and toasts', () => {
+    const z = Number(resolve(rules, ['.modal-backdrop'], 'z-index', phone)?.value ?? 0);
+    expect(z).toBeGreaterThan(100);
+  });
+
+  it('lets the body scroll while the head and footer stay put', () => {
+    const body = blocksOf('.modal-backdrop .modal-body')[0]?.body ?? '';
+    expect(body).toContain('overflow-y: auto');
+    expect(body).toContain('min-height: 0');
   });
 });
 
