@@ -1707,6 +1707,9 @@ a.btn {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* A tile is a fraction of whatever card it is in: it must never claim a
+     minimum width of its own, or the strip widens the page on a small phone. */
+  min-width: 0;
   gap: 2px;
   padding: 10px 6px;
   border-radius: 10px;
@@ -1742,6 +1745,9 @@ a.btn {
   font-size: 10px;
   color: var(--muted);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-group {
@@ -4854,14 +4860,19 @@ a.btn {
     gap: 14px;
   }
 
+  /* Seven equal columns that always fit the card. The old `minmax(46px, 1fr)`
+     had a hard 46px floor: seven of them plus gaps is 358px, wider than a
+     320–390px phone's card, so the grid pushed the whole page wider than the
+     screen and the "Next 7 days" card was clipped. A floor of zero lets the
+     tiles shrink instead, and there is nothing left to scroll sideways. */
   .week-strip {
-    grid-template-columns: repeat(7, minmax(46px, 1fr));
-    overflow-x: auto;
-    padding-bottom: 4px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    overflow-x: visible;
+    padding-bottom: 0;
   }
 
   .week-strip-day {
-    padding: 8px 4px;
+    padding: 8px 3px;
   }
 
   .week-strip-day small {
@@ -5053,8 +5064,22 @@ a.btn {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* Same reasoning as the phone block above: no fixed tile width, so seven
+     days always fit a 320px screen with room for the card's padding. */
   .week-strip {
-    grid-template-columns: repeat(7, minmax(42px, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .week-strip-day {
+    padding: 7px 2px;
+  }
+
+  .week-strip-day strong {
+    font-size: 15px;
+  }
+
+  .week-strip-day small {
+    font-size: 8.5px;
   }
 
   .week-grid {
@@ -17114,9 +17139,10 @@ textarea.input,
     font-size: 14.5px;
   }
 
-  /* Everything that scrolls sideways gets a scroll shadow instead of a cut. */
+  /* Everything that scrolls sideways gets a scroll shadow instead of a cut.
+     The week strip is not one of them: its seven columns are fractions, so it
+     fits by design and scrolling it would only hide the bug. */
   .table-wrap,
-  .week-strip,
   .plan-strip {
     overflow-x: auto;
     overscroll-behavior-x: contain;
@@ -17124,7 +17150,6 @@ textarea.input,
   }
 
   .table-wrap::-webkit-scrollbar,
-  .week-strip::-webkit-scrollbar,
   .plan-strip::-webkit-scrollbar {
     display: none;
   }
@@ -19104,5 +19129,188 @@ a,
     bottom: calc(80px + env(safe-area-inset-bottom)) !important;
     width: 52px !important;
     height: 52px !important;
+  }
+}
+
+/* =========================================================================
+   Design v15 — one fluid width, one floating button
+   -------------------------------------------------------------------------
+   Four reports, two causes.
+
+   1. The add button was not dead — it was *moved*. The ambient ripple adds
+      `.ripple-ready` (position: relative) to whatever it touches. On the
+      floating add button that turns a fixed control into a normal flex child
+      of `.app-shell`: it drops into the flow at the end of the page, the main
+      column narrows by its width, the bottom padding jumps, and the finger
+      that started the press is no longer over the button. The hook now skips
+      touch input and floating controls; the rules below keep the button fixed
+      even if a ripple is ever painted inside it.
+
+   2. The "Next 7 days" strip had a hard 46px (42px) floor per column. Seven of
+      those plus gaps is wider than a 320px phone's card, and a grid item's
+      min-content width beat the card's `min-width: 0`, so the page itself grew
+      to 364–380px and every card on Today was clipped at the right edge. The
+      strip is fractional now (see the phone blocks far above), and the guards
+      below mean no fixed-width child can widen a page again.
+
+   3. Toasts sat exactly on top of the add button on a phone — both were pinned
+      to the bottom-right corner — so for six seconds after any message (a
+      saved task, for instance) a tap on "+" landed on the toast. They now
+      clear the button instead of covering it.
+
+   4. Reports and Completed are grids of cards, and their tracks were already
+      fluid; what moved them was the page being wider than the screen. With the
+      guards below they reflow from the width they are given, at any zoom, on
+      any device.
+   ========================================================================= */
+
+/* ---------- a page can never be wider than the screen ---------- */
+
+html,
+body {
+  max-width: 100%;
+}
+
+#root,
+.app-shell {
+  max-width: 100%;
+}
+
+/* Every layout container is allowed to be narrower than its content. Without
+   this a single fixed-width child (a 46px day tile, a long unbroken URL) makes
+   the grid item's min-content width the page width, and the whole screen
+   scrolls sideways. The page keeps its own 1480px reading measure. */
+.app-main,
+.page-container,
+.page,
+.dashboard-grid,
+.dashboard-main,
+.dashboard-side,
+.report-grid,
+.report-grid > *,
+.settings-layout,
+.completed-groups,
+.task-group,
+.task-list,
+.task-item {
+  min-width: 0;
+}
+
+img,
+svg,
+video,
+canvas,
+iframe {
+  max-width: 100%;
+}
+
+/* A floating control stays floating, whatever is painted inside it. */
+.fab.ripple-ready,
+button.ripple-ready.fab {
+  position: fixed;
+}
+
+/* A wide table scrolls inside its card rather than moving the page. */
+.table-wrap .data-table {
+  min-width: 0;
+}
+
+/* ---------- the page header's actions share the row ---------- */
+
+@media (max-width: 767px) {
+  /* Two actions sit side by side when there is room and stack full-width when
+     there is not — same widths either way, never one half-width button above
+     a full-width one. */
+  .page-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .page-actions > * {
+    min-width: 0;
+  }
+
+  /* The search field on Completed spans the row it is given. */
+  .page-actions .search-field {
+    width: 100%;
+  }
+}
+
+/* ---------- toasts clear the add button ---------- */
+
+@media (max-width: 767px) {
+  /* The button's top edge is 80px + 52px from the bottom; 142px leaves a
+     readable gap, so no control is ever underneath a message. */
+  .toast-stack {
+    bottom: calc(142px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------- zoom: pinned, with text still scalable ---------- */
+
+/* `pan-x pan-y` allows scrolling in both directions and nothing else: no pinch
+   zoom, no double-tap zoom. (`manipulation` would be wrong — it keeps pinch
+   zoom.) Fields opt back in so iOS can still place a caret and select text.
+   The viewport meta carries the same decision for the parts of the page a
+   browser pins before any CSS runs. */
+html,
+body {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+input,
+textarea,
+select,
+[contenteditable='true'] {
+  touch-action: auto;
+}
+
+/* ---------- the plan summary at the narrowest widths ---------- */
+
+/* `.mini-block p` ellipsises on one line, which is right in a sidebar card —
+   but a `nowrap` line still contributes its full width to the card's
+   min-content, so below ~360px the summary card alone could keep the page
+   wider than the screen. There is no room to ellipsise a useful amount at
+   that size, so the title wraps instead. */
+@media (max-width: 379px) {
+  .mini-block {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .mini-block p {
+    flex: 1 1 100%;
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+/* The day tile's caption ("1 due", "clear") is the one line that must stay
+   legible on the narrowest phones. Five characters at 8.5px fit a 34px tile;
+   abbreviating the word is better than clipping it mid-letter. */
+@media (max-width: 359px) {
+  .week-strip {
+    gap: 4px;
+  }
+
+  .week-strip-day {
+    padding: 7px 1px;
+  }
+
+  .week-strip-day span {
+    font-size: 7.5px;
+    letter-spacing: 0.08em;
+  }
+
+  .week-strip-day strong {
+    font-size: 14px;
+  }
+
+  .week-strip-day small {
+    font-size: 8px;
   }
 }

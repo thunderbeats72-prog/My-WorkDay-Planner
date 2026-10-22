@@ -2,7 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      Zoom is pinned on purpose, at the platform's request. The layout is fluid
+      down to 320px, but a phone that pinch-zooms into it crops the "Next 7
+      days" card and, zoomed out, strands the header icons outside the gutters.
+      `user-scalable=no` is what Android and most in-app browsers honour;
+      `maximum-scale=1` covers the rest, and `touch-action` in the stylesheet
+      does the same for a pinch that starts inside the page.
+
+      This is a phone viewport decision only: desktop browser zoom is untouched,
+      and an operating-system text-size setting still enlarges the type because
+      `-webkit-text-size-adjust` stays at 100% rather than `none`.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <meta
       name="description"
       content="Private, local-first workday planner for business development: tasks, scheduling, timers, screenshot OCR and on-device insights."

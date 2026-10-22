@@ -253,3 +253,104 @@ describe('the reader itself', () => {
     expect(resolve(sample, ['.x'], 'display', laptop)).toBeNull();
   });
 });
+
+/* =========================================================================
+   Design v15 — the width of a phone, and the button that floats over it
+   ========================================================================= */
+
+const html = readFileSync(resolvePath(process.cwd(), 'index.html'), 'utf8');
+const effects = readFileSync(resolvePath(process.cwd(), 'src/hooks/useAmbientEffects.ts'), 'utf8');
+
+/** Declarations for `property` in the last rule whose selector list includes `selector`. */
+function lastDeclaration(selector: string, property: string, view: Viewport): string | undefined {
+  return resolve(rules, [selector], property, view)?.value;
+}
+
+/** Every rule body whose selector is exactly `selector`, in source order. */
+function bodiesOf(selector: string): string[] {
+  return rules.filter((rule) => rule.selector === selector).map((rule) =>
+    rule.declarations.map((declaration) => `${declaration.property}: ${declaration.value}`).join('; '),
+  );
+}
+
+describe('the week strip never widens a phone', () => {
+  it('has no fixed column floor on a phone', () => {
+    // Seven 46px tiles plus gaps is 358px — wider than a 320–390px card. The
+    // grid then set the page's min-content width and every card on Today was
+    // clipped at the right edge.
+    const strip = bodiesOf('.week-strip').join(' | ');
+    expect(strip).not.toMatch(/repeat\(7,\s*minmax\(4[26]px/);
+    expect(strip).toMatch(/repeat\(7,\s*minmax\(0(px)?,\s*1fr\)\)/);
+  });
+
+  it('lets a day tile shrink instead of claiming a minimum', () => {
+    expect(lastDeclaration('.week-strip-day', 'min-width', phone)).toBe('0');
+    expect(lastDeclaration('.week-strip-day', 'min-width', smallPhone)).toBe('0');
+  });
+
+  it('does not scroll sideways — it fits by design', () => {
+    // An overflow container would have hidden the bug rather than fixed it,
+    // and it swallowed the tile edges on a narrow phone.
+    expect(lastDeclaration('.week-strip', 'overflow-x', phone)).not.toBe('auto');
+  });
+});
+
+describe('a page is never wider than the screen', () => {
+  it('gives every layout container permission to be narrower than its content', () => {
+    for (const selector of ['.app-main', '.page-container', '.page', '.dashboard-grid', '.dashboard-main', '.report-grid']) {
+      expect(lastDeclaration(selector, 'min-width', phone)).toBe('0');
+    }
+  });
+
+  it('caps the document at the viewport', () => {
+    expect(lastDeclaration('body', 'max-width', phone)).toBe('100%');
+    expect(lastDeclaration('html', 'max-width', phone)).toBe('100%');
+  });
+});
+
+describe('the add button stays put', () => {
+  it('is still fixed, even if something paints inside it', () => {
+    // `.ripple-ready` is `position: relative`; on the add button that made it a
+    // flex child of the shell, which is what moved it off the corner.
+    expect(lastDeclaration('.fab.ripple-ready', 'position', phone)).toBe('fixed');
+    expect(lastDeclaration('button.ripple-ready.fab', 'position', phone)).toBe('fixed');
+  });
+
+  it('is never a ripple host in the hook', () => {
+    expect(effects).toContain("button.classList.contains('fab')");
+    expect(effects).toContain("position === 'fixed'");
+  });
+
+  it('is not covered by a toast on a phone', () => {
+    // Both were pinned to the bottom-right corner, so any message — a saved
+    // task included — sat exactly on top of the button for six seconds.
+    const bottom = lastDeclaration('.toast-stack', 'bottom', phone) ?? '';
+    const px = Number(/([\d.]+)px/.exec(bottom)?.[1] ?? 0);
+    // The button's top edge is 80px + its 52px height from the bottom.
+    expect(px).toBeGreaterThanOrEqual(80 + 52);
+  });
+});
+
+describe('zoom is pinned, text is not', () => {
+  it('asks the browser not to zoom the phone layout', () => {
+    const meta = /<meta\s+name="viewport"\s+content="([^"]+)"/.exec(html)?.[1] ?? '';
+    expect(meta).toContain('user-scalable=no');
+    expect(meta).toContain('maximum-scale=1');
+    expect(meta).toContain('viewport-fit=cover');
+  });
+
+  it('keeps a double-tap or a pinch from scaling the page', () => {
+    // `manipulation` would be wrong: it still permits pinch zoom.
+    expect(lastDeclaration('html', 'touch-action', phone)).toBe('pan-x pan-y');
+    expect(lastDeclaration('body', 'touch-action', phone)).toBe('pan-x pan-y');
+  });
+
+  it('leaves form fields their own gestures, so a caret still works', () => {
+    expect(lastDeclaration('input', 'touch-action', phone)).toBe('auto');
+    expect(lastDeclaration('textarea', 'touch-action', phone)).toBe('auto');
+  });
+
+  it('does not disable text resizing altogether', () => {
+    expect(lastDeclaration('html', 'text-size-adjust', phone)).toBe('100%');
+  });
+});
