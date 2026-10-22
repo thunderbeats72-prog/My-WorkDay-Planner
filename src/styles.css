@@ -18628,3 +18628,108 @@ a,
     z-index: 70;
   }
 }
+
+/* =========================================================================
+   Design v13 — one add button, one thumb's reach, one row per control
+   -------------------------------------------------------------------------
+   · The floating + lived on Reports and Completed, where it covered the card
+     underneath ("Completed by category" in the screenshot) and sat exactly on
+     top of the back-to-top arrow. It belongs on My Tasks and nowhere else.
+   · The back-to-top arrow is gone on a phone: it floated in the empty band at
+     the bottom of short pages, competed with the + for the same corner, and
+     tapping it could hit the + instead — which is the "spacing" that appeared.
+   · The top bar carries the theme switch again, at 40px a button so the name
+     still reads in full.
+   · The task toolbar gives the search its own line. It was being squeezed by
+     the sort switch until the placeholder read "S".
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  /* ---------- theme back in the top bar ---------- */
+  .mobile-actions {
+    gap: 1px;
+  }
+
+  .mobile-actions .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Four glyphs and a wordmark fit a 320px screen: 22 + 26 + 10 + 70 + 160.
+     `.app-shell` because the v11 layer set these with two classes. */
+  .app-shell .mobile-topbar {
+    column-gap: 8px;
+    padding-inline: 10px 8px;
+  }
+
+  .app-shell .mobile-topbar .mobile-brand {
+    font-size: 15.5px;
+  }
+
+  /* ---------- one floating control, on one page ---------- */
+
+  /* Nothing to scroll back to on a phone, and the arrow was in the + corner. */
+  .back-to-top {
+    display: none;
+  }
+
+  /* Pages without an add button end just above the bar, not above a gap. */
+  .page-container {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+
+  /* My Tasks keeps room for the + so the last row is never underneath it. */
+  .app-shell:has(.fab) .page-container {
+    padding-bottom: calc(136px + env(safe-area-inset-bottom));
+  }
+
+  /* ---------- the task toolbar, aligned ---------- */
+
+  .toolbar {
+    padding: 8px 0;
+    gap: 10px;
+  }
+
+  .toolbar-row.split {
+    gap: 8px;
+  }
+
+  /* Full width, on its own line: a search box narrower than a thumb is not a
+     search box. `min-width: 0` releases the 200px floor that made it clip. */
+  .search-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .search-field .input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .sort-switch {
+    display: flex;
+    flex: 1 1 100%;
+  }
+
+  .sort-option {
+    flex: 1 1 0;
+    padding: 7px 6px;
+    text-align: center;
+  }
+
+  .filter-chips {
+    gap: 6px;
+  }
+
+  .chip-button {
+    padding: 6px 10px;
+  }
+}
+
+/* A desktop scrollbar takes width. Reserving it once means opening a sheet no
+   longer shifts the page sideways by eleven pixels. */
+@media (pointer: fine) {
+  html {
+    scrollbar-gutter: stable;
+  }
+}

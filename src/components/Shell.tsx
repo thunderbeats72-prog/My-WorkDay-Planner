@@ -8,8 +8,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Moon,
   Search,
   Settings as SettingsIcon,
+  Sun,
 } from 'lucide-react';
 import type { PageId, Settings } from '../lib/types';
 import { IconButton } from './ui';
@@ -177,21 +179,39 @@ export function Sidebar({
  * room it needs. Nothing here duplicates what the bottom bar already offers.
  */
 export function MobileTopBar({
+  isDark,
+  onToggleTheme,
   onOpenPalette,
   onOpenSettings,
   notifications,
 }: {
+  /** Which theme is showing, so the glyph offers the other one. */
+  isDark: boolean;
+  onToggleTheme: () => void;
   onOpenPalette: () => void;
   onOpenSettings: () => void;
   /** The bell, rendered by App so both bars share one notification state. */
   notifications?: ReactNode;
 }) {
+  const themeLabel = isDark ? 'Switch to light theme' : 'Switch to dark theme';
   return (
     <header className="mobile-topbar">
       <BrandMark size="sm" />
       <span className="mobile-brand">Workday</span>
       <div className="mobile-actions">
         <IconButton label="Open command palette" icon={Search} onClick={onOpenPalette} />
+        <button
+          type="button"
+          className="icon-btn mobile-theme"
+          aria-label={themeLabel}
+          title={themeLabel}
+          onClick={() => {
+            haptic('tap');
+            onToggleTheme();
+          }}
+        >
+          {isDark ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
         {notifications}
         <IconButton label="Settings" icon={SettingsIcon} onClick={onOpenSettings} />
       </div>
@@ -235,7 +255,9 @@ export function BottomNav({
           );
         })}
       </nav>
-      {page !== 'today' && page !== 'tasks' ? (
+      {/* One page has an add button of its own. Anywhere else the floating
+          button only ever covered the card underneath it. */}
+      {page === 'tasks' ? (
         <button
           type="button"
           className="fab"

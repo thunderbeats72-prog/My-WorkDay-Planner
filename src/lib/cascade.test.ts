@@ -31,6 +31,21 @@ function candidatesFor(className: string): string[] {
   return [...found];
 }
 
+/** Every rule body whose prelude contains `needle`, in source order. */
+function blocksOf(needle: string): Array<{ index: number; body: string }> {
+  const found: Array<{ index: number; body: string }> = [];
+  let from = 0;
+  for (;;) {
+    const at = css.indexOf(needle, from);
+    if (at === -1) break;
+    const open = css.indexOf('{', at);
+    const close = css.indexOf('}', open);
+    found.push({ index: at, body: css.slice(open + 1, close) });
+    from = at + needle.length;
+  }
+  return found;
+}
+
 function displayOn(className: string, view: Viewport): string | undefined {
   return resolve(rules, candidatesFor(className), 'display', view)?.value;
 }
@@ -88,10 +103,8 @@ describe('the phone bar is laid out, not squeezed', () => {
   });
 
   it('gives the name the middle of a three-column grid', () => {
-    const block = css.lastIndexOf('.app-shell .mobile-topbar');
-    expect(block).toBeGreaterThan(-1);
-    const body = css.slice(block, css.indexOf('}', block));
-    expect(body).toContain('grid-template-columns: auto minmax(0, 1fr) auto');
+    const grid = blocksOf('.app-shell .mobile-topbar').find((block) => block.body.includes('grid-template-columns'));
+    expect(grid?.body).toContain('grid-template-columns: auto minmax(0, 1fr) auto');
   });
 
   it('draws one hairline under the header, not two', () => {
@@ -144,6 +157,24 @@ describe('phones do not zoom when a field is focused', () => {
     const last = blocks[blocks.length - 1] ?? '';
     expect(last).toMatch(/flex:\s*0 1 auto/);
     expect(last).toMatch(/width:\s*auto/);
+  });
+});
+
+describe('one floating control, on one page', () => {
+  it('hides the back-to-top arrow on a phone', () => {
+    // It floated in the empty band at the bottom of short pages, in the same
+    // corner as the add button, and a tap could land on whichever was on top.
+    const hidden = blocksOf('.back-to-top').filter((block) => /display:\s*none/.test(block.body));
+    expect(hidden.length).toBeGreaterThan(0);
+    const at = hidden[hidden.length - 1].index;
+    expect(css.slice(css.lastIndexOf('@media', at), at)).toMatch(/max-width: 767px/);
+  });
+
+  it('keeps the page clear of the add button only where it exists', () => {
+    // My Tasks reserves room for its +; every other page ends at the bar.
+    expect(css).toMatch(/\.app-shell:has\(\.fab\) \.page-container\s*\{[^}]*136px/);
+    const plain = blocksOf('.page-container').filter((block) => /96px/.test(block.body));
+    expect(plain.length).toBeGreaterThan(0);
   });
 });
 
