@@ -19,6 +19,8 @@ import { formatDuration, parseTimeToMinutes } from '../lib/dates';
 import { GRAPH_SCOPES, graphRedirectUri } from '../lib/graph';
 import type { GraphAccount } from '../lib/graph';
 import type { CommonPageProps } from './pageProps';
+import type { AccountApi } from '../hooks/useAccount';
+import { AccountPanel } from './AccountPanel';
 import { Badge, Button, ConfirmDialog, Field, Segmented, Switch } from './ui';
 import { PageHeader } from './Shell';
 
@@ -36,6 +38,7 @@ export function SettingsPage({
   notificationsPermission,
   onRequestNotifications,
   onSendTestNotification,
+  account,
 }: CommonPageProps & {
   onSaveSettings: (next: Settings) => void;
   onExportBackup: () => void;
@@ -54,6 +57,7 @@ export function SettingsPage({
   notificationsPermission: string;
   onRequestNotifications: () => Promise<string>;
   onSendTestNotification: () => void;
+  account: AccountApi;
 }) {
   const [draft, setDraft] = useState<Settings>(settings);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -117,7 +121,7 @@ export function SettingsPage({
       <PageHeader
         eyebrow="Local settings"
         title="Settings"
-        description="Everything here is stored in this browser only. Broken values can't be saved."
+        description="Stored in this browser. An account can carry it to your other devices — nothing else leaves this machine."
         actions={
           <>
             <Button variant="ghost" onClick={resetDefaults}>
@@ -132,6 +136,8 @@ export function SettingsPage({
 
       <div className="settings-layout">
         <div className="settings-main">
+          <AccountPanel account={account} addToast={addToast} />
+
           <section className="card settings-section">
             <h2>About you</h2>
             <div className="form-grid">

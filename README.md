@@ -285,3 +285,70 @@ is not the name anywhere else in the product), the icon URLs moved to a new
 generation (`?v=5`), and a new service worker reloads an open tab once when it
 takes control — previously the first refresh after a deploy kept painting the
 cached shell, which is indistinguishable from "nothing happened".
+
+## Accounts — a user ID, a password, and the honest limits of each
+
+Sign up in **Settings → Account** with a user ID and a password. No email, no
+magic link, no verification mail, because there is nothing to verify against —
+the account is created on the device you are holding.
+
+- Passwords are stretched with **PBKDF2-SHA256**, 210,000 iterations, a random
+  16-byte salt per account, and compared in constant time. The plain password is
+  never stored and never sent anywhere.
+- Five wrong attempts start a pause that doubles: 30s, 60s, 2m, up to 15m.
+- An unknown user ID and a wrong password return **the same message**, so the
+  screen is not an oracle for which IDs exist.
+- Changing a password re-hashes it. Deleting the account leaves your tasks
+  exactly where they are.
+
+### What "the same login on my phone and laptop" actually requires
+
+A user ID and password can only *identify* you; something still has to move the
+data. The planner ships with no server, so sync is opt-in and the UI says which
+of the two states you are in:
+
+| State | What the header says | What is true |
+| --- | --- | --- |
+| No account | `Local-only · No account` | Everything is in this browser |
+| Account, no sync | `Local-only · @you` | The login is here; a second device starts empty |
+| Account + sync | `Synced · @you` | Same login, same tasks, both devices |
+
+**To turn on sync** (once, ~2 minutes):
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Run [`supabase/schema.sql`](supabase/schema.sql) in the SQL editor. It creates
+   one table and three row-level-security policies, so the public key in the
+   browser can only ever read and write **your own** row.
+3. Turn off **Authentication → Providers → Email → Confirm email**. The app maps
+   `lakshit` to `lakshit@users.workday-planner.app` and never sends mail there; if
+   confirmation is on, sign-up returns no session and the panel tells you so
+   instead of failing silently.
+4. In the app: **Settings → Account → Use on phone and laptop**, paste the
+   project URL and the `anon public` key. They are stored in this browser, not in
+   the bundle, so no redeploy is needed.
+
+Then sign in on the second device with the same ID and password.
+
+### How the merge behaves
+
+`src/lib/snapshot.ts` merges per record, not per device:
+
+- **Tasks** carry `updatedAt`; the newest copy of each task wins. Editing task A
+  on the phone and task B on the laptop keeps both.
+- **Sessions, events**: unioned by id — they only ever accumulate.
+- **Reminders**: a terminal state (`done`, `dismissed`) beats a queued one, so a
+  reminder dismissed on the phone does not reappear from the laptop.
+- **Settings** have no per-field clock, so the whole block follows the snapshot
+  written most recently.
+
+Sync runs when you sign in, when the tab becomes visible, every two minutes, and
+whenever you press **Sync now**. It is always safe to press: with nothing to
+merge it reports "both devices already match" and writes nothing.
+
+### Why this is not a violation of the local-first promise
+
+Nothing leaves the device unless you connect a sync project, and the app works
+exactly as before if you never do. Disconnecting returns the planner to
+local-only immediately; the tasks stay. The only data a sync project ever sees is
+the JSON snapshot of your planner, protected by a row that only your login can
+read.
