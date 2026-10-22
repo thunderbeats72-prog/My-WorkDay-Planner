@@ -141,6 +141,19 @@ export async function deleteSession(tokenHash: string): Promise<void> {
 
 /* ------------------------------------------------------------ snapshots */
 
+/**
+ * Just the timestamp of the last write, for devices that only want to ask
+ * "has anything changed?" A few dozen bytes instead of the whole snapshot.
+ */
+export async function snapshotVersion(userId: string): Promise<string | null> {
+  const found = await rows<{ updated_at: string | Date }>(sql()`
+    select updated_at from planner_snapshots where user_id = ${userId} limit 1
+  `);
+  const value = found[0]?.updated_at;
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
 export async function readSnapshot(userId: string): Promise<unknown | null> {
   const found = await rows<{ payload: unknown }>(sql()`
     select payload from planner_snapshots where user_id = ${userId} limit 1

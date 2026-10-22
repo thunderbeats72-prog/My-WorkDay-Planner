@@ -76,6 +76,13 @@ export async function neonPush(token: string, snapshot: BackupFile): Promise<Neo
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
+/** The cheap "has anything changed?" call. Returns an ISO timestamp or null. */
+export async function neonVersion(token: string): Promise<NeonResult<string | null>> {
+  const result = await call<{ updatedAt: string | null }>('/version', { method: 'GET' }, token);
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true, data: result.data?.updatedAt ?? null };
+}
+
 export async function neonSignOut(token: string): Promise<void> {
   await call('/snapshot', { method: 'DELETE' }, token).catch(() => undefined);
 }
