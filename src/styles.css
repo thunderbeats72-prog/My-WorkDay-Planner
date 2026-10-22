@@ -18733,3 +18733,176 @@ a,
     scrollbar-gutter: stable;
   }
 }
+
+/* =========================================================================
+   Design v14 — the sheet above the keyboard, and the first screen fixed
+   -------------------------------------------------------------------------
+   · The New task sheet anchors to the bottom of the screen. iOS raises the
+     keyboard for the field it focused, and a bottom-anchored element then
+     sits behind it: the tap on "+" re-flows the page and shows no form. The
+     field is no longer focused on a touch screen (see Modal), and the sheet
+     measures itself against `dvh`, which shrinks with the keyboard.
+   · Onboarding had no safe-area padding, so on a notched phone the brand mark
+     was drawn under the status bar. It also reserved a screenful of height,
+     which left a hole between the steps and the form.
+   ========================================================================= */
+
+@media (max-width: 560px) {
+  /* Pinned to the visual viewport, not to a scrolling box. */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    /* `dvh` follows the keyboard; `vh` does not. */
+    max-height: calc(100dvh - max(10px, env(safe-area-inset-top)));
+    margin: 0;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sheet-in 260ms var(--ease-out) both;
+  }
+
+  /* Without `min-height: 0` a flex child refuses to shrink below its content,
+     a tall form pushes the footer off the sheet, and Save disappears. */
+  .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    /* Room at the end of the sheet, so the last field never sits on the edge. */
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+
+  /* The footer stays put; it is the way out of a long form. */
+  .modal-foot {
+    flex: none;
+    background: var(--surface);
+  }
+}
+
+/* ---------- onboarding, first screen ---------- */
+
+@media (max-width: 767px) {
+  /* Padding that starts below the clock and the notch. */
+  .onboarding .onboarding-brand {
+    padding-top: calc(22px + env(safe-area-inset-top));
+    padding-bottom: 20px;
+    gap: 0;
+    border-radius: 0 0 20px 20px;
+  }
+
+  /* The mark sits on the same left edge as the title under it. */
+  .onboarding-brand .brand-mark {
+    margin: 0 0 12px;
+    width: 40px !important;
+    height: 40px !important;
+  }
+
+  .onboarding-brand .eyebrow {
+    margin: 0 0 6px;
+  }
+
+  .onboarding-brand h1 {
+    margin: 0 0 8px;
+  }
+
+  /* No reserved screenful: the form follows the cover, and the action bar
+     sticks to the bottom of whatever is left. */
+  .onboarding .onboarding-card {
+    min-height: 0;
+    padding: 16px var(--gutter) calc(88px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+  }
+
+  .onboarding .stepper {
+    margin-bottom: 16px;
+  }
+
+  .onboarding-actions {
+    margin: 0 calc(var(--gutter) * -1);
+  }
+}
+
+/* ---------- a plan with nothing in it reads as a paragraph ---------- */
+
+.plan-empty {
+  align-items: flex-start;
+  line-height: 1.55;
+}
+
+.plan-empty svg {
+  margin-top: 3px;
+}
+
+/* ---------- chips keep a row of their own ---------- */
+
+@media (max-width: 767px) {
+  .filter-chips {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .chip-button {
+    white-space: nowrap;
+  }
+}
+
+/* ---------- a long form gets the whole screen, not a strip of it ---------- */
+
+/* The task form is a page, not a dialogue: eight fields, a dependency picker
+   and a footer. As a bottom sheet on a phone it had to fit between the notch,
+   the keyboard and the home indicator, and every one of those could push it
+   out of sight. Full screen removes the question. Short confirmations still
+   arrive as a small sheet. */
+@media (max-width: 560px) {
+  .modal.modal-lg {
+    inset: 0;
+    top: 0;
+    bottom: 0;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    animation: sheet-page-in 220ms var(--ease-out) both;
+  }
+
+  .modal.modal-lg::before {
+    display: none;
+  }
+
+  .modal.modal-lg > .modal-head {
+    padding: 14px var(--gutter, 16px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal.modal-lg .modal-body {
+    padding: 14px var(--gutter, 16px) 24px;
+  }
+
+  .modal.modal-lg .modal-foot {
+    padding: 12px var(--gutter, 16px) calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+  }
+
+  @keyframes sheet-page-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

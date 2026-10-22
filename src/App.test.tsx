@@ -70,7 +70,7 @@ describe('My Workday Planner app', () => {
 
     expect(await screen.findByText(/Good (morning|afternoon|evening), Aarav/)).toBeTruthy();
 
-    const quickAdd = screen.getByPlaceholderText(/Quick add for today/);
+    const quickAdd = screen.getByPlaceholderText(/Add a task — press Enter/);
     await user.type(quickAdd, 'Follow up with Acme{Enter}');
 
     const taskTitle = await screen.findByRole('button', { name: 'Follow up with Acme' });
@@ -204,7 +204,7 @@ describe('My Workday Planner app', () => {
       </StrictMode>,
     );
 
-    const quickAdd = await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    const quickAdd = await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
     await user.type(quickAdd, 'Send deck tomorrow 3pm !high 30m #proposal');
 
     const pending = document.querySelector('.quick-tokens') as HTMLElement;
@@ -235,7 +235,7 @@ describe('My Workday Planner app', () => {
     await user.click(sidebarButton('My Tasks'));
     expect(await screen.findByRole('heading', { name: 'My Tasks' })).toBeTruthy();
     await user.keyboard('/');
-    const focusedBar = await screen.findByPlaceholderText(/Quick add for today/);
+    const focusedBar = await screen.findByPlaceholderText(/Add a task — press Enter/);
     await waitFor(() => expect(document.activeElement).toBe(focusedBar));
   }, 30000);
 
@@ -249,7 +249,7 @@ describe('My Workday Planner app', () => {
       </StrictMode>,
     );
 
-    const quickAdd = await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    const quickAdd = await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
     await user.type(quickAdd, 'File the weekly report{Enter}');
     expect(await screen.findByRole('button', { name: 'File the weekly report' })).toBeTruthy();
 
@@ -297,7 +297,7 @@ describe('My Workday Planner app', () => {
         <App />
       </StrictMode>,
     );
-    await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
 
     const bell = await waitFor(() => {
       const found = screen.getAllByRole('button', { name: /^Notifications/ });
@@ -348,7 +348,7 @@ describe('live behaviour', () => {
     try {
       render(<StrictMode><App /></StrictMode>);
 
-      const quickAdd = await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+      const quickAdd = await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
       fireEvent.change(quickAdd, { target: { value: 'Send the deck 4pm' } });
       fireEvent.keyDown(quickAdd, { key: 'Enter', code: 'Enter' });
 
@@ -380,7 +380,7 @@ describe('live behaviour', () => {
           : originalMatchMedia(query),
     });
     render(<StrictMode><App /></StrictMode>);
-    await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
 
     const shell = document.querySelector('.app-shell') as HTMLElement;
     expect(shell.dataset.sidebar).toBe('full');
@@ -400,7 +400,7 @@ describe('live behaviour', () => {
 
   it('keeps the sidebar to five destinations with no repeated icons', async () => {
     render(<StrictMode><App /></StrictMode>);
-    await screen.findByPlaceholderText(/Quick add for today/, {}, { timeout: 15000 });
+    await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
     const sidebar = document.querySelector('.sidebar') as HTMLElement;
     const icons = Array.from(sidebar.querySelectorAll('.nav-item svg')).map((svg) => svg.innerHTML);
     // Today, My Tasks, Completed, Reports + Settings.

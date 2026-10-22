@@ -420,16 +420,26 @@ export function Modal({
     document.addEventListener('keydown', onKeyDown);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    // Land on the first control (usually the title field) rather than the page behind.
-    const focusTimer = window.setTimeout(() => {
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const target =
-        dialog.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])') ??
-        focusables()[0] ??
-        dialog;
-      target.focus();
-    }, 30);
+    /**
+     * Land on the first control — on a laptop.
+     *
+     * Not on a phone. Focusing a field there raises the keyboard, iOS zooms the
+     * page to fit it, and a sheet anchored to the bottom of the screen ends up
+     * behind the keyboard. The reader taps "+" and sees the page shift with no
+     * form in it. The sheet is the message; the keyboard can wait for a tap.
+     */
+    const touch = window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+    const focusTimer = touch
+      ? 0
+      : window.setTimeout(() => {
+          const dialog = dialogRef.current;
+          if (!dialog) return;
+          const target =
+            dialog.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])') ??
+            focusables()[0] ??
+            dialog;
+          target.focus();
+        }, 30);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Cloud, Clock, Cpu, Shield, UserRound } from 'lucide-react';
 import type { Settings } from '../lib/types';
 import { DAY_SHORT, DEFAULT_SETTINGS, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
@@ -24,6 +24,12 @@ export function Onboarding({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [draft, setDraft] = useState<Settings>({ ...DEFAULT_SETTINGS, onboardingComplete: true });
   const [error, setError] = useState('');
+  /**
+   * What the account already knows about this person. Set the moment sign-up
+   * succeeds, so `onSignedIn` can read it without waiting for a re-render.
+   */
+  const profileRef = useRef<{ name: string; role: string; company: string } | null>(null);
+  const [profileKnown, setProfileKnown] = useState(false);
 
   /**
    * Signing in on a second device is the moment its tasks arrive, so the form
@@ -157,7 +163,25 @@ export function Onboarding({
               <AuthForm
                 account={account}
                 addToast={addToast}
-                onSignedIn={() => void adoptRemoteSettings()}
+                onProfile={(profile) => {
+                  if (!profile.name && !profile.role && !profile.company) return;
+                  profileRef.current = profile;
+                  setProfileKnown(true);
+                  setDraft((current) => ({
+                    ...current,
+                    name: profile.name || current.name,
+                    role: profile.role || current.role,
+                    company: profile.company || current.company,
+                  }));
+                }}
+                onSignedIn={async (mode) => {
+                  await adoptRemoteSettings();
+                  // Sign-up just collected name, role and company. Walking them
+                  // through "About you" to type the same three answers again is
+                  // the thing that made the account feel like it had not
+                  // registered. Straight to the working rhythm instead.
+                  if (mode === 'signup' && profileRef.current?.name) setStep(3);
+                }}
                 autoFocus
               />
             )}
@@ -180,7 +204,9 @@ export function Onboarding({
           <div className="onboarding-step" key={step}>
             <p className="eyebrow">Step 2 of 4</p>
             <p className="muted">
-              This stays on this device. You can change everything later in Settings.
+              {profileKnown
+                ? 'Filled in from your account — change anything here and it saves to this device.'
+                : 'This stays on this device. You can change everything later in Settings.'}
             </p>
             <div className="form-grid">
               <Field label="Your name" htmlFor="onboard-name" className="span-2">
