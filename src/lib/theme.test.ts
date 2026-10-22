@@ -103,6 +103,23 @@ describe('no gradient-clipped text anywhere', () => {
   });
 });
 
+describe('panels that carry light type never get a light surface', () => {
+  it('the hero keeps its own ink background in the light theme', () => {
+    // It was nearly lost once already: a later layer painted `--surface` on it
+    // while every rule inside still set white type, which is a blank greeting
+    // in light mode. The dark-theme override is allowed — `--surface` is dark
+    // there, so the light type still has contrast.
+    const matches = [...css.matchAll(/(\.hero\s*\{)([^}]*)\}/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    for (const match of matches) {
+      const before = css.slice(Math.max(0, (match.index ?? 0) - 40), match.index);
+      if (before.includes('data-theme')) continue;
+      expect(match[2]).not.toMatch(/background:\s*var\(--surface/);
+      expect(match[2]).not.toMatch(/background:\s*#f/i);
+    }
+  });
+});
+
 describe('motion is opt-out-able', () => {
   it('a reduced-motion block exists and kills animation', () => {
     // Several layers each added one; the last one must be the global opt-out.

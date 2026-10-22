@@ -496,6 +496,7 @@ export function ConfirmDialog({
 export function SkeletonScreen() {
   return (
     <div className="skeleton-screen" aria-busy="true" aria-label="Loading your planner">
+      <p className="skeleton-caption">Preparing your day</p>
       <div className="skeleton skeleton-hero" />
       <div className="skeleton-grid">
         <div className="skeleton skeleton-card" />

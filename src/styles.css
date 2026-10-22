@@ -5051,7 +5051,7 @@ a.btn {
     position: sticky;
     bottom: 0;
     background: var(--surface);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .empty-state {
@@ -16357,4 +16357,1314 @@ textarea.input:focus {
   color: var(--text-muted);
   border-color: var(--border);
   background: var(--surface-raised, var(--surface));
+}
+
+/* =========================================================================
+   Design v9 — composure
+   -------------------------------------------------------------------------
+   The product already has its voice: monochrome ink, hairline rules, Geist.
+   This layer is about *composure* — one spacing rhythm, one type scale, one
+   motion curve, and layouts that behave on a 360px phone as deliberately as
+   they do on a 1440px laptop.
+
+   Rules of the house, restated because they are easy to erode:
+   · No gradients on type, ever. Ink is solid.
+   · No glow. Depth comes from a hairline and, in light mode, one soft shadow.
+   · Numbers line up: tabular figures wherever a value can change.
+   · Nothing clips. Long words wrap, grids use minmax(0, 1fr), rows breathe.
+   · Motion explains a change; it never performs. 180–320ms, ease-out.
+   ========================================================================= */
+
+:root {
+  /* ---- one rhythm ---- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+
+  /* ---- one type scale ---- */
+  --t-2xs: 10.5px;
+  --t-xs: 11.5px;
+  --t-sm: 12.5px;
+  --t-md: 13.5px;
+  --t-lg: 15px;
+  --t-xl: 17px;
+  --t-2xl: clamp(21px, 1.8vw, 26px);
+  --t-3xl: clamp(28px, 2.6vw, 36px);
+
+  /* ---- one shell ---- */
+  --shell-max: 1240px;
+  --gutter: clamp(16px, 3vw, 40px);
+  --section-gap: clamp(16px, 1.8vw, 24px);
+  --card-pad: clamp(16px, 1.5vw, 22px);
+
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --shell-max: 1320px;
+    --gutter: clamp(32px, 3.2vw, 56px);
+  }
+}
+
+/* ------------------------------------------------------------------ base */
+
+body {
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: -0.011em;
+  text-rendering: optimizeLegibility;
+}
+
+@media (min-width: 1024px) {
+  body {
+    font-size: 14.5px;
+  }
+}
+
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.022em;
+  line-height: 1.18;
+  text-wrap: balance;
+}
+
+p,
+li,
+figcaption {
+  text-wrap: pretty;
+}
+
+/* Digits that change should never shift the layout around them. */
+.hero-stats strong,
+.plan-meta-item strong,
+.stat-value,
+.stat strong,
+.report-value,
+.graph-value,
+.nav-badge,
+.time-readout,
+.timer-display,
+td.num,
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* A single, consistent focus treatment. Keyboards get a ring; mice do not. */
+:where(a, button, [role='button'], input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-control);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------- the shell */
+
+.page-container {
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding: 22px var(--gutter) 104px;
+}
+
+.page {
+  gap: var(--section-gap);
+  animation: page-rise 260ms var(--ease-out) both;
+}
+
+@keyframes page-rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------- utility bar */
+
+.utility-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 56px;
+  padding: 8px var(--gutter);
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  transition: border-color var(--dur-2) ease, background-color var(--dur-2) ease;
+}
+
+.utility-bar.is-scrolled {
+  border-bottom-color: color-mix(in srgb, var(--border) 80%, var(--text) 20%);
+}
+
+.utility-search {
+  flex: 1 1 320px;
+  max-width: 440px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  gap: 9px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  color: var(--muted);
+  font-size: var(--t-sm);
+  transition: border-color var(--dur-1) ease, background-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.utility-search:hover {
+  border-color: var(--border-strong);
+  color: var(--text-soft);
+}
+
+.utility-search kbd {
+  margin-left: auto;
+  font-family: var(--font);
+  font-size: var(--t-2xs);
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.utility-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-left: auto;
+  min-width: 0;
+}
+
+.status-pill {
+  height: 26px;
+  padding: 0 9px;
+  font-size: var(--t-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 560;
+}
+
+.sync-chip {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+  font-weight: 520;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ page head */
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  padding-bottom: 2px;
+}
+
+.page-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.page-header .eyebrow {
+  margin: 0 0 8px;
+  font-size: var(--t-2xs);
+  font-weight: 580;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: var(--t-3xl);
+  font-weight: 620;
+  letter-spacing: -0.038em;
+  line-height: 1.02;
+  color: var(--text);
+}
+
+.page-header p {
+  margin: 8px 0 0;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: 1.6;
+}
+
+.page-actions,
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.page-description {
+  margin: 8px 0 0;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------- cards & rows */
+
+.card {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs, none);
+}
+
+.card {
+  padding: var(--card-pad);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+
+.section-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 590;
+  letter-spacing: -0.022em;
+  color: var(--text);
+}
+
+.section-head h2 svg {
+  color: var(--muted);
+}
+
+.section-head p,
+.section-sub {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+}
+
+/* Hairline between stacked rows instead of a border on every card. */
+.split > * {
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- forms */
+
+.input,
+select.input,
+textarea.input,
+.auth-input {
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--t-md);
+  transition: border-color var(--dur-1) ease, box-shadow var(--dur-1) ease, background-color var(--dur-1) ease;
+}
+
+.input::placeholder,
+.auth-input::placeholder {
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+
+.input:hover,
+.auth-input:hover {
+  border-color: var(--border-strong);
+}
+
+.input:focus,
+.input:focus-visible,
+.auth-input:focus,
+.auth-input:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--text) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.field > label,
+.field-label {
+  font-size: var(--t-xs);
+  font-weight: 540;
+  letter-spacing: 0.01em;
+  color: var(--text-soft);
+}
+
+.btn {
+  min-height: 36px;
+  border-radius: var(--radius-control);
+  font-size: var(--t-md);
+  font-weight: 560;
+  letter-spacing: -0.006em;
+  transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease, color var(--dur-1) ease,
+    transform 90ms ease;
+}
+
+.btn:active {
+  transform: translateY(0.5px);
+}
+
+.btn-primary,
+.btn.primary {
+  background: var(--ink);
+  color: var(--on-ink);
+  border: 1px solid var(--ink);
+}
+
+.btn-primary:hover,
+.btn.primary:hover {
+  background: var(--ink-hover, var(--ink));
+  border-color: var(--ink-hover, var(--ink));
+}
+
+/* ------------------------------------------------------------ task rows */
+
+.task-item {
+  border-radius: var(--radius-control);
+  transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease;
+}
+
+.task-item:hover {
+  background: var(--surface-2);
+}
+
+.task-title {
+  letter-spacing: -0.012em;
+}
+
+/* ----------------------------------------------------------------- nav */
+
+.sidebar {
+  padding: 16px 12px 14px;
+  gap: 8px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.nav-group-label {
+  margin: 16px 10px 6px;
+  font-size: var(--t-2xs);
+  font-weight: 580;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: var(--text-soft);
+  font-size: var(--t-md);
+  font-weight: 520;
+  letter-spacing: -0.008em;
+  transition: background-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav-item.active {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 590;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--text);
+}
+
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  font-size: var(--t-2xs);
+  font-weight: 560;
+  background: var(--surface-3);
+  color: var(--text-soft);
+}
+
+.nav-item.active .nav-badge {
+  background: var(--text);
+  color: var(--canvas);
+}
+
+/* ------------------------------------------------------------------ mobile */
+
+.mobile-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  align-items: center;
+  gap: 6px;
+  min-height: 54px;
+  padding: 8px var(--gutter);
+  padding-top: max(8px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--canvas) 86%, transparent);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+}
+
+.mobile-brand {
+  font-size: var(--t-md);
+  font-weight: 590;
+  letter-spacing: -0.02em;
+}
+
+.bottom-nav {
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(150%) blur(16px);
+  -webkit-backdrop-filter: saturate(150%) blur(16px);
+  padding-top: 4px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  z-index: 60;
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 50px;
+  padding: 4px 2px 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--t-2xs);
+  font-weight: 540;
+  letter-spacing: 0.01em;
+  transition: color var(--dur-1) ease;
+}
+
+.bottom-nav-item svg {
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.bottom-nav-item.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.bottom-nav-item:active svg {
+  transform: scale(0.94);
+}
+
+.fab {
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  right: max(18px, var(--gutter));
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+
+/* ------------------------------------------------------------- overlays */
+
+.modal-backdrop,
+.modal-scrim {
+  background: color-mix(in srgb, #08080a 42%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.modal {
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 560px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    position: relative;
+    width: 100%;
+    max-width: none;
+    max-height: 88dvh;
+    margin: 0;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sheet-in 300ms var(--ease-out) both;
+  }
+
+  /* The grab handle makes the sheet read as a sheet, not a floating box. */
+  .modal::before {
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    translate: -50% 0;
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+
+  .modal > :first-child {
+    padding-top: 6px;
+  }
+
+  @keyframes sheet-in {
+    from {
+      transform: translateY(16px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+}
+
+.toast-stack {
+  gap: var(--s-2);
+}
+
+.toast {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.45);
+}
+
+/* ------------------------------------------------------------ loading */
+
+.loading-shell {
+  padding: 0;
+  min-height: 100dvh;
+  background: var(--canvas);
+}
+
+.skeleton-screen {
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding: 22px var(--gutter) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  animation: skeleton-fade 320ms ease-out both;
+}
+
+.skeleton {
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  animation: skeleton-pulse 1.5s var(--ease-in-out) infinite;
+}
+
+.skeleton-hero {
+  height: clamp(120px, 16vw, 168px);
+  border-radius: var(--radius-card);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: var(--section-gap);
+}
+
+.skeleton-card {
+  height: 112px;
+  border-radius: var(--radius-card);
+}
+
+.skeleton-line {
+  height: 13px;
+  width: min(100%, 520px);
+  border: 0;
+}
+
+.skeleton-line.wide {
+  width: min(100%, 760px);
+  height: 15px;
+}
+
+.skeleton-caption {
+  margin: 4px 0 0;
+  font-size: var(--t-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@keyframes skeleton-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------- responsiveness */
+
+/* Laptop: the shell narrows before the type does. */
+@media (max-width: 1240px) {
+  .page-container {
+    padding-inline: var(--gutter);
+  }
+
+  .utility-search {
+    flex-basis: 220px;
+  }
+}
+
+/* Tablet: icon rail, tighter chrome, two-column content. */
+@media (min-width: 768px) and (max-width: 1080px) {
+  .page-container {
+    padding: 18px var(--gutter) 72px;
+  }
+
+  .utility-bar {
+    gap: var(--s-2);
+  }
+
+  .status-pill,
+  .shortcut-hint-btn {
+    display: none;
+  }
+
+  .utility-search kbd {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-3);
+  }
+
+  .page-header h1 {
+    font-size: clamp(24px, 4.6vw, 30px);
+  }
+}
+
+/* Phone: a real mobile layout, not a squeezed desktop one. */
+@media (max-width: 767px) {
+  :root {
+    --gutter: 16px;
+    --section-gap: 14px;
+    --card-pad: 15px;
+  }
+
+  body {
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .page-container {
+    padding: 14px var(--gutter) calc(92px + env(safe-area-inset-bottom));
+  }
+
+  .page {
+    gap: var(--section-gap);
+  }
+
+  .page-header h1 {
+    font-size: 24px;
+    letter-spacing: -0.03em;
+  }
+
+  .page-header p {
+    font-size: var(--t-sm);
+    line-height: 1.55;
+  }
+
+  .card {
+    padding: var(--card-pad);
+    border-radius: 13px;
+  }
+
+  .section-head {
+    margin-bottom: var(--s-3);
+  }
+
+  .section-head h2 {
+    font-size: 14.5px;
+  }
+
+  /* Everything that scrolls sideways gets a scroll shadow instead of a cut. */
+  .table-wrap,
+  .week-strip,
+  .plan-strip {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .table-wrap::-webkit-scrollbar,
+  .week-strip::-webkit-scrollbar,
+  .plan-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toast-stack {
+    left: var(--gutter);
+    right: var(--gutter);
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    width: auto;
+  }
+
+  .toast {
+    width: 100%;
+  }
+}
+
+/* Small phones: fewer columns, no ornament, larger targets. */
+@media (max-width: 480px) {
+  :root {
+    --gutter: 14px;
+  }
+
+  .hero {
+    padding: 18px;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .skeleton-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .toolbar-row,
+  .quick-add {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 380px) {
+  body {
+    font-size: 13.5px;
+  }
+
+  .page-header h1 {
+    font-size: 22px;
+  }
+
+  .bottom-nav-item {
+    font-size: 10px;
+  }
+}
+
+/* Thumbs are not mice: every control gets a real target. */
+@media (pointer: coarse) {
+  .btn,
+  .icon-btn,
+  .input,
+  .auth-input,
+  .bottom-nav-item,
+  .nav-item {
+    min-height: 44px;
+  }
+
+  .icon-btn {
+    min-width: 44px;
+  }
+
+  .bottom-nav-item {
+    min-height: 52px;
+  }
+}
+
+/* Landscape phones: keep the header out of the way. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .mobile-topbar {
+    position: static;
+  }
+
+  .page-container {
+    padding-top: 10px;
+  }
+}
+
+/* -------------------------------------------------------------------- print */
+
+@media print {
+  .sidebar,
+  .utility-bar,
+  .mobile-topbar,
+  .bottom-nav,
+  .fab,
+  .toast-stack,
+  .scroll-progress,
+  #boot {
+    display: none !important;
+  }
+
+  .page-container {
+    max-width: none;
+    padding: 0;
+  }
+
+  .card {
+    box-shadow: none;
+    border: 1px solid #d8d8dc;
+    break-inside: avoid;
+  }
+}
+
+/* ------------------------------------------------------------ opt-out */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .page {
+    animation: none;
+  }
+}
+
+/* =========================================================================
+   Design v9 · the front door on a phone
+   -------------------------------------------------------------------------
+   On a 390px screen the cover used to fill the whole first viewport, so the
+   thing the screen exists for — the form — started below the fold. The cover
+   becomes a compact masthead instead: mark, one title, one line, then the card.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .onboarding {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 100dvh;
+    background: var(--canvas);
+  }
+
+  .onboarding-brand {
+    padding: 26px var(--gutter) 22px;
+    gap: 0;
+    border-radius: 0 0 18px 18px;
+  }
+
+  .onboarding-brand .brand-mark {
+    margin-bottom: 14px;
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  .onboarding-brand .eyebrow {
+    margin-bottom: 8px;
+  }
+
+  .onboarding-brand h1 {
+    font-size: 25px;
+    line-height: 1.08;
+    letter-spacing: -0.036em;
+    max-width: 18ch;
+    margin-bottom: 8px;
+  }
+
+  .onboarding-tagline {
+    font-size: 12.5px;
+    line-height: 1.55;
+    margin-bottom: 0;
+    max-width: 40ch;
+  }
+
+  /* The proof points and the preview belong to the wide cover. On a phone they
+     are two screens of scrolling before anything can be typed. */
+  .onboarding-points,
+  .onboarding-preview {
+    display: none;
+  }
+
+  .onboarding-card {
+    padding: 18px var(--gutter) 28px;
+    border-left: 0;
+    min-height: calc(100dvh - 196px);
+  }
+
+  .onboarding-actions {
+    position: sticky;
+    bottom: 0;
+    /* auto top margin keeps the bar at the bottom of a short step, while the
+       sticky positioning keeps it reachable on a long one. */
+    margin: auto calc(var(--gutter) * -1) 0;
+    padding: 12px var(--gutter) max(12px, env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--canvas) 92%, transparent);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+  }
+}
+
+/* Tablets: cover and form side by side until 1040; below that the cover is a
+   banner, so keep its type in scale with the smaller canvas. */
+@media (min-width: 768px) and (max-width: 1040px) {
+  .onboarding-brand {
+    padding: 34px var(--gutter) 30px;
+  }
+
+  .onboarding-brand h1 {
+    font-size: clamp(26px, 3.6vw, 34px);
+  }
+
+  .onboarding-card {
+    padding: 28px var(--gutter) 36px;
+  }
+}
+
+/* =========================================================================
+   Design v9 · surfaces that carry the day
+   ========================================================================= */
+
+/* Hero: a headline, a number and a line.
+   It is an ink panel with light type in both themes — never give it a surface
+   background here, or the greeting turns white on white. */
+.hero {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.hero h1 {
+  letter-spacing: -0.038em;
+  line-height: 1.05;
+}
+
+.hero-stats > div {
+  min-width: 0;
+  padding: 10px 14px;
+}
+
+.hero-stats strong {
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 620;
+  letter-spacing: -0.03em;
+}
+
+.hero-stats span,
+.hero-stats small {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  /* Colour stays with the hero's own ink-panel palette. */
+}
+
+/* Quick add is the most-used control in the product; it should read as one. */
+.quick-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: border-color var(--dur-1) ease, box-shadow var(--dur-1) ease;
+}
+
+.quick-add:focus-within {
+  border-color: color-mix(in srgb, var(--text) 45%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.quick-add-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: var(--t-lg);
+  letter-spacing: -0.012em;
+}
+
+.quick-add-input:focus {
+  outline: none;
+}
+
+/* Long task titles wrap; they never push a row's actions off the edge. */
+.task-title,
+.task-card h3,
+.row-title {
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+/* Empty states are a sentence, not a shrug. */
+.empty-state,
+.plan-empty {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  max-width: 46ch;
+}
+
+/* Report tables: numbers right, text left, and the row survives a narrow pane. */
+.table-wrap {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  /* Scrolls rather than clips — a wide report must never lose a column. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table-wrap th {
+  font-size: var(--t-2xs);
+  font-weight: 580;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ------------------------------------------------------------------ chips */
+
+.chip,
+.tag,
+.badge {
+  border-radius: 999px;
+  font-size: var(--t-2xs);
+  font-weight: 560;
+  letter-spacing: 0.02em;
+}
+
+/* A hairline separates a footer from content without a second border. */
+.card > .card-foot,
+.section-foot {
+  margin-top: var(--s-4);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border);
+}
+
+/* =========================================================================
+   Design v9 · reading distance and pressure
+   -------------------------------------------------------------------------
+   Small refinements that matter more than they look: body copy with real
+   contrast, a utility bar that yields gracefully before it overflows, and a
+   sidebar header that stops competing with the navigation.
+   ========================================================================= */
+
+.page-description,
+.section-head p,
+.section-sub,
+.settings-section > p,
+.account-row-sub {
+  color: var(--text-soft);
+}
+
+.page-description {
+  color: color-mix(in srgb, var(--text-soft) 88%, var(--muted));
+}
+
+.sidebar .brand {
+  padding: 4px 6px 14px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar .brand-copy strong {
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.sidebar .brand-copy small {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The search field gives way first when the bar runs out of room. */
+@media (max-width: 1280px) {
+  .utility-search {
+    flex: 1 1 180px;
+    max-width: 300px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .status-pill {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .clock-wrap {
+    display: none;
+  }
+}
+
+/* A rail is navigation, not a poster: centre the glyphs, drop the copy. */
+.sidebar.is-rail .brand {
+  justify-content: center;
+  border-bottom-color: transparent;
+  padding-bottom: 8px;
+}
+
+.sidebar.is-rail .nav-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar.is-rail .nav-item.active::before {
+  left: -12px;
+}
+
+.sidebar.is-rail .nav-group-label {
+  margin-inline: 0;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.sidebar.is-rail .profile-card {
+  justify-content: center;
+}
+
+/* -------------------------------------------------------- long-form pages */
+
+.settings-section h2,
+.report-card h2 {
+  font-size: var(--t-lg);
+  font-weight: 590;
+  letter-spacing: -0.022em;
+}
+
+
+/* Every empty list looks deliberate rather than broken. */
+.task-list:empty::after,
+.reminder-list:empty::after {
+  content: 'Nothing here yet.';
+  display: block;
+  padding: 18px 2px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+/* --------------------------------------------------------- small screens */
+
+@media (max-width: 767px) {
+  .page-description {
+    max-width: 100%;
+  }
+
+  .hero-stats strong {
+    font-size: 18px;
+  }
+
+  .quick-add-input {
+    font-size: 14.5px;
+  }
+
+  .table-wrap th,
+  .table-wrap td {
+    padding: 9px 10px;
+  }
+
+  .btn {
+    min-height: 40px;
+  }
 }

@@ -325,6 +325,15 @@ export function useAccount({
     };
   }, []);
 
+  /**
+   * `cloudConfigured` is in the dependency list below on purpose.
+   *
+   * The database can be discovered *after* mount — a deployment without the
+   * build flag asks `/api/health` on the first effect. Without the dependency
+   * this loop ran once, judged the deployment local-only, returned, and never
+   * came back: edits uploaded, and nothing was ever pulled down. That is the
+   * "added it on my phone and my laptop never saw it" bug.
+   */
   useEffect(() => {
     if (!accountId || !isCloudConfigured() || !loadCloudSession()) return;
     let cancelled = false;
@@ -385,7 +394,7 @@ export function useAccount({
       window.removeEventListener('pointerdown', onActivity);
       window.removeEventListener('keydown', onActivity);
     };
-  }, [accountId, noteActivity, syncNow]);
+  }, [accountId, cloudConfigured, noteActivity, syncNow]);
 
   // A pending debounce must not fire after the component goes away.
   useEffect(
