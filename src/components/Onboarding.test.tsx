@@ -11,6 +11,7 @@ function fakeAccount(overrides: Partial<AccountApi> = {}): AccountApi {
     cloudConfigured: false,
     cloudConnected: false,
     lastSyncedAt: null,
+    syncBuiltIn: false,
     busy: false,
     syncNow: vi.fn(async () => ({ ok: true, message: 'ok' })),
     signUp: vi.fn(async () => ({ ok: true })),
