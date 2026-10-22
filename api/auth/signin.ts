@@ -1,4 +1,5 @@
 import { constantTimeEqual, deriveHash, hashToken, randomHex } from '../_lib/crypto';
+import { ensureSchema } from '../_lib/schema';
 import { bodyOf, createSession, explain, fail, findUser, noStore, type ApiRequest, type ApiResponse } from '../_lib/store';
 
 const SESSION_DAYS = 30;
@@ -14,6 +15,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (!userId || !password) return fail(res, 400, 'User ID and password are required.');
 
   try {
+    await ensureSchema();
     const user = await findUser(userId.trim().replace(/^@+/, '').toLowerCase());
     // One message for "no such user" and "wrong password": the endpoint should
     // not double as a way to discover which IDs exist.

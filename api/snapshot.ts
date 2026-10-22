@@ -1,4 +1,5 @@
 import { hashToken } from './_lib/crypto';
+import { ensureSchema } from './_lib/schema';
 import {
   bearerToken,
   bodyOf,
@@ -25,6 +26,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (!token) return fail(res, 401, 'Sign in again — no session token was sent.');
 
   try {
+    await ensureSchema();
     const tokenHash = await hashToken(token);
     const userId = await sessionUser(tokenHash);
     if (!userId) return fail(res, 401, 'This session has expired. Sign in again.');
