@@ -18459,3 +18459,172 @@ html.theme-fade body {
   background: var(--text);
   animation: none;
 }
+
+/* =========================================================================
+   Design v12 — the phone behaves like a phone
+   -------------------------------------------------------------------------
+   Three separate faults made the phone feel broken:
+
+   1. Tapping "+" appeared to do nothing. On iOS the tap opens the sheet, the
+      sheet focuses its first field, and a field rendered below 16px makes
+      Safari zoom the page in. The zoom pushes the fixed sheet out of view and
+      locks scrolling — the page just grows and the form is nowhere. Every
+      field is 16px on a phone now, which is also the size a thumb deserves.
+
+   2. The sheet could be dismissed by the very tap that opened it: phones send
+      a compatibility mouse event after `touchend`, and by then the backdrop is
+      mounted. `Modal` ignores backdrop taps for 400ms after opening.
+
+   3. The action row stretched every button to full width on a phone, so
+      "Export CSV" and "How is this computed?" took two rows and a screenful
+      of air. They sit side by side at their natural width again.
+   ========================================================================= */
+
+@media (max-width: 900px) {
+  /* Both buttons keep their own width. They wrap only if one cannot fit. */
+  .page-actions .btn {
+    flex: 0 1 auto;
+    width: auto;
+  }
+
+  .page-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* ---------- 16px fields: the anti-zoom rule ---------- */
+
+/* `pointer: coarse` is there for a phone held sideways, where the width alone
+   would no longer catch it, and for a tablet with a keyboard case. */
+@media (max-width: 767px), (pointer: coarse) {
+  /* Safari on iOS zooms the whole page when a focused control is smaller than
+     16px. That zoom is what made the New task sheet open off-screen. The
+     selector carries enough weight to beat every `.input` block above it, and
+     the checkboxes, radios and sliders stay as they are — they never zoom. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  select,
+  textarea {
+    font-size: 16px;
+    line-height: 1.35;
+  }
+
+  /* A 42px control with 16px type needs a touch more room, not less. */
+  .input,
+  select.input,
+  textarea.input,
+  .auth-input {
+    min-height: 44px;
+  }
+}
+
+/* ---------- taps that answer back ---------- */
+
+/* No 300ms wait on a double-tap-zoom, and no grey flash rectangle. */
+button,
+[role='button'],
+a,
+.switch,
+.theme-option,
+.bottom-nav-item {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The add button presses in, not floats away. */
+.fab {
+  transition:
+    transform 140ms var(--e-enter, cubic-bezier(0.16, 1, 0.3, 1)),
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.fab:active {
+  transform: scale(0.93);
+}
+
+.bottom-nav-item {
+  transition:
+    transform 120ms var(--e-enter, cubic-bezier(0.16, 1, 0.3, 1)),
+    color var(--dur-1, 140ms) ease;
+}
+
+.bottom-nav-item:active {
+  transform: scale(0.95);
+}
+
+@media (hover: none) {
+  /* A mouse gets hover; a finger gets a press. */
+  .btn:active,
+  .icon-btn:active,
+  .theme-option:active,
+  .nav-item:active {
+    transform: scale(0.97);
+  }
+}
+
+/* ---------- the sheet, on a small screen ---------- */
+
+.modal-body {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-backdrop {
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 560px) {
+  /* Nothing behind the sheet should move while it is open. */
+  .modal-backdrop {
+    touch-action: none;
+  }
+
+  .modal {
+    touch-action: pan-y;
+  }
+
+  .modal-body {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------- stat cards: full width for the words ---------- */
+
+@media (max-width: 767px) {
+  .stat-card {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .stat-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .stat-label {
+    font-size: 9.5px;
+    letter-spacing: 0.055em;
+    line-height: 1.3;
+  }
+
+  .stat-value {
+    font-size: clamp(20px, 6.4vw, 26px);
+  }
+
+  /* A long number must shrink, never sit on the border. */
+  .stat-body {
+    min-width: 0;
+  }
+
+  .stat-value {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 767px) {
+  /* Above the bottom bar, the scrim and every decorative layer: the one control
+     a thumb reaches for must never be behind anything. */
+  .fab {
+    z-index: 70;
+  }
+}

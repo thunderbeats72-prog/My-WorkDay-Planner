@@ -14,6 +14,7 @@ import {
 import type { PageId, Settings } from '../lib/types';
 import { IconButton } from './ui';
 import { BrandMark } from './BrandMark';
+import { haptic } from '../lib/haptics';
 import { AnalogClock } from './AnalogClock';
 
 export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House; mobile?: boolean }> = [
@@ -223,7 +224,10 @@ export function BottomNav({
               type="button"
               className={`bottom-nav-item ${page === item.page ? 'active' : ''}`.trim()}
               aria-current={page === item.page ? 'page' : undefined}
-              onClick={() => onNavigate(item.page)}
+              onClick={() => {
+                haptic('tap');
+                onNavigate(item.page);
+              }}
             >
               <Icon size={19} />
               <span>{item.label}</span>
@@ -232,7 +236,15 @@ export function BottomNav({
         })}
       </nav>
       {page !== 'today' && page !== 'tasks' ? (
-        <button type="button" className="fab" aria-label="Add task" onClick={onAddTask}>
+        <button
+          type="button"
+          className="fab"
+          aria-label="Add task"
+          onClick={() => {
+            haptic('press');
+            onAddTask();
+          }}
+        >
           <Plus size={22} />
         </button>
       ) : null}

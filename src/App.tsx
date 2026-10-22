@@ -90,6 +90,7 @@ import { StickerPop } from './components/StickerPop';
 import type { StickerMoment } from './components/StickerPop';
 import { loadShelf, recordSticker, saveShelf, stickerCaption, stickerFor, streakFrom } from './lib/stickers';
 import { markNudged, nudgeFor, wasNudged } from './lib/assistant';
+import { haptic } from './lib/haptics';
 import type { QuickAddDraft } from './lib/quickAdd';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
@@ -530,6 +531,7 @@ export default function App() {
       if (timer.isRunning(id)) {
         await timer.finish();
       }
+      haptic('success');
       const latest = tasksRef.current.find((candidate) => candidate.id === id) ?? task;
       const updated: Task = {
         ...latest,
