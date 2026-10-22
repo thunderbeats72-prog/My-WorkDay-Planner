@@ -1448,12 +1448,22 @@ export default function App() {
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
               {online ? 'Online' : 'Offline'}
             </span>
-            <span className="sync-chip">
-              {account.account
-                ? account.cloudConnected
-                  ? `Synced · @${account.account.id}`
-                  : `Local-only · @${account.account.id}`
-                : 'Local-only · No account'}
+            <span
+              className={`sync-chip ${account.cloudConnected ? 'is-live' : ''} ${account.busy ? 'is-busy' : ''}`.trim()}
+              title={
+                account.cloudConnected
+                  ? 'Changes reach your other devices in a few seconds'
+                  : 'Everything is stored in this browser only'
+              }
+            >
+              <span className="sync-dot" aria-hidden="true" />
+              {account.busy
+                ? 'Syncing…'
+                : account.account
+                  ? account.cloudConnected
+                    ? `Live · @${account.account.id}`
+                    : `Local-only · @${account.account.id}`
+                  : 'Local-only · No account'}
             </span>
             <button
               type="button"

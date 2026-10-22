@@ -491,3 +491,44 @@ one round trip once.
 
 `db/neon-schema.sql` remains for anyone who prefers to provision explicitly, or
 who deploys somewhere without the `/api` functions.
+
+## Why a phone could not sign in with the same password
+
+`signIn` checked the **local device first**. A phone that had never seen this
+planner has no local account, so it failed with "that user ID and password do not
+match an account on this device" — before the server was ever asked. The account
+existed; the check never reached it.
+
+Sign-in now asks the backend first:
+
+1. Backend accepts → `adoptVerifiedAccount()` writes the matching local record
+   (fresh salt, same password) and binds the device.
+2. Backend unreachable but this device already has the account → you are let in,
+   with "signed in on this device only". An offline laptop is not a locked laptop.
+3. Backend says the password is wrong → that message, and nothing is written.
+
+Sign-up has the same order now, so a phone can never be left holding a
+half-account that was created locally and rejected remotely. If the ID already
+exists on the backend, sign-up quietly becomes a sign-in.
+
+`src/hooks/useAccount.test.tsx` fails if that ordering is ever reversed again.
+
+## Design pass — auth and the platform around it
+
+- **One auth surface** for onboarding and Settings: icon-led fields, a
+  segmented mode switch, a single full-width action.
+- **Password reveal** without moving focus, and a submit that stays disabled
+  until it can actually do something.
+- **Errors arrive in place** — a tinted panel with a short nudge, announced via
+  `role="alert"`, instead of a toast that vanishes.
+- **Tabs are real tabs** (`role="tab"`), so the submit button is the only
+  "Sign in" button a screen reader has to choose between.
+- **Coarse pointers** get 48px fields and 16px text, which is also what stops
+  iOS zooming the page when a field is focused.
+- **`prefers-reduced-motion`** disables the whole motion layer rather than
+  leaving a few animations running.
+- The header chip is now a **live dot**: grey when local-only, green when synced,
+  breathing while a write is in flight.
+
+Everything uses the existing ink tokens — no new colours, no gradients, and no
+return of the spotlight, lift or sweep effects that were removed earlier.

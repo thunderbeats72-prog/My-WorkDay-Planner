@@ -15103,9 +15103,6 @@ kbd {
   margin-top: 16px;
 }
 
-.onboarding-step .account-tabs {
-  justify-self: start;
-}
 
 /* A four-step stepper is tighter than three; keep the labels readable. */
 .onboarding-card .stepper.compact {
@@ -15120,4 +15117,390 @@ kbd {
   .onboarding-sync-head .btn {
     margin-left: 24px;
   }
+}
+
+/* =========================================================================
+   Auth surface — sign in, create account, and the onboarding account step
+   -------------------------------------------------------------------------
+   One shape shared by onboarding and Settings: a quiet inset panel, icon-led
+   fields, and a single full-width action. No gradients, no glow — the ink/on-ink
+   pairing is the only accent, so this reads the same in both themes.
+   ========================================================================= */
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.auth-form.is-compact {
+  margin-top: 12px;
+  gap: 10px;
+}
+
+/* Segmented control that sits flush with the fields below it. */
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.auth-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition:
+    background var(--dur-2) ease,
+    color var(--dur-2) ease,
+    box-shadow var(--dur-2) ease;
+}
+
+.auth-tab:hover {
+  color: var(--text);
+}
+
+.auth-tab.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-fields {
+  display: grid;
+  gap: 9px;
+}
+
+/* Icon sits inside the field, so the label is the placeholder itself. */
+.auth-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-input-icon {
+  position: absolute;
+  left: 13px;
+  color: var(--muted);
+  pointer-events: none;
+  transition: color var(--dur-2) ease;
+}
+
+.auth-input-wrap:focus-within .auth-input-icon {
+  color: var(--text);
+}
+
+.auth-form .auth-input {
+  width: 100%;
+  height: 44px;
+  padding-left: 38px;
+  padding-right: 14px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13.5px;
+  transition:
+    border-color var(--dur-2) ease,
+    background var(--dur-2) ease,
+    box-shadow var(--dur-2) ease;
+}
+
+.auth-form .auth-input.has-trailing {
+  padding-right: 42px;
+}
+
+.auth-form .auth-input::placeholder {
+  color: var(--muted);
+}
+
+.auth-form .auth-input:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.auth-reveal {
+  position: absolute;
+  right: 6px;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--dur-2) ease, background var(--dur-2) ease;
+}
+
+.auth-reveal:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.auth-reveal:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 1px;
+}
+
+/* The one deliberate accent on the screen. */
+.auth-submit {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  margin-top: 2px;
+  border: 1px solid var(--ink);
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--on-ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    opacity var(--dur-2) ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.auth-submit:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.auth-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.auth-submit svg {
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.auth-submit:hover:not(:disabled) svg {
+  transform: translateX(2px);
+}
+
+.auth-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--on-ink) 35%, transparent);
+  border-top-color: var(--on-ink);
+  animation: auth-spin 700ms linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.auth-error {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.45;
+  animation: auth-nudge 260ms var(--ease-out);
+}
+
+@keyframes auth-nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  60% { transform: translateX(2px); }
+}
+
+.auth-footnote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.auth-footnote strong {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+   Onboarding shell — make the two panels read as one object
+   ------------------------------------------------------------------------- */
+
+.onboarding {
+  gap: 22px;
+}
+
+.onboarding-brand {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  padding: 30px 28px;
+}
+
+.onboarding-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  padding: 26px 26px 22px;
+}
+
+.onboarding-step h2 {
+  letter-spacing: -0.025em;
+}
+
+.onboarding-card .stepper.compact {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+
+/* The auth form owns its own tabs; the onboarding stepper is the outer frame. */
+.onboarding-step .auth-form {
+  margin-top: 16px;
+}
+
+.onboarding-step .onboarding-sync {
+  margin-top: 20px;
+  padding-top: 18px;
+}
+
+.onboarding-actions {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* -------------------------------------------------------------------------
+   Platform pass — focus, motion, and touch targets
+   ------------------------------------------------------------------------- */
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.auth-submit:focus-visible,
+.auth-tab:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* Comfortable tap targets everywhere the thumb actually lands. */
+@media (pointer: coarse) {
+  .icon-btn,
+  .nav-item,
+  .account-tab,
+  .auth-tab {
+    min-height: 40px;
+  }
+
+  .auth-form .auth-input {
+    height: 48px;
+    font-size: 16px; /* stops iOS zooming the page on focus */
+  }
+
+  .auth-submit {
+    height: 50px;
+  }
+}
+
+/* Honour the system setting rather than animating at someone who asked not to. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .onboarding-brand,
+  .onboarding-card {
+    padding: 20px 18px;
+  }
+
+  .onboarding {
+    gap: 14px;
+  }
+}
+
+/* Sync chip — a live dot instead of a sentence the eye skips. */
+.sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  font-weight: 550;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--dur-2) ease, border-color var(--dur-2) ease;
+}
+
+.sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+  transition: background var(--dur-2) ease;
+}
+
+.sync-chip.is-live .sync-dot {
+  background: var(--success);
+}
+
+/* A slow breath, not a blink: enough to read as "alive" at a glance. */
+.sync-chip.is-busy .sync-dot {
+  background: var(--text);
+  animation: sync-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes sync-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.sync-chip.is-live {
+  border-color: color-mix(in srgb, var(--success) 26%, var(--border));
 }

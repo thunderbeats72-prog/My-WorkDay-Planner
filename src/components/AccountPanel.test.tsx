@@ -59,7 +59,7 @@ describe('AccountPanel', () => {
     await userEvent.type(screen.getByLabelText('User ID'), 'lakshit');
     await userEvent.type(screen.getByLabelText('Password'), 'open sesame 72');
     await userEvent.type(screen.getByLabelText('Confirm password'), 'open sesame 73');
-    await userEvent.click(screen.getByRole('button', { name: /Create account/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create my account' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('The two passwords do not match.');
     expect(api.signUp).not.toHaveBeenCalled();

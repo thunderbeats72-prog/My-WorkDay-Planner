@@ -56,7 +56,7 @@ describe('Onboarding — account step', () => {
     await userEvent.type(screen.getByLabelText('User ID'), 'lakshit');
     await userEvent.type(screen.getByLabelText('Password'), 'open sesame 72');
     await userEvent.type(screen.getByLabelText('Confirm password'), 'open sesame 72');
-    await userEvent.click(screen.getByRole('button', { name: /Create account/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create my account' }));
 
     expect(account.signUp).toHaveBeenCalledWith('lakshit', 'open sesame 72', '');
   });
