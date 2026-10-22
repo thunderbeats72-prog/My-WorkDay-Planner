@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ComponentType, CSSProperties, ReactNode } from 'react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useLayoutEffect, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, X } from 'lucide-react';
 import type { Category, Priority } from '../lib/types';
@@ -371,19 +371,27 @@ export function Modal({
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
   /**
-   * When the sheet appeared, so the very tap that opened it cannot also
-   * dismiss it. On a phone the browser sends a compatibility mouse event after
-   * `touchend`; if the backdrop has mounted by then, that event lands on the
-   * backdrop and the sheet closes before it has been seen. It looked exactly
-   * like "the plus button does nothing".
+   * Dismissal has to be earned twice over.
+   *
+   * A phone sends a compatibility `click` at the same point a moment after
+   * `touchend`. If the backdrop has mounted by then, that ghost click lands on
+   * it and the sheet closes before it has been seen — which is exactly what
+   * "the plus does nothing" feels like from the outside. So a tap closes the
+   * sheet only if it *started* on the backdrop and the sheet has been open for
+   * a moment. `useLayoutEffect` sets the timestamp before paint, so there is no
+   * window in which the guard is still reading zero.
    */
   const openedAt = useRef(0);
+  const pressOnBackdrop = useRef(false);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  useEffect(() => {
-    if (open) openedAt.current = Date.now();
+  useLayoutEffect(() => {
+    if (open) {
+      openedAt.current = Date.now();
+      pressOnBackdrop.current = false;
+    }
   }, [open]);
 
   useEffect(() => {
@@ -418,17 +426,19 @@ export function Modal({
       }
     };
     document.addEventListener('keydown', onKeyDown);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    /**
-     * Land on the first control — on a laptop.
-     *
-     * Not on a phone. Focusing a field there raises the keyboard, iOS zooms the
-     * page to fit it, and a sheet anchored to the bottom of the screen ends up
-     * behind the keyboard. The reader taps "+" and sees the page shift with no
-     * form in it. The sheet is the message; the keyboard can wait for a tap.
-     */
     const touch = window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+    /**
+     * Locking the page is what made the layout jump: on a phone the browser
+     * re-lays the document when `overflow` flips, so the tap on "+" moved the
+     * page and looked like the only thing that happened. On a touch screen the
+     * backdrop covers everything and `touch-action: none` already stops the
+     * page behind it from scrolling, so the lock buys nothing. A mouse still
+     * gets it, because there a scrollbar would appear and shift the width.
+     */
+    const previousOverflow = document.body.style.overflow;
+    if (!touch) document.body.style.overflow = 'hidden';
+    /* Focus the first field on a laptop only. On a phone it raises the
+       keyboard, iOS zooms to fit it, and the sheet ends up behind it. */
     const focusTimer = touch
       ? 0
       : window.setTimeout(() => {
@@ -453,8 +463,13 @@ export function Modal({
     <div
       className="modal-backdrop"
       role="presentation"
+      onPointerDown={(event) => {
+        pressOnBackdrop.current = event.target === event.currentTarget;
+      }}
       onClick={(event) => {
         if (event.target !== event.currentTarget) return;
+        // Must have begun here, and not in the first moments after opening.
+        if (!pressOnBackdrop.current) return;
         if (Date.now() - openedAt.current < 400) return;
         onClose();
       }}

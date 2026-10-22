@@ -51,16 +51,33 @@ describe('Modal', () => {
     clock.restore();
   });
 
-  it('closes when the backdrop is tapped deliberately afterwards', () => {
+  it('closes when the backdrop is pressed deliberately afterwards', () => {
     const clock = freezeClock();
     const onClose = vi.fn();
     renderSheet(onClose);
 
     const backdrop = document.querySelector('.modal-backdrop') as HTMLElement;
     clock.advance(600);
+    fireEvent.pointerDown(backdrop);
     fireEvent.click(backdrop);
 
     expect(onClose).toHaveBeenCalledTimes(1);
+    clock.restore();
+  });
+
+  it('ignores a click on the backdrop whose press began elsewhere', () => {
+    // The sequence that killed the sheet on a phone: the tap starts on the "+",
+    // the sheet mounts, and the compatibility click lands on the backdrop with
+    // no press ever having begun there.
+    const clock = freezeClock();
+    const onClose = vi.fn();
+    renderSheet(onClose);
+
+    const backdrop = document.querySelector('.modal-backdrop') as HTMLElement;
+    clock.advance(600);
+    fireEvent.click(backdrop); // no pointerdown on the backdrop first
+
+    expect(onClose).not.toHaveBeenCalled();
     clock.restore();
   });
 

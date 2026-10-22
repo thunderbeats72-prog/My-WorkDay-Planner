@@ -18906,3 +18906,138 @@ a,
     }
   }
 }
+
+/* =========================================================================
+   Design v16 — the sheet as a plain child of the screen
+   -------------------------------------------------------------------------
+   Every previous attempt at the New task sheet gave it a clever box:
+   `position: fixed`, `inset: 0`, `height: 100dvh`, a full-screen variant. Each
+   one was a way for the box to end up somewhere other than in front of the
+   reader — off the visual viewport, behind the keyboard, collapsed to nothing.
+
+   The confirm dialog on the same screen never failed, and it is the same
+   component. What it never had was any of that. So the sheet is now an
+   ordinary flex child of a fixed, full-screen backdrop:
+
+     · the backdrop owns the viewport — `position: fixed; inset: 0`
+     · the sheet is in normal flow inside it, capped at a percentage of it
+     · the body scrolls; the head and the footer do not
+
+   A percentage `max-height` resolves against the backdrop, which has a
+   definite height, so this works without `dvh` and without `position: fixed`
+   on the child. It cannot leave the screen, because nothing positions it
+   there in the first place.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .modal-backdrop {
+    /* Above the bottom bar (60), the add button (70) and every toast. */
+    z-index: 1000;
+    align-items: flex-end;
+    justify-content: stretch;
+    padding: 0;
+    /* Stops the page behind from scrolling, so no body lock is needed. */
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  .modal-backdrop .modal {
+    position: relative;
+    inset: auto;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    /* A share of the screen, never a fixed number of pixels. */
+    max-height: 92%;
+    margin: 0;
+    border-radius: 20px 20px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    touch-action: pan-y;
+    animation: sheet-in 240ms var(--ease-out) both;
+  }
+
+  /* The long form gets the taller sheet. Still a share of the screen. */
+  .modal-backdrop .modal.modal-lg {
+    max-height: 96%;
+  }
+
+  .modal-backdrop .modal::before {
+    display: block;
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    translate: -50% 0;
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+
+  .modal-backdrop .modal-head {
+    flex: none;
+    padding-top: 16px;
+  }
+
+  .modal-backdrop .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-backdrop .modal-foot {
+    flex: none;
+  }
+
+  /* A footer button is the way to finish; it gets the whole width. */
+  .modal-backdrop .modal-foot {
+    gap: 8px;
+  }
+
+  .modal-backdrop .modal-foot .btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+}
+
+/* ---------- a finger leaves :hover stuck ---------- */
+
+/* Touch screens have no pointer to move away, so whatever was last tapped keeps
+   its hover styling. The three icons in the phone's top bar were drawing
+   filled boxes for exactly this reason. A press is the feedback that matters
+   here; lift effects are for a mouse. */
+@media (hover: none) {
+  .mobile-actions .icon-btn:hover {
+    background: transparent;
+    color: var(--text-soft);
+  }
+
+  .btn:hover,
+  .icon-btn:hover,
+  .fab:hover,
+  .card:hover,
+  .task-card:hover,
+  .status-pill:hover,
+  .theme-option:hover,
+  .chip:hover,
+  .hero-chips .chip:hover {
+    transform: none;
+  }
+
+  /* Press is the cue instead, and it must not linger after the finger lifts. */
+  .mobile-actions .icon-btn:active,
+  .btn:active {
+    background: var(--surface-2);
+  }
+}
