@@ -5,13 +5,11 @@ import {
   ChartColumn,
   CircleCheck as CheckCircleIcon,
   House,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
   Settings as SettingsIcon,
-  Sun,
 } from 'lucide-react';
 import type { PageId, Settings } from '../lib/types';
 import { IconButton } from './ui';
@@ -168,17 +166,20 @@ export function Sidebar({
   );
 }
 
+/**
+ * The phone's only chrome: the mark, the name, and three actions.
+ *
+ * There were four actions — search, bell, theme, settings — plus a spacer that
+ * competed with the wordmark for the leftover width, so the name ellipsised to
+ * "Wor…" on a 428px screen and the row read as a toolbar. The theme lives in
+ * Settings → Appearance now, one tap away and instant, which buys the name the
+ * room it needs. Nothing here duplicates what the bottom bar already offers.
+ */
 export function MobileTopBar({
-  isDark,
-  online: _online,
-  onToggleTheme,
   onOpenPalette,
   onOpenSettings,
   notifications,
 }: {
-  isDark: boolean;
-  online: boolean;
-  onToggleTheme: () => void;
   onOpenPalette: () => void;
   onOpenSettings: () => void;
   /** The bell, rendered by App so both bars share one notification state. */
@@ -188,15 +189,11 @@ export function MobileTopBar({
     <header className="mobile-topbar">
       <BrandMark size="sm" />
       <span className="mobile-brand">Workday</span>
-      <span className="mobile-spacer" />
-      <IconButton label="Open command palette" icon={Search} onClick={onOpenPalette} />
-      {notifications}
-      <IconButton
-        label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-        icon={isDark ? Sun : Moon}
-        onClick={onToggleTheme}
-      />
-      <IconButton label="Settings" icon={SettingsIcon} onClick={onOpenSettings} />
+      <div className="mobile-actions">
+        <IconButton label="Open command palette" icon={Search} onClick={onOpenPalette} />
+        {notifications}
+        <IconButton label="Settings" icon={SettingsIcon} onClick={onOpenSettings} />
+      </div>
     </header>
   );
 }

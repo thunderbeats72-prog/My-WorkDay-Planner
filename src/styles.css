@@ -13334,10 +13334,6 @@ kbd {
    Mobile: no sidebar, four destinations, gear in the corner
    ============================================================ */
 
-.mobile-spacer {
-  flex: 1;
-}
-
 @media (max-width: 767px) {
   /* The rail never appears on a phone — not as a bar, not as a drawer. */
   .sidebar,
@@ -18202,4 +18198,264 @@ html.theme-fade body {
   .sidebar {
     animation: none;
   }
+}
+
+/* =========================================================================
+   Design v11 — one bar on a phone, one hairline
+   -------------------------------------------------------------------------
+   Two regressions made the phone look broken. Both were cascade traps rather
+   than missing styles, which is why they survived a build, a test run and a
+   read-through of the diff:
+
+   1. The desktop utility bar stayed visible on phones. Its `display: none`
+      lives in a `max-width: 767px` block near the top of this file; the v9
+      shell layer later re-declared `.utility-bar { display: flex }`
+      unconditionally, and a media query adds no specificity — so the later
+      rule won. Result: two stacked bars, two hairlines, and a search field
+      whose label wrapped to three lines while its 320px basis shoved
+      "New task" off the right edge.
+
+   2. `.page-header > div:first-child { flex: 1 1 320px }` is a width basis on
+      a row. Below 900px that header becomes a column, where the same basis is
+      a 320px *height* — a hole under every page title.
+
+   Both are fixed with selectors that win on specificity rather than on file
+   order, so no future layer can re-show the bar by appending a plain
+   `.utility-bar` block. `src/lib/cascade.test.ts` computes the winner rather
+   than trusting the comment.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  /* The phone has exactly one bar. `.app-shell` outranks a bare `.utility-bar`
+     wherever the two appear. */
+  .app-shell .utility-bar {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  /* A column has no use for a horizontal flex basis. */
+  .page-header > div:first-child {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .page-actions {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  /* Two labelled buttons share the row instead of one being pushed off it. */
+  .page-actions .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
+/* ---------- the phone's single bar ---------- */
+
+@media (max-width: 767px) {
+  .app-shell .mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 10px;
+    min-height: 54px;
+    padding: 6px 10px 6px 12px;
+    padding-top: calc(6px + env(safe-area-inset-top));
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--canvas) 90%, transparent);
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+    box-shadow: none;
+  }
+
+  .mobile-topbar > .brand-mark {
+    grid-column: 1;
+    flex: none;
+  }
+
+  /* The name gets everything the actions do not need. No spacer competes with
+     it any more, so it never ellipsises on a real phone width. */
+  .mobile-topbar .mobile-brand {
+    grid-column: 2;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.024em;
+    color: var(--text);
+  }
+
+  .mobile-actions {
+    grid-column: 3;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* Three quiet glyphs, not three boxes. A bordered square on every icon made
+     the header read as a toolbar. */
+  .mobile-actions .icon-btn {
+    width: 42px;
+    height: 42px;
+    min-width: 0;
+    min-height: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-soft);
+    border-radius: 11px;
+    transition: background-color var(--d-fast, 140ms) ease, color var(--d-fast, 140ms) ease,
+      transform 90ms var(--e-enter, ease-out);
+  }
+
+  .mobile-actions .icon-btn:hover {
+    background: var(--surface-2);
+    color: var(--text);
+    transform: none;
+  }
+
+  .mobile-actions .icon-btn:active {
+    background: var(--surface-2);
+    transform: scale(0.94);
+  }
+
+}
+
+/* ---------- the sidebar's second hairline ---------- */
+
+/* `.sidebar-head` already draws one border under the brand row. The v9 layer
+   gave `.brand` a second one twelve pixels above it, so the header read as a
+   double rule. The head owns the divider; the brand does not. */
+.sidebar .brand {
+  padding: 0;
+  margin: 0;
+  border-bottom: 0;
+}
+
+/* And the collapse control is a glyph, not a chip. */
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.sidebar-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ---------- phones: a little more air, none of it wasted ---------- */
+
+@media (max-width: 767px) {
+  .page-container {
+    padding-top: 12px;
+  }
+
+  .page-header {
+    gap: 10px;
+  }
+
+  .page-header h1 {
+    font-size: 23px;
+  }
+
+  .page-description {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+}
+
+/* ---------- the utility bar never clips its own action ---------- */
+
+/* Between the tablet breakpoint and the laptop one the desktop bar is still
+   visible, and it has a lot to hold: a search field, an import button, the
+   bell, a clock, a sync chip, a theme toggle and "New task". With a 320px
+   search basis and an action row that refused to shrink, the last child lost
+   the fight and rendered as "ew ta". The search gives way instead. */
+@media (min-width: 768px) and (max-width: 1080px) {
+  .utility-search {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+
+  .utility-search span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .utility-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  /* The icon carries the meaning; the word took the room the button needed. */
+  .utility-import {
+    padding: 0 9px;
+  }
+
+  .utility-import span {
+    display: none;
+  }
+}
+
+/* Search placeholder stays on one line at every width. */
+.utility-search span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.utility-actions {
+  min-width: 0;
+}
+
+/* The action row must never be the thing that overflows. */
+.utility-actions > .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  /* The last card must be able to rest above the floating add button, not
+     underneath it. 76px offset + 52px button + 8px air. */
+  .page-container {
+    padding-bottom: calc(136px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------- one active marker in the bottom bar ---------- */
+
+/* Two generations of styling both drew a marker: an 18×2 rule at the item's
+   top edge and a 4px dot near the bottom. With `top` and `bottom` both set,
+   the dot's geometry collapsed onto the top rule and the marker floated a
+   pixel off the edge. One marker now, sitting on the top edge of the active
+   tab, centred. */
+.app-shell .bottom-nav .bottom-nav-item.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: auto;
+  left: 50%;
+  width: 18px;
+  height: 2px;
+  margin-left: -9px;
+  border-radius: 1px;
+  background: var(--text);
+  animation: none;
 }
