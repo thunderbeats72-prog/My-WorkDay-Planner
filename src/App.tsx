@@ -279,6 +279,14 @@ export default function App() {
     const themeColor = document.querySelector('meta[name="theme-color"]');
     if (themeColor) themeColor.setAttribute('content', isDark ? '#0a0a0c' : '#f5f5f6');
     root.classList.add('theme-fade');
+    // Mirror the resolved theme where a pre-paint script can read it. IndexedDB
+    // cannot be read synchronously, so this is what stops a dark-mode reload
+    // from flashing a light canvas before the settings table answers.
+    try {
+      localStorage.setItem('workday.theme.v1', isDark ? 'dark' : 'light');
+    } catch {
+      // Private mode: the pre-paint script simply falls back to the OS setting.
+    }
     const timer = window.setTimeout(() => root.classList.remove('theme-fade'), 480);
     return () => window.clearTimeout(timer);
   }, [isDark]);
