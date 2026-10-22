@@ -85,6 +85,7 @@ import type { TaskDraft } from './components/TaskForm';
 import { GraphCard } from './components/GraphCard';
 import { Onboarding } from './components/Onboarding';
 import type { QuickAddDraft } from './lib/quickAdd';
+import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
 import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun, ScanText } from 'lucide-react';
@@ -240,6 +241,26 @@ export default function App() {
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+
+  /** Re-reads the local database — used after a sync merges another device's work. */
+  const reloadFromDevice = useCallback(async () => {
+    const [loadedSettings, loadedTasks, loadedReminders] = await Promise.all([
+      loadSettings(),
+      listTasks(),
+      listReminders(),
+    ]);
+    settingsRef.current = loadedSettings;
+    tasksRef.current = loadedTasks;
+    remindersRef.current = loadedReminders;
+    setSettings(loadedSettings);
+    setTasks(loadedTasks);
+    setReminders(loadedReminders);
+  }, []);
+
+  const account = useAccount({
+    onDataChanged: () => void reloadFromDevice(),
+    onNotice: addToast,
+  });
 
   const isDark = settings.theme === 'system' ? prefersDark : settings.theme === 'dark';
 
@@ -1351,6 +1372,7 @@ export default function App() {
             notificationsPermission={notificationPermission}
             onRequestNotifications={handleRequestNotifications}
             onSendTestNotification={() => void handleSendTestNotification()}
+            account={account}
           />
         );
       default:
@@ -1409,7 +1431,13 @@ export default function App() {
               {online ? <Wifi size={12} /> : <WifiOff size={12} />}
               {online ? 'Online' : 'Offline'}
             </span>
-            <span className="sync-chip">Local-only · Sync not configured</span>
+            <span className="sync-chip">
+              {account.account
+                ? account.cloudConnected
+                  ? `Synced · @${account.account.id}`
+                  : `Local-only · @${account.account.id}`
+                : 'Local-only · No account'}
+            </span>
             <button
               type="button"
               className="icon-btn shortcut-hint-btn"
