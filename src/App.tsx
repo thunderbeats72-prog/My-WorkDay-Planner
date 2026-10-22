@@ -1510,9 +1510,6 @@ export default function App() {
       />
       <div className="app-main">
         <MobileTopBar
-          isDark={isDark}
-          online={online}
-          onToggleTheme={toggleTheme}
           onOpenPalette={() => setPaletteOpen(true)}
           onOpenSettings={() => setPage('settings')}
           notifications={notificationCenter}
