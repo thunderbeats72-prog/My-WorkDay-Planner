@@ -491,3 +491,91 @@ one round trip once.
 
 `db/neon-schema.sql` remains for anyone who prefers to provision explicitly, or
 who deploys somewhere without the `/api` functions.
+
+## Why a phone could not sign in with the same password
+
+`signIn` checked the **local device first**. A phone that had never seen this
+planner has no local account, so it failed with "that user ID and password do not
+match an account on this device" — before the server was ever asked. The account
+existed; the check never reached it.
+
+Sign-in now asks the backend first:
+
+1. Backend accepts → `adoptVerifiedAccount()` writes the matching local record
+   (fresh salt, same password) and binds the device.
+2. Backend unreachable but this device already has the account → you are let in,
+   with "signed in on this device only". An offline laptop is not a locked laptop.
+3. Backend says the password is wrong → that message, and nothing is written.
+
+Sign-up has the same order now, so a phone can never be left holding a
+half-account that was created locally and rejected remotely. If the ID already
+exists on the backend, sign-up quietly becomes a sign-in.
+
+`src/hooks/useAccount.test.tsx` fails if that ordering is ever reversed again.
+
+## Design pass — auth and the platform around it
+
+- **One auth surface** for onboarding and Settings: icon-led fields, a
+  segmented mode switch, a single full-width action.
+- **Password reveal** without moving focus, and a submit that stays disabled
+  until it can actually do something.
+- **Errors arrive in place** — a tinted panel with a short nudge, announced via
+  `role="alert"`, instead of a toast that vanishes.
+- **Tabs are real tabs** (`role="tab"`), so the submit button is the only
+  "Sign in" button a screen reader has to choose between.
+- **Coarse pointers** get 48px fields and 16px text, which is also what stops
+  iOS zooming the page when a field is focused.
+- **`prefers-reduced-motion`** disables the whole motion layer rather than
+  leaving a few animations running.
+- The header chip is now a **live dot**: grey when local-only, green when synced,
+  breathing while a write is in flight.
+
+Everything uses the existing ink tokens — no new colours, no gradients, and no
+return of the spotlight, lift or sweep effects that were removed earlier.
+
+## Design v7 — two invisible bugs, then craft
+
+Surveying the stylesheet turned up something worse than plain styling.
+
+### The paint tokens had been set to `none`
+
+When gradients were removed, `--grad-primary`, `--grad-success`, `--grad-warm`
+and `--grad-danger` were redefined as `none` — but **19 rules still paint with
+them**: the floating add button, every progress bar, the capacity bars, the
+priority rails. All of it was drawing nothing. An invisible element looks like a
+design choice, which is why it survived several passes.
+
+The tokens are solid colours now (`var(--ink)`, `var(--success)`,
+`var(--warning)`, `var(--danger)`). Same rules, same call sites, actually
+visible, and no gradient is back in the product.
+
+Two more of the same kind:
+
+- The little rule before every page-title eyebrow was painted with
+  `--grad-primary`, so it had never rendered.
+- Page titles were gradient-clipped text ending in `--primary`, which is a mid
+  grey in dark mode — long titles faded as they ran right. The gradient block is
+  deleted rather than overridden; dead paint declarations are what hid the other
+  19.
+
+`src/lib/theme.test.ts` now fails if any paint token's final definition is
+`none`, `transparent` or a gradient, if a decorative rule references a dead
+token, if a page title clips its text, or if the reduced-motion opt-out is
+removed.
+
+### The craft layer
+
+| Area | Change |
+| --- | --- |
+| Page headers | fluid title size, tighter tracking, description measured at 62ch |
+| Cards | one radius, one border, one shadow (none in dark) |
+| Empty states | icon in a ring, 42ch measure, centred — reads considered, not missing |
+| Stat numbers | tabular figures, −0.035em tracking, label quiet above |
+| Sidebar | 2px rail marker on the active item instead of a filled block |
+| Bottom nav | dot under the icon, no pill; respects the home-indicator inset |
+| Chrome | themed scrollbars, themed text selection |
+| Task cards | border shift on hover only — nothing moves |
+| Print | chrome hidden, cards kept whole — reports are printable |
+
+No new colours and none of the removed effects came back: no spotlight, no lift,
+no gradient bar, no timer sweep, no check burst.

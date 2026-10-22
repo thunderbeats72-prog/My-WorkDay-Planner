@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   accountSnapshot,
+  adoptVerifiedAccount,
   bindDevice,
   changePassword as changeLocalPassword,
   deleteAccount as deleteLocalAccount,
@@ -340,57 +341,95 @@ export function useAccount({
     return null;
   }, []);
 
+  /**
+   * Creating an account where a backend exists creates it *there* first.
+   *
+   * The old order (local, then remote) meant a phone could hold a half-account:
+   * locally created, remotely rejected, and now permanently unable to sign in
+   * with the password the laptop accepted.
+   */
   const signUp = useCallback(
     async (userId: string, password: string, displayName?: string) => {
-      const blocked = guardDevice(userId.trim().toLowerCase().replace(/^@+/, ''));
+      const id = userId.trim().replace(/^@+/, '').toLowerCase();
+      const blocked = guardDevice(id);
       if (blocked) return { ok: false, error: blocked };
       setBusy(true);
       try {
-        const local = await signUpLocal({ userId, password, displayName });
+        if (isCloudConfigured()) {
+          let remote = await cloudSignUp(id, password, displayName);
+          if (!remote.ok) {
+            // The account may already exist because it was created on the other
+            // device; in that case this is really a sign-in.
+            remote = await cloudSignIn(id, password);
+            if (!remote.ok) return { ok: false, error: remote.error };
+          }
+          const adopted = await adoptVerifiedAccount({ userId: id, password, displayName });
+          if (!adopted.ok || !adopted.account) return { ok: false, error: adopted.error };
+          bindDevice(adopted.account.id);
+          setCloudConnected(true);
+          const result = await syncNow({ quiet: true });
+          return { ok: true, error: result.ok ? undefined : result.message };
+        }
+
+        const local = await signUpLocal({ userId: id, password, displayName });
         if (!local.ok || !local.account) return { ok: false, error: local.error };
         bindDevice(local.account.id);
-        if (isCloudConfigured()) {
-          const remote = await cloudSignUp(local.account.id, password);
-          if (remote.ok) setCloudConnected(true);
-          else return { ok: true, error: remote.error };
-        } else {
-          // Say the quiet part out loud: with no project there is nowhere for a
-          // second device's tasks to come from, and pretending otherwise is how
-          // "same login, empty app" happens.
-          return {
-            ok: true,
-            error: 'No sync project is connected yet, so this account lives on this device only. Connect one in Settings → Account to share it.',
-          };
-        }
-        return { ok: true };
+        return {
+          ok: true,
+          error:
+            'No sync project is connected yet, so this account lives on this device only. Connect one in Settings → Account to share it.',
+        };
       } finally {
         setBusy(false);
       }
     },
-    [guardDevice],
+    [guardDevice, syncNow],
   );
 
+  /**
+   * Signing in checks the shared backend first.
+   *
+   * The previous order checked the local device first, so a phone that had never
+   * seen this planner could never sign in at all: "no account on this device"
+   * came back before the server was ever asked. That is the bug behind "the same
+   * password works on my laptop but not on my phone".
+   *
+   * If the backend is unreachable, a real local account still gets you in — an
+   * offline laptop should not become a locked laptop.
+   */
   const signIn = useCallback(
     async (userId: string, password: string) => {
-      const blocked = guardDevice(userId.trim().toLowerCase().replace(/^@+/, ''));
+      const id = userId.trim().replace(/^@+/, '').toLowerCase();
+      const blocked = guardDevice(id);
       if (blocked) return { ok: false, error: blocked };
       setBusy(true);
       try {
-        const local = await signInLocal(userId, password);
-        if (!local.ok || !local.account) return { ok: false, error: local.error };
-        bindDevice(local.account.id);
         if (isCloudConfigured()) {
-          const remote = await cloudSignIn(local.account.id, password);
+          const remote = await cloudSignIn(id, password);
           if (remote.ok) {
+            const adopted = await adoptVerifiedAccount({ userId: id, password });
+            if (!adopted.ok || !adopted.account) return { ok: false, error: adopted.error };
+            bindDevice(adopted.account.id);
             setCloudConnected(true);
-            const result = await syncNow();
+            const result = await syncNow({ quiet: true });
             return { ok: true, error: result.ok ? undefined : result.message };
           }
-          return { ok: true, error: remote.error };
+
+          const local = await signInLocal(id, password);
+          if (local.ok && local.account) {
+            bindDevice(local.account.id);
+            return { ok: true, error: `Signed in on this device only — ${remote.error}` };
+          }
+          return { ok: false, error: remote.error };
         }
+
+        const local = await signInLocal(id, password);
+        if (!local.ok || !local.account) return { ok: false, error: local.error };
+        bindDevice(local.account.id);
         return {
           ok: true,
-          error: 'No sync project is connected, so there was nothing to fetch from your other device. Connect one in Settings → Account.',
+          error:
+            'No sync project is connected, so there was nothing to fetch from your other device. Connect one in Settings → Account.',
         };
       } finally {
         setBusy(false);

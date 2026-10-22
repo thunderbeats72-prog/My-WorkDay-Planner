@@ -263,6 +263,46 @@ export async function signIn(userId: string, password: string): Promise<AuthResu
   return { ok: true, account: next };
 }
 
+/**
+ * Record an account that has already been verified somewhere else.
+ *
+ * A phone that has never seen this planner has no local account, so a purely
+ * local sign-in check fails before it ever asks the server — which is exactly
+ * why "the same password works on my laptop but not my phone". After the server
+ * accepts the password, this writes the matching local record so later sign-ins
+ * work offline too.
+ *
+ * Only ever called with a password the backend has already verified. It
+ * overwrites an existing record, because the server is the source of truth when
+ * the two disagree.
+ */
+export async function adoptVerifiedAccount(input: {
+  userId: string;
+  password: string;
+  displayName?: string;
+}): Promise<AuthResult> {
+  const idCheck = checkUserId(input.userId);
+  if (!idCheck.ok) return { ok: false, error: idCheck.error };
+
+  const salt = randomHex(16);
+  const hash = await deriveHash(input.password, salt);
+  const existing = findAccount(idCheck.id);
+  const account: StoredAccount = {
+    id: idCheck.id,
+    displayName: input.displayName?.trim() || existing?.displayName || idCheck.id,
+    salt,
+    hash,
+    iterations: PBKDF2_ITERATIONS,
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    lastLoginAt: new Date().toISOString(),
+  };
+
+  writeAccounts([...listAccounts().filter((entry) => entry.id !== account.id), account]);
+  clearFailures(account.id);
+  setSession(account.id);
+  return { ok: true, account };
+}
+
 export async function changePassword(userId: string, currentPassword: string, nextPassword: string): Promise<AuthResult> {
   const check = await signIn(userId, currentPassword);
   if (!check.ok || !check.account) return check;
