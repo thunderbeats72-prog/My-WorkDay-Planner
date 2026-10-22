@@ -5947,12 +5947,7 @@ a.btn {
 }
 
 .hero h1 {
-  background: linear-gradient(100deg, #ffffff 18%, #dfdfdf 46%, #ffffff 74%);
   background-size: 100% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
 }
 
 .hero .eyebrow {
@@ -6014,10 +6009,6 @@ a.btn {
 
 .hero-stats strong {
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(100deg, #ffffff, #e3e3e3);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .hero-stats > div {
@@ -7377,12 +7368,7 @@ a.btn {
 }
 
 .onboarding-brand h1 {
-  background: linear-gradient(100deg, #ffffff 26%, #cfcfcf 56%, #ffffff 86%);
   background-size: 100% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
   animation: none;
 }
 
@@ -8576,11 +8562,6 @@ h3 {
   font-weight: 650;
   letter-spacing: -0.042em;
   line-height: 1.06;
-  background: linear-gradient(96deg, #ffffff 0%, #f0f0f2 52%, #d8d8d8 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
   animation: none;
 }
 
@@ -9384,10 +9365,6 @@ h3 {
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: -0.045em;
-  background: linear-gradient(96deg, #ffffff, #d8d8d8);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .onboarding-tagline {
@@ -15892,4 +15869,492 @@ kbd {
   .app-shell[data-sidebar='collapsed'] .nav-item {
     padding-left: 0;
   }
+}
+
+/* =========================================================================
+   Design v8 — onboarding as the front door, plus platform refinements
+   -------------------------------------------------------------------------
+   The brand panel is deliberately an ink panel in BOTH themes: near-black with
+   light type, like a printed cover. It used to be a dark panel with white text,
+   then briefly inherited `--surface`, which in light mode is white — white text
+   on a white panel, which is the ghosted title this fix exists for.
+   ========================================================================= */
+
+.onboarding {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 560px);
+  min-height: 100vh;
+  background: var(--canvas);
+  gap: 0;
+}
+
+/* ---------- cover ---------- */
+
+.onboarding-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 56px 52px 44px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: #f4f4f6;
+  background:
+    radial-gradient(900px 520px at 12% -10%, rgba(255, 255, 255, 0.09), transparent 62%),
+    radial-gradient(700px 460px at 100% 108%, rgba(255, 255, 255, 0.05), transparent 60%),
+    #0b0b0e;
+  overflow: hidden;
+}
+
+/* A hairline that reads as a printed edge, not a glow. */
+.onboarding-brand::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.onboarding-brand .brand-mark {
+  margin-bottom: 30px;
+}
+
+.onboarding-brand .eyebrow {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10.5px;
+  font-weight: 620;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin: 0 0 14px;
+}
+
+.onboarding-brand .eyebrow::before {
+  background: rgba(255, 255, 255, 0.42) !important;
+  opacity: 1;
+}
+
+/* Solid light ink. No gradient clip: it made the title fade into the panel. */
+.onboarding-brand h1 {
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #fdfdfe;
+  font-size: clamp(30px, 3.4vw, 44px);
+  line-height: 1.04;
+  font-weight: 620;
+  letter-spacing: -0.042em;
+  margin: 0 0 16px;
+  max-width: 13ch;
+}
+
+.onboarding-tagline {
+  color: rgba(255, 255, 255, 0.62) !important;
+  font-size: 13.5px;
+  line-height: 1.65;
+  margin: 0 0 30px;
+  max-width: 46ch;
+}
+
+.onboarding-points {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.onboarding-points li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 2px;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12.5px;
+  line-height: 1.45;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.onboarding-points li svg {
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  padding: 6px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.onboarding-preview {
+  margin-top: auto;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(2px);
+}
+
+.onboarding-preview .preview-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 9.5px;
+  font-weight: 620;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.onboarding-preview .preview-label::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #5fd3ad;
+}
+
+.onboarding-preview h2 {
+  margin: 8px 0 2px;
+  color: #f6f6f8;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.onboarding-preview p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* On the dark cover the bar must be light; the shared token is ink. */
+.onboarding-preview .preview-bar {
+  height: 5px;
+  margin: 12px 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.onboarding-preview .preview-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #f2f2f4;
+  transition: width 420ms var(--ease-out);
+}
+
+.onboarding-preview .fine-print {
+  color: rgba(255, 255, 255, 0.42) !important;
+  font-size: 10.5px;
+}
+
+/* ---------- the setup card ---------- */
+
+.onboarding-card {
+  display: flex;
+  flex-direction: column;
+  padding: 40px 44px 30px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--canvas);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.onboarding-card .stepper.compact {
+  display: flex;
+  gap: 0;
+  margin: 0 0 26px;
+  padding: 0 0 18px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  flex-wrap: nowrap;
+}
+
+.onboarding-card .stepper li {
+  flex: 1;
+  gap: 7px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.onboarding-card .stepper li::after {
+  display: none;
+}
+
+.onboarding-card .step-dot {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  font-weight: 650;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  transition:
+    background var(--dur-2) ease,
+    color var(--dur-2) ease,
+    border-color var(--dur-2) ease;
+}
+
+.onboarding-card .stepper li.active {
+  color: var(--text);
+  font-weight: 640;
+}
+
+.onboarding-card .stepper li.active .step-dot {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--canvas);
+}
+
+.onboarding-card .stepper li.done .step-dot {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  color: var(--success);
+}
+
+.onboarding-step {
+  animation: onboard-in 320ms var(--ease-out) both;
+}
+
+@keyframes onboard-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.onboarding-step .eyebrow {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 620;
+  letter-spacing: 0.14em;
+  margin: 0 0 8px;
+}
+
+.onboarding-step h2 {
+  margin: 0 0 6px;
+  font-size: clamp(20px, 1.7vw, 24px);
+  font-weight: 640;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.onboarding-step .muted {
+  margin: 0 0 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  max-width: 52ch;
+}
+
+.onboarding-step .form-grid {
+  gap: 14px;
+}
+
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.onboarding-actions .btn-primary {
+  min-width: 148px;
+  justify-content: center;
+}
+
+.onboarding-card .link-button {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- narrower screens: stack, cover first, compact ---------- */
+
+@media (max-width: 1040px) {
+  .onboarding {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 100dvh;
+  }
+
+  .onboarding-brand {
+    padding: 34px 26px 28px;
+  }
+
+  .onboarding-brand h1 {
+    font-size: 30px;
+    max-width: none;
+  }
+
+  .onboarding-tagline {
+    margin-bottom: 22px;
+  }
+
+  /* The live preview is a desktop nicety; on a phone it pushes the form down. */
+  .onboarding-preview {
+    display: none;
+  }
+
+  .onboarding-card {
+    padding: 26px 22px 22px;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 520px) {
+  .onboarding-brand {
+    padding: 24px 18px 22px;
+  }
+
+  .onboarding-brand .brand-mark {
+    margin-bottom: 20px;
+  }
+
+  .onboarding-brand h1 {
+    font-size: 26px;
+  }
+
+  .onboarding-points li:nth-child(n + 3) {
+    display: none;
+  }
+
+  .onboarding-card {
+    padding: 20px 16px 18px;
+  }
+
+  .onboarding-card .stepper li span:last-child {
+    display: none;
+  }
+
+  .onboarding-actions {
+    position: sticky;
+    bottom: 0;
+    background: color-mix(in srgb, var(--canvas) 92%, transparent);
+    backdrop-filter: blur(10px);
+    margin: 18px -16px -18px;
+    padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------- platform refinements ---------- */
+
+.btn {
+  font-weight: 590;
+  letter-spacing: -0.008em;
+  border-radius: 10px;
+  transition:
+    background var(--dur-2) ease,
+    border-color var(--dur-2) ease,
+    color var(--dur-2) ease,
+    transform var(--dur-1) var(--ease-out);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.btn-primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.input,
+.select,
+textarea.input {
+  border-radius: 10px;
+  transition:
+    border-color var(--dur-2) ease,
+    box-shadow var(--dur-2) ease,
+    background var(--dur-2) ease;
+}
+
+.input:focus,
+.select:focus,
+textarea.input:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* Section headings share one rhythm across Settings, Reports and Today. */
+.settings-section > h2:first-child,
+.card > h2:first-child {
+  letter-spacing: -0.02em;
+}
+
+/* The toast is the last thing read, so give it presence without shadow noise. */
+.toast {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px -18px rgba(0, 0, 0, 0.35);
+  font-size: 12.5px;
+}
+
+:root[data-theme='dark'] .toast {
+  box-shadow: 0 12px 32px -18px rgba(0, 0, 0, 0.8);
+}
+
+
+/* Gradient-clipped text is gone for good.
+   Every one of these was invisible or washed out in at least one theme: the
+   clip keeps only the background, and the background was either `none` or a
+   near-white gradient sitting on a near-white panel. Solid ink, always. */
+.hero h1 {
+  color: #f6f6f8;
+  -webkit-text-fill-color: currentColor;
+}
+
+.hero-stats strong {
+  color: #f4f4f6;
+  -webkit-text-fill-color: currentColor;
+}
+
+.onboarding-brand h1 {
+  color: #fdfdfe;
+  -webkit-text-fill-color: currentColor;
+}
+
+/* ------------------------------------------------------------------ *
+ * Design v8 · the honest footer note
+ *
+ * A copy without a database says so in one quiet hairline row. It is a
+ * statement, not a form: no inputs, no "set up" button, nothing a person who
+ * is not from tech has to interpret or act on.
+ * ------------------------------------------------------------------ */
+.onboarding-sync-off {
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.account-state.account-state-off {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--surface-raised, var(--surface));
 }

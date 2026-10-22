@@ -1,4 +1,4 @@
-import { sql } from './store';
+import { sql } from './store.js';
 
 /**
  * Creates the three tables on first use.

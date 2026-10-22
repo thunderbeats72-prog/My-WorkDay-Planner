@@ -24,10 +24,6 @@ export function Onboarding({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [draft, setDraft] = useState<Settings>({ ...DEFAULT_SETTINGS, onboardingComplete: true });
   const [error, setError] = useState('');
-  const [showCloudSetup, setShowCloudSetup] = useState(false);
-  const [cloudUrl, setCloudUrl] = useState('');
-  const [cloudKey, setCloudKey] = useState('');
-  const [cloudError, setCloudError] = useState<string | null>(null);
 
   /**
    * Signing in on a second device is the moment its tasks arrive, so the form
@@ -154,7 +150,7 @@ export function Onboarding({
                 <p>
                   {account.cloudConnected
                     ? 'Sync is on. Anything you add on this device reaches your other device within two minutes.'
-                    : 'Signed in on this device. Turn on sync in Settings → Account to carry it to your phone.'}
+                    : 'Signed in on this device. The login is real; the tasks stay in this browser until a sync copy is deployed.'}
                 </p>
               </div>
             ) : (
@@ -166,96 +162,15 @@ export function Onboarding({
               />
             )}
 
-            {!account.cloudConfigured ? (
-              <div className="onboarding-sync">
-                <div className="onboarding-sync-head">
-                  <Cloud size={15} aria-hidden="true" />
-                  <div>
-                    <p className="onboarding-sync-title">Where does the data live?</p>
-                    <p className="onboarding-sync-sub">
-                      Without a sync project, the login stays on this device. Connect one free project and the same
-                      login carries your tasks everywhere.
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowCloudSetup((open) => !open)}
-                  >
-                    {showCloudSetup ? 'Hide' : 'Set up sync'}
-                  </Button>
-                </div>
-
-                {showCloudSetup ? (
-                  <div className="onboarding-sync-panel">
-                    <ol className="account-steps">
-                      <li>
-                        Create a free project at <span className="mono">supabase.com</span>.
-                      </li>
-                      <li>
-                        Run <span className="mono">supabase/schema.sql</span> from this repo in its SQL editor.
-                      </li>
-                      <li>
-                        Turn off <em>Confirm email</em> in Authentication → Providers → Email.
-                      </li>
-                      <li>
-                        Paste the <span className="mono">Project URL</span> and <span className="mono">anon public</span>
-                        {' '}key from Project Settings → API.
-                      </li>
-                    </ol>
-                    <div className="account-fields">
-                      <Field label="Project URL" htmlFor="onboard-cloud-url">
-                        <input
-                          id="onboard-cloud-url"
-                          className="input"
-                          value={cloudUrl}
-                          spellCheck={false}
-                          placeholder="https://abcd1234.supabase.co"
-                          onChange={(event) => setCloudUrl(event.target.value)}
-                        />
-                      </Field>
-                      <Field label="Anon public key" htmlFor="onboard-cloud-key">
-                        <input
-                          id="onboard-cloud-key"
-                          className="input"
-                          value={cloudKey}
-                          spellCheck={false}
-                          placeholder="eyJhbGciOi…"
-                          onChange={(event) => setCloudKey(event.target.value)}
-                        />
-                      </Field>
-                    </div>
-                    {cloudError ? (
-                      <p className="account-error" role="alert">
-                        {cloudError}
-                      </p>
-                    ) : null}
-                    <div className="account-actions">
-                      <Button
-                        variant="primary"
-                        icon={Cloud}
-                        loading={account.busy}
-                        onClick={async () => {
-                          setCloudError(null);
-                          const result = await account.connectCloud(cloudUrl, cloudKey);
-                          if (!result.ok) {
-                            setCloudError(result.error ?? 'Could not connect.');
-                            return;
-                          }
-                          setShowCloudSetup(false);
-                        }}
-                      >
-                        Connect sync
-                      </Button>
-                      <p className="account-fine">Stored in this browser only — never in the app bundle.</p>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
+            {account.cloudConfigured ? (
               <p className="onboarding-sync-on">
                 <Cloud size={14} aria-hidden="true" />
                 Sync is on. The same login on your phone shows the same tasks.
+              </p>
+            ) : (
+              <p className="onboarding-sync-off">
+                This copy keeps everything on this device. When the site is deployed with its database, the same user
+                ID works on your phone with nothing to set up here.
               </p>
             )}
           </div>

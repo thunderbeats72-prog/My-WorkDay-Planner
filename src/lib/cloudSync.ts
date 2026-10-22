@@ -232,7 +232,7 @@ export async function cloudSignUp(userId: string, password: string, displayName?
     return sessionFromToken(result.data ?? null, userId);
   }
   const config = loadCloudConfig();
-  if (!config) return { ok: false, error: 'No sync project is connected yet.' };
+  if (!config) return { ok: false, error: 'Sync is not set up in this copy.' };
   const result = await call<AuthPayload>(config, '/auth/v1/signup', {
     method: 'POST',
     body: JSON.stringify({ email: cloudEmail(userId), password }),
@@ -253,7 +253,7 @@ export async function cloudSignIn(userId: string, password: string): Promise<Clo
     return sessionFromToken(result.data ?? null, userId);
   }
   const config = loadCloudConfig();
-  if (!config) return { ok: false, error: 'No sync project is connected yet.' };
+  if (!config) return { ok: false, error: 'Sync is not set up in this copy.' };
   const result = await call<AuthPayload>(config, '/auth/v1/token?grant_type=password', {
     method: 'POST',
     body: JSON.stringify({ email: cloudEmail(userId), password }),
@@ -298,7 +298,7 @@ export async function pullCloudSnapshot(): Promise<CloudResult<BackupFile | null
   }
   const config = loadCloudConfig();
   const session = await freshSession();
-  if (!config) return { ok: false, error: 'No sync project is connected yet.' };
+  if (!config) return { ok: false, error: 'Sync is not set up in this copy.' };
   if (!session) return { ok: false, error: 'Sign in again — the sync token has expired.' };
 
   const result = await call<Array<{ payload: BackupFile }>>(
@@ -337,7 +337,7 @@ export async function pushCloudSnapshot(snapshot: BackupFile): Promise<CloudResu
   }
   const config = loadCloudConfig();
   const session = await freshSession();
-  if (!config) return { ok: false, error: 'No sync project is connected yet.' };
+  if (!config) return { ok: false, error: 'Sync is not set up in this copy.' };
   if (!session) return { ok: false, error: 'Sign in again — the sync token has expired.' };
 
   const result = await call(

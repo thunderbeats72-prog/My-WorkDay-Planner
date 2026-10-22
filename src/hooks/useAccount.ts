@@ -154,7 +154,7 @@ export function useAccount({
     async (options: { quiet?: boolean } = {}): Promise<{ ok: boolean; message: string }> => {
       if (syncing.current) return { ok: false, message: 'A sync is already running.' };
       if (!isCloudConfigured()) {
-        return { ok: false, message: 'Connect a sync project first — see "Use on phone and laptop".' };
+        return { ok: false, message: 'Sync is off in this copy, so there is nothing to sync to yet.' };
       }
       if (!loadCloudSession()) return { ok: false, message: 'Sign in again to resume syncing.' };
 
@@ -377,7 +377,7 @@ export function useAccount({
         return {
           ok: true,
           error:
-            'No sync project is connected yet, so this account lives on this device only. Connect one in Settings → Account to share it.',
+            'No sync database is deployed with this copy yet, so this account lives on this device. It starts following you to other devices the moment the site is deployed with its database.',
         };
       } finally {
         setBusy(false);
@@ -429,7 +429,7 @@ export function useAccount({
         return {
           ok: true,
           error:
-            'No sync project is connected, so there was nothing to fetch from your other device. Connect one in Settings → Account.',
+            'No sync database is deployed with this copy, so there was nothing to fetch from your other device. The login works here; the tasks stay here too.',
         };
       } finally {
         setBusy(false);

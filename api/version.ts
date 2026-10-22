@@ -1,6 +1,6 @@
-import { hashToken } from './_lib/crypto';
-import { ensureSchema } from './_lib/schema';
-import { bearerToken, explain, fail, noStore, sessionUser, snapshotVersion, type ApiRequest, type ApiResponse } from './_lib/store';
+import { hashToken } from './_lib/crypto.js';
+import { ensureSchema } from './_lib/schema.js';
+import { bearerToken, explain, fail, noStore, sessionUser, snapshotVersion, type ApiRequest, type ApiResponse } from './_lib/store.js';
 
 /**
  * GET /api/version — when was this user's snapshot last written?

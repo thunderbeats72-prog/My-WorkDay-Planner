@@ -25,7 +25,7 @@ npx -y pnpm@10 lint
 
 ## Honest limitations
 - **Notifications:** in-app reminders are always written and survive reloads. System banners fire while the app is open, and — on Android, for the installed PWA — from a best-effort background check. A fully closed browser on desktop cannot be woken; there is no push server by design, and the app says so rather than pretending otherwise.
-- **Cloud sync:** not configured (by design). See `SUPABASE.md` for the RLS-first setup; never expose a service-role key.
+- **Cloud sync:** Neon Postgres behind this repo's own `/api` functions. Set the connection once in Vercel and every device uses it; no keys are ever pasted into the app.
 - **OCR:** quality depends on screenshot clarity; inferred dates are flagged and never auto-confirmed.
 - IndexedDB is per-browser/device and can be cleared — export backups regularly.
 
@@ -313,19 +313,14 @@ of the two states you are in:
 | Account, no sync | `Local-only · @you` | The login is here; a second device starts empty |
 | Account + sync | `Synced · @you` | Same login, same tasks, both devices |
 
-**To turn on sync** (once, ~2 minutes):
+**To turn on sync** (once, and only by whoever deploys the site):
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Run [`supabase/schema.sql`](supabase/schema.sql) in the SQL editor. It creates
-   one table and three row-level-security policies, so the public key in the
-   browser can only ever read and write **your own** row.
-3. Turn off **Authentication → Providers → Email → Confirm email**. The app maps
-   `lakshit` to `lakshit@users.workday-planner.app` and never sends mail there; if
-   confirmation is on, sign-up returns no session and the panel tells you so
-   instead of failing silently.
-4. In the app: **Settings → Account → Use on phone and laptop**, paste the
-   project URL and the `anon public` key. They are stored in this browser, not in
-   the bundle, so no redeploy is needed.
+1. Vercel → **Storage** → **Create Database** → **Neon**, and pick the Singapore
+   region (closest to India; the free plan has no Indian region).
+2. In Vercel → **Settings → Environment Variables**, add `VITE_SYNC_MODE=neon` to
+   **Production**, **Preview** and **Development**. The Neon integration supplies
+   `DATABASE_URL` on its own.
+3. **Redeploy.** Every device that opens that URL now shares one database.
 
 Then sign in on the second device with the same ID and password.
 
@@ -365,21 +360,13 @@ and offers the two-minute setup inline; if one is connected it confirms sync is
 on. Signing in on a second device pulls the merged snapshot before you finish
 setup, so the name and working hours you land on are the ones already in use.
 
-### Zero-setup sync (recommended)
+### Nothing to paste, ever
 
-Pasting keys on every device is friction nobody should pay twice. Set two
-environment variables once, in the deployment:
-
-```
-VITE_SUPABASE_URL=https://<project>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon public key>
-```
-
-Every device built from that deployment then uses the same project with nothing
-to configure — `.env.example` documents it. The anon key is public by design;
-row-level security in `supabase/schema.sql` is what keeps rows private. A project
-entered by hand in the app still wins over the build-time default, so a single
-device can be pointed elsewhere without a redeploy.
+There is deliberately no place in the UI to enter a database URL or key. Whoever
+deploys sets it once in Vercel; every device then inherits it, and the app only
+ever says sync is on when it truly is. The front door states the local-only
+truth when a copy has no database, instead of handing a non-technical user a
+four-step homework assignment.
 
 ## Sync on Neon
 
