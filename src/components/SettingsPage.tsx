@@ -21,7 +21,7 @@ import type { GraphAccount } from '../lib/graph';
 import type { CommonPageProps } from './pageProps';
 import type { AccountApi } from '../hooks/useAccount';
 import { AccountPanel } from './AccountPanel';
-import { Badge, Button, ConfirmDialog, Field, Segmented, Switch } from './ui';
+import { Badge, Button, ConfirmDialog, Field, Switch } from './ui';
 import { PageHeader } from './Shell';
 
 const WORKING_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -30,6 +30,7 @@ export function SettingsPage({
   settings,
   addToast,
   onSaveSettings,
+  onThemeChange,
   onExportBackup,
   onImportBackup,
   onExportCsv,
@@ -41,6 +42,8 @@ export function SettingsPage({
   account,
 }: CommonPageProps & {
   onSaveSettings: (next: Settings) => void;
+  /** Applies and persists one theme choice. Called before Save is pressed. */
+  onThemeChange: (theme: Theme) => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
   onExportCsv: () => void;
@@ -65,9 +68,32 @@ export function SettingsPage({
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const backupInput = useRef<HTMLInputElement | null>(null);
 
+  const previousSettings = useRef(settings);
+
   useEffect(() => {
-    setDraft(settings);
+    const previous = previousSettings.current;
+    previousSettings.current = settings;
+    setDraft((current) => {
+      // A theme tap saves immediately in App. That must not throw away edits
+      // the person has not pressed Save on yet: merge the one field in.
+      const onlyThemeChanged =
+        previous.theme !== settings.theme &&
+        JSON.stringify({ ...settings, theme: previous.theme }) === JSON.stringify(previous);
+      return onlyThemeChanged ? { ...current, theme: settings.theme } : settings;
+    });
   }, [settings]);
+
+  /**
+   * Theme is the one setting that never waits for Save.
+   *
+   * A person tapping "Dark" expects the screen to go dark under their finger,
+   * not after a 40-field form has been validated. So this writes through
+   * immediately and mirrors the value into the draft so Save does not undo it.
+   */
+  const chooseTheme = (theme: Theme) => {
+    setDraft((current) => ({ ...current, theme }));
+    onThemeChange(theme);
+  };
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
 
@@ -402,26 +428,31 @@ export function SettingsPage({
 
           <section className="card settings-section">
             <h2>Appearance</h2>
-            <Field label="Theme" hint="Saved per device. System follows your OS preference.">
-              <Segmented<Theme>
-                ariaLabel="Theme"
-                value={draft.theme}
-                onChange={(theme) => setDraft({ ...draft, theme })}
-                options={[
-                  { value: 'light', label: 'Light' },
-                  { value: 'dark', label: 'Dark' },
-                  { value: 'system', label: 'System' },
-                ]}
-              />
-            </Field>
-            <div className="theme-preview">
-              <span className={`theme-swatch light ${draft.theme === 'light' ? 'selected' : ''}`.trim()}>
-                <Sun size={14} /> Light
-              </span>
-              <span className={`theme-swatch dark ${draft.theme === 'dark' ? 'selected' : ''}`.trim()}>
-                <Moon size={14} /> Dark
-              </span>
+            <div className="theme-choice" role="group" aria-label="Theme">
+              <button
+                type="button"
+                className={`theme-option ${draft.theme === 'light' ? 'is-active' : ''}`.trim()}
+                aria-pressed={draft.theme === 'light'}
+                onClick={() => chooseTheme('light')}
+              >
+                <Sun size={17} aria-hidden="true" />
+                <span>Light</span>
+              </button>
+              <button
+                type="button"
+                className={`theme-option ${draft.theme === 'dark' ? 'is-active' : ''}`.trim()}
+                aria-pressed={draft.theme === 'dark'}
+                onClick={() => chooseTheme('dark')}
+              >
+                <Moon size={17} aria-hidden="true" />
+                <span>Dark</span>
+              </button>
             </div>
+            <p className="theme-note">
+              {draft.theme === 'system'
+                ? 'Following your system right now. Pick one and it applies straight away, on this device only.'
+                : 'Applies straight away, on this device only.'}
+            </p>
           </section>
 
           <section className="card settings-section">
@@ -608,7 +639,7 @@ export function SettingsPage({
               </div>
               <div>
                 <dt>Theme</dt>
-                <dd>{draft.theme}</dd>
+                <dd>{draft.theme === 'system' ? 'System' : draft.theme === 'dark' ? 'Dark' : 'Light'}</dd>
               </div>
               <div>
                 <dt>Sync</dt>

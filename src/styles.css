@@ -3242,39 +3242,6 @@ a.btn {
   font-size: 12px;
 }
 
-.theme-preview {
-  display: flex;
-  gap: 10px;
-}
-
-.theme-swatch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 2px solid transparent;
-}
-
-.theme-swatch.light {
-  background: #f4f6fa;
-  color: #141416;
-  border-color: #e1e7f1;
-}
-
-.theme-swatch.dark {
-  background: #1b1b1b;
-  color: #e8eefb;
-  border-color: #313131;
-}
-
-.theme-swatch.selected {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
-}
-
 .redirect-box {
   display: flex;
   align-items: center;
@@ -5119,10 +5086,6 @@ a.btn {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .theme-preview {
-    flex-direction: column;
-  }
-
   .mobile-brand {
     font-size: 12px;
   }
@@ -6828,19 +6791,6 @@ a.btn {
   100% {
     transform: scale(1);
   }
-}
-
-.theme-swatch {
-  transition: transform var(--dur-3) var(--ease-spring), box-shadow var(--dur-3) ease, border-color var(--dur-2) ease;
-}
-
-.theme-swatch:hover {
-  transform: translateY(-3px) scale(1.02);
-  box-shadow: var(--shadow-md);
-}
-
-.theme-swatch.selected {
-  box-shadow: 0 0 0 2px var(--primary), 0 14px 26px -18px rgba(20, 20, 24, 0.9);
 }
 
 .settings-section {
@@ -9168,10 +9118,6 @@ h3 {
   border-radius: 9px;
   font-size: 11.5px;
   font-weight: 600;
-}
-
-.theme-swatch {
-  border-radius: 12px;
 }
 
 .sticky-card {
@@ -16777,6 +16723,8 @@ textarea.input,
   gap: 8px;
   border-right: 1px solid var(--border);
   background: var(--surface);
+  /* Scrolling the drawer must not scroll the page behind it. */
+  overscroll-behavior: contain;
 }
 
 .sidebar-nav {
@@ -17666,5 +17614,592 @@ textarea.input,
 
   .btn {
     min-height: 40px;
+  }
+}
+
+/* =========================================================================
+   Design v10 — motion with weight
+   -------------------------------------------------------------------------
+   The rule for everything below: an animation must explain a change. If you
+   cannot say in one sentence what it tells the person, it does not belong.
+
+   · Opening a drawer: it comes from the edge it lives on.
+   · Collapsing a rail: the width closes, then the labels leave.
+   · Finishing a task: the row settles, the stamp lands.
+   · Nothing bounces twice.
+   ========================================================================= */
+
+:root {
+  /* One curve for "entering", one for "settling". */
+  --e-exit: cubic-bezier(0.4, 0, 1, 1);
+  --e-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --e-settle: cubic-bezier(0.22, 1.4, 0.42, 1);
+  --d-fast: 120ms;
+  --d-base: 200ms;
+  --d-slow: 320ms;
+}
+
+/* ---------------------------------------------------------------- theme */
+
+.theme-choice {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 0 20px 0 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: var(--t-md);
+  font-weight: 540;
+  letter-spacing: -0.008em;
+  cursor: pointer;
+  transition:
+    background-color var(--d-base) var(--e-enter),
+    border-color var(--d-base) var(--e-enter),
+    color var(--d-fast) ease,
+    transform var(--d-fast) var(--e-enter),
+    box-shadow var(--d-base) var(--e-enter);
+}
+
+.theme-option svg {
+  color: var(--muted);
+  transition: color var(--d-base) ease, transform var(--d-slow) var(--e-settle);
+}
+
+.theme-option:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.theme-option:hover svg {
+  color: var(--text-soft);
+  transform: rotate(-12deg);
+}
+
+.theme-option:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.theme-option.is-active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--on-ink);
+  box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--ink) 60%, transparent);
+}
+
+.theme-option.is-active svg {
+  color: var(--on-ink);
+  transform: rotate(0deg);
+}
+
+.theme-option.is-active:hover {
+  color: var(--on-ink);
+  transform: translateY(-1px);
+}
+
+.settings-section h2 + .theme-choice {
+  margin-top: 14px;
+}
+
+.theme-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------- stickers */
+
+.sticker-pop {
+  position: fixed;
+  /* Bottom-centre on a laptop: the toast stack owns the bottom-right corner,
+     and a reward that hides an undo button is not a reward. */
+  left: 50%;
+  bottom: 26px;
+  translate: -50% 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 16px 12px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 20px 44px -28px rgba(0, 0, 0, 0.55), 0 2px 6px -4px rgba(0, 0, 0, 0.2);
+  /* In, hold, out — all CSS, so a dropped frame cannot leave it stranded. */
+  animation:
+    sticker-in 420ms var(--e-enter) both,
+    sticker-out 240ms ease-in 3200ms forwards;
+}
+
+@keyframes sticker-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@keyframes sticker-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sticker-stamp {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--text) 55%, transparent);
+  color: var(--text);
+  background: var(--surface-2);
+  /* The stamp lands: overshoot in, then still. */
+  animation: stamp-land 520ms var(--e-settle) both;
+}
+
+.sticker-pop.tone-success .sticker-stamp {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 60%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+}
+
+@keyframes stamp-land {
+  0% {
+    opacity: 0;
+    transform: scale(1.7) rotate(-16deg);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(0.94) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.sticker-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sticker-copy strong {
+  font-size: var(--t-sm);
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
+.sticker-copy span {
+  font-size: var(--t-xs);
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Shelf on the Completed page */
+
+.sticker-shelf .section-sub {
+  margin: 3px 0 0;
+}
+
+.sticker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sticker-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+.sticker-chip {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  transition: transform var(--d-base) var(--e-settle), border-color var(--d-fast) ease, color var(--d-fast) ease;
+}
+
+.sticker-chip.tone-success {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.sticker-chip:hover {
+  transform: translateY(-3px) rotate(-6deg);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.sticker-slot small {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: 9.5px;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------- sidebar motion */
+
+/* The rail width is a layout fact, so it animates on the element that owns it
+   and on the content that follows it — one duration, one curve, so the page
+   and the rail cannot disagree about where the edge is. */
+@media (min-width: 1081px) {
+  .sidebar {
+    transition:
+      width var(--d-slow) var(--e-enter),
+      padding var(--d-slow) var(--e-enter),
+      border-color var(--d-base) ease;
+  }
+
+  .app-main {
+    transition: margin-left var(--d-slow) var(--e-enter);
+  }
+
+}
+
+/* Labels arrive after the width has started opening, so they never flash
+   mid-collapse and never appear before there is room for them. */
+.sidebar.is-full .nav-label,
+.sidebar.is-full .brand-copy,
+.sidebar.is-full .profile-copy {
+  animation: label-in 220ms var(--e-enter) 90ms both;
+}
+
+@keyframes label-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The navigation settles in once, on first mount — not on every page change. */
+.sidebar .nav-item {
+  animation: nav-settle 320ms var(--e-enter) both;
+}
+
+.sidebar .nav-item:nth-child(2) { animation-delay: 24ms; }
+.sidebar .nav-item:nth-child(3) { animation-delay: 48ms; }
+.sidebar .nav-item:nth-child(4) { animation-delay: 72ms; }
+.sidebar .nav-item:nth-child(5) { animation-delay: 96ms; }
+
+@keyframes nav-settle {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Tablet: the drawer folds back into the rail rather than snapping. */
+@media (min-width: 768px) and (max-width: 1080px) {
+  .sidebar {
+    transition:
+      width var(--d-slow) var(--e-enter),
+      padding var(--d-slow) var(--e-enter),
+      box-shadow var(--d-slow) var(--e-enter);
+  }
+
+  .sidebar.is-open {
+    animation: none;
+  }
+}
+
+/* Phones deliberately have no sidebar at all — four bottom-nav items and a
+   Settings button in the top bar. The drawer exists on tablets only, where it
+   folds out of the 78px rail; nothing here re-introduces it. */
+
+/* The scrim is mounted, so it can fade in *and* out. */
+.sidebar-scrim {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--d-base) var(--e-enter);
+  animation: none;
+}
+
+.sidebar-scrim.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (min-width: 1081px) {
+  .sidebar-scrim {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------- small interactions */
+
+/* Nav rows lean very slightly toward the pointer — a cue that they are live,
+   not a bounce. The active rail grows from its own centre. */
+.nav-item .nav-icon {
+  transition: transform var(--d-base) var(--e-enter);
+}
+
+.nav-item:hover .nav-icon {
+  transform: translateX(1px) scale(1.04);
+}
+
+.nav-item.active::before {
+  transform-origin: center;
+  animation: rail-grow 260ms var(--e-enter) both;
+}
+
+@keyframes rail-grow {
+  from {
+    transform: scaleY(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* The tick is the most-tapped control in the product: it should feel like a
+   switch, and then confirm. */
+.task-check {
+  transition: background-color var(--d-fast) ease, border-color var(--d-fast) ease, transform 110ms var(--e-enter);
+}
+
+.task-check:hover {
+  transform: scale(1.06);
+}
+
+.task-check:active {
+  transform: scale(0.92);
+}
+
+.task-check.checked {
+  /* No forwards fill: after the pop, hover and press must still work. */
+  animation: tick-pop 260ms var(--e-settle) backwards;
+}
+
+@keyframes tick-pop {
+  0% {
+    transform: scale(0.86);
+  }
+  55% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* A completed row settles instead of vanishing. */
+.task-card.completed,
+.task-item.is-completed {
+  animation: row-settle 320ms var(--e-enter) both;
+}
+
+@keyframes row-settle {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Cards that are actually clickable lift by a single pixel. Cards that are not
+   do nothing — a hover effect on a static panel is a lie about clicking it. */
+.task-card,
+.focus-card,
+.quick-add {
+  transition: border-color var(--d-fast) ease, box-shadow var(--d-base) var(--e-enter), transform var(--d-base) var(--e-enter);
+}
+
+.task-card:hover,
+.focus-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.task-card:active {
+  transform: translateY(0);
+}
+
+/* Buttons press by half a pixel — enough to feel, not enough to notice. */
+.btn {
+  transition:
+    background-color var(--d-fast) ease,
+    border-color var(--d-fast) ease,
+    color var(--d-fast) ease,
+    transform 90ms var(--e-enter),
+    box-shadow var(--d-base) var(--e-enter);
+}
+
+.btn:hover {
+  transform: translateY(-0.5px);
+}
+
+.btn:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.fab {
+  transition: transform var(--d-base) var(--e-settle), background-color var(--d-fast) ease;
+}
+
+.fab:active {
+  transform: scale(0.92);
+}
+
+/* List entrance, staggered but capped: past the sixth row it is just delay.
+   `backwards` fill only: a forwards-filling transform would pin the card and
+   beat the hover lift, which is a subtle way to make a row feel dead. */
+.task-group > .task-card,
+.task-list > .task-item {
+  animation: row-in 340ms var(--e-enter) backwards;
+}
+
+.task-group > .task-card:nth-child(2) { animation-delay: 30ms; }
+.task-group > .task-card:nth-child(3) { animation-delay: 60ms; }
+.task-group > .task-card:nth-child(4) { animation-delay: 90ms; }
+.task-group > .task-card:nth-child(5) { animation-delay: 120ms; }
+.task-group > .task-card:nth-child(6) { animation-delay: 150ms; }
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Page changes fade through the same curve as everything else. */
+.page {
+  animation: page-rise 240ms var(--e-enter) both;
+}
+
+/* Toasts arrive from below with a little weight, not a bounce. */
+.toast {
+  animation: toast-rise 300ms var(--e-enter) both;
+}
+
+@keyframes toast-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Theme change: the canvas cross-fades instead of switching instantly. */
+html.theme-fade,
+html.theme-fade body {
+  transition: background-color 360ms var(--e-enter), color 360ms var(--e-enter), border-color 360ms var(--e-enter);
+}
+
+/* The focus mode toggle and segmented controls get the same easing vocabulary. */
+.segmented-item {
+  transition: background-color var(--d-base) var(--e-enter), color var(--d-fast) ease;
+}
+
+/* ---------------------------------------------------------- small screens */
+
+@media (max-width: 767px) {
+  /* Phones: the bottom edge holds the nav and the toasts, so the stamp lands
+     under the header instead, where nothing is competing for attention. */
+  .sticker-pop {
+    left: var(--gutter);
+    right: var(--gutter);
+    top: calc(env(safe-area-inset-top) + 64px);
+    bottom: auto;
+    translate: none;
+    max-width: none;
+    animation:
+      sticker-drop 300ms var(--e-enter) both,
+      sticker-out 240ms ease-in 3200ms forwards;
+  }
+
+  @keyframes sticker-drop {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .theme-option {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+}
+
+/* ------------------------------------------------------------- opt-out */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .page,
+  .sticker-pop,
+  .sticker-stamp,
+  .task-check.checked,
+  .sidebar {
+    animation: none;
   }
 }

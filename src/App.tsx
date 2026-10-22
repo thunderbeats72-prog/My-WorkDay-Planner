@@ -11,6 +11,8 @@ import {
   formatSecondsLabel,
   isQuietNow,
   relativeDayLabel,
+  taskDueAt,
+  toISODate,
   todayISO,
 } from './lib/dates';
 import {
@@ -84,6 +86,10 @@ import { TaskForm } from './components/TaskForm';
 import type { TaskDraft } from './components/TaskForm';
 import { GraphCard } from './components/GraphCard';
 import { Onboarding } from './components/Onboarding';
+import { StickerPop } from './components/StickerPop';
+import type { StickerMoment } from './components/StickerPop';
+import { loadShelf, recordSticker, saveShelf, stickerCaption, stickerFor, streakFrom } from './lib/stickers';
+import { markNudged, nudgeFor, wasNudged } from './lib/assistant';
 import type { QuickAddDraft } from './lib/quickAdd';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
@@ -163,6 +169,9 @@ export default function App() {
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [confettiKey, setConfettiKey] = useState(0);
+  const [stickerMoment, setStickerMoment] = useState<StickerMoment | null>(null);
+  const stickerKey = useRef(0);
+  const nudgedThisSession = useRef(false);
   const [graphToken, setGraphToken] = useState<GraphToken | null>(() => loadGraphToken());
   const [graphItems, setGraphItems] = useState<GraphHighlight[]>(() => loadGraphCache()?.items ?? []);
   const [graphFetchedAt, setGraphFetchedAt] = useState<string | null>(() => loadGraphCache()?.fetchedAt ?? null);
@@ -398,12 +407,19 @@ export default function App() {
     enabled: !loading,
   });
 
-  const toggleTheme = useCallback(() => {
-    const next: Settings = { ...settingsRef.current, theme: isDark ? 'light' : 'dark' };
-    settingsRef.current = next;
-    setSettings(next);
-    void saveSettings(next);
-  }, [isDark]);
+  const applyTheme = useCallback(
+    (theme: Settings['theme']) => {
+      if (settingsRef.current.theme === theme) return;
+      const next: Settings = { ...settingsRef.current, theme };
+      settingsRef.current = next;
+      setSettings(next);
+      void saveSettings(next);
+      accountRef.current?.schedulePush();
+    },
+    [],
+  );
+
+  const toggleTheme = useCallback(() => applyTheme(isDark ? 'light' : 'dark'), [applyTheme, isDark]);
 
   const updateSettings = useCallback(async (next: Settings) => {
     settingsRef.current = next;
@@ -526,7 +542,42 @@ export default function App() {
         [updated],
       );
       await logEvent(id, 'status', 'Task completed');
-      if (!prefersReducedMotion()) setConfettiKey((current) => current + 1);
+
+      // What just happened, in the assistant's terms: how many are done today,
+      // whether the board is now clear, and what it would do next.
+      const clock = new Date();
+      // Local day, not UTC: a completion at 1am in IST belongs to that day, not
+      // to yesterday because the server clock says so.
+      const today = todayISO(clock);
+      const isToday = (task: Task) => (task.completedAt ? toISODate(new Date(task.completedAt)) : '') === today;
+      const openAfter = tasksRef.current.filter(
+        (candidate) => candidate.status !== 'completed' && candidate.deletedAt === null && candidate.id !== id,
+      );
+      const completedToday = tasksRef.current.filter(
+        (candidate) => candidate.status === 'completed' && candidate.deletedAt === null && isToday(candidate),
+      ).length;
+      const streakDays = streakFrom(loadShelf(), today);
+      // `tasksRef` already holds this task as completed, so this count includes it.
+      const sticker = stickerFor({
+        completedToday,
+        streakDays,
+        hour: clock.getHours(),
+        clearedAll: openAfter.length === 0,
+      });
+      saveShelf(recordSticker(loadShelf(), sticker.id, clock.toISOString()));
+      const next = [...openAfter].sort((a, b) => (taskDueAt(a)?.getTime() ?? Infinity) - (taskDueAt(b)?.getTime() ?? Infinity))[0];
+      stickerKey.current += 1;
+      setStickerMoment({
+        key: stickerKey.current,
+        sticker,
+        caption: stickerCaption(sticker, { completedToday, nextTitle: next?.title ?? null }),
+      });
+
+      // Confetti is for clearing the board, not for every tick. A celebration
+      // that fires forty times a week stops being a celebration.
+      if (!prefersReducedMotion() && (sticker.id === 'clean-sweep' || completedToday % 10 === 0)) {
+        setConfettiKey((current) => current + 1);
+      }
       addToast('Task completed.', 'success', { label: 'Undo', onAction: () => void reopenTask(id) });
     },
     [addToast, persistTasks, reopenTask, timer],
@@ -1233,6 +1284,32 @@ export default function App() {
     };
   }, [tasks, now]);
 
+  /**
+   * The assistant says one thing, once.
+   *
+   * Not on every render, not on every page change: once per session and once
+   * per day per observation. It uses the same counts the sidebar shows, so it
+   * can never claim a number the rest of the screen disagrees with — and the
+   * action takes you where the fix is, instead of explaining it.
+   */
+  useEffect(() => {
+    if (loading || nudgedThisSession.current || !settings.onboardingComplete) return;
+    nudgedThisSession.current = true;
+    const today = todayISO(new Date());
+    const nudge = nudgeFor({
+      overdue: counts.overdue,
+      dueToday: counts.today,
+      openCount: counts.tasks,
+      hour: new Date().getHours(),
+    });
+    if (!nudge || wasNudged(nudge, today)) return;
+    markNudged(nudge, today);
+    addToast(nudge.message, 'info', {
+      label: nudge.actionLabel,
+      onAction: () => navigate(nudge.page),
+    });
+  }, [addToast, counts, loading, navigate, settings.onboardingComplete]);
+
   // The tab title is the one place the planner can be honest while you are elsewhere.
   // A running timer takes precedence: it is the only live number that matters.
   const runningTask = timer.activeSession
@@ -1381,6 +1458,7 @@ export default function App() {
           <SettingsPage
             {...common}
             onSaveSettings={(next) => void updateSettings(next)}
+            onThemeChange={applyTheme}
             onExportBackup={() => void handleExportBackup()}
             onImportBackup={(file) => void handleImportBackup(file)}
             onExportCsv={handleExportCsv}
@@ -1422,9 +1500,14 @@ export default function App() {
         open={drawerOpen}
         onToggle={toggleSidebar}
       />
-      {drawerOpen ? (
-        <div className="sidebar-scrim" role="presentation" onMouseDown={() => setNavOpen(false)} />
-      ) : null}
+      {/* Always mounted, so it fades both ways instead of blinking out. CSS
+          removes it above the tablet breakpoint, where there is no drawer. */}
+      <div
+        className={`sidebar-scrim ${drawerOpen ? 'is-open' : ''}`.trim()}
+        role="presentation"
+        aria-hidden={!drawerOpen}
+        onMouseDown={() => setNavOpen(false)}
+      />
       <div className="app-main">
         <MobileTopBar
           isDark={isDark}
@@ -1571,6 +1654,7 @@ export default function App() {
         onCancel={() => setConfirmState(null)}
         onConfirm={() => confirmState?.onConfirm()}
       />
+      <StickerPop moment={stickerMoment} onDone={() => setStickerMoment(null)} />
       {confettiKey > 0 ? <Confetti key={confettiKey} /> : null}
     </div>
   );

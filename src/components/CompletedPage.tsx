@@ -5,6 +5,8 @@ import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './ui';
 import { PageHeader } from './Shell';
+import { StickerChip } from './StickerStamp';
+import { STICKERS, loadShelf, streakFrom } from '../lib/stickers';
 
 export function CompletedPage({ tasks, now, timer, taskHandlers }: CommonPageProps) {
   const [query, setQuery] = useState('');
@@ -19,6 +21,13 @@ export function CompletedPage({ tasks, now, timer, taskHandlers }: CommonPagePro
   }, [completed, query]);
 
   const todayCount = completed.filter((task) => task.completedAt?.slice(0, 10) === today).length;
+  const shelf = loadShelf();
+  const streak = streakFrom(shelf, today);
+  // Newest first, but a shelf should show variety before repetition.
+  const shelfCounts = shelf.reduce<Map<string, number>>((counts, entry) => {
+    counts.set(entry.id, (counts.get(entry.id) ?? 0) + 1);
+    return counts;
+  }, new Map());
   const groups = new Map<string, typeof filtered>();
   for (const task of filtered) {
     const key = task.completedAt ? task.completedAt.slice(0, 10) : 'unknown';
@@ -46,6 +55,31 @@ export function CompletedPage({ tasks, now, timer, taskHandlers }: CommonPagePro
           </div>
         }
       />
+
+      {shelf.length > 0 ? (
+        <section className="card sticker-shelf" aria-label="Stickers earned">
+          <div className="section-head">
+            <div>
+              <h2>Stickers</h2>
+              <p className="section-sub">
+                {shelf.length} earned{streak > 1 ? ` · ${streak}-day streak` : ''}. They are kept on this device.
+              </p>
+            </div>
+          </div>
+          <div className="sticker-row">
+            {[...shelfCounts.entries()].map(([id, count]) => {
+              const sticker = STICKERS[id];
+              if (!sticker) return null;
+              return (
+                <span key={id} className="sticker-slot">
+                  <StickerChip sticker={sticker} title={`${sticker.name} — earned ${count} ${count === 1 ? 'time' : 'times'}`} />
+                  {count > 1 ? <small>{count}</small> : null}
+                </span>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {filtered.length === 0 ? (
         <div className="card">
