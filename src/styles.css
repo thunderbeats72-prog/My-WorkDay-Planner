@@ -19041,3 +19041,68 @@ a,
     background: var(--surface-2);
   }
 }
+/* Padding hotfix: make cards breathe consistently on phones */
+@media (max-width: 767px) {
+  .page-container {
+    padding: 16px 16px calc(96px + env(safe-area-inset-bottom)) !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .app-shell:has(.fab) .page-container {
+    padding-bottom: calc(136px + env(safe-area-inset-bottom)) !important;
+  }
+  .card {
+    padding: 16px !important;
+    border-radius: 14px !important;
+  }
+  .hero {
+    padding: 20px 16px 18px !important;
+    gap: 16px !important;
+  }
+  .hero h1 {
+    line-height: 1.15 !important;
+  }
+  .hero-stats {
+    gap: 12px 16px !important;
+  }
+  .quick-add {
+    padding: 12px 14px !important;
+    gap: 10px !important;
+  }
+  .quick-add-input {
+    padding: 8px 0 !important;
+  }
+  .plan-card .plan-head {
+    padding: 14px 16px !important;
+  }
+  .plan-card .plan-body {
+    padding: 14px 16px !important;
+    gap: 12px !important;
+  }
+  .plan-strip {
+    gap: 2px !important;
+  }
+  .plan-slot {
+    padding: 6px 8px !important;
+    min-height: 32px !important;
+  }
+  .toolbar {
+    padding: 12px 0 !important;
+    gap: 12px !important;
+  }
+  .filter-chips {
+    gap: 8px !important;
+  }
+  .chip-button {
+    padding: 7px 12px !important;
+  }
+  .task-card {
+    padding: 14px 14px 14px 16px !important;
+  }
+  .fab {
+    right: 16px !important;
+    bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+    width: 52px !important;
+    height: 52px !important;
+  }
+}

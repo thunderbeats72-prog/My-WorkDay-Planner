@@ -67,13 +67,13 @@ describe('the floating add button', () => {
     expect(screen.getByRole('button', { name: 'Add task' })).toBeTruthy();
   });
 
-  it('is absent on Reports and Completed, where it covered the page', () => {
-    const reports = render(<BottomNav page="reports" onNavigate={noop} onAddTask={noop} />);
-    expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull();
-    reports.unmount();
-
-    render(<BottomNav page="completed" onNavigate={noop} onAddTask={noop} />);
-    expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull();
+  it('is present on every page — the plus always opens the new-task sheet', () => {
+    const pages: Array<Parameters<typeof BottomNav>[0]['page']> = ['today', 'tasks', 'completed', 'reports'];
+    for (const page of pages) {
+      const { unmount } = render(<BottomNav page={page} onNavigate={noop} onAddTask={noop} />);
+      expect(screen.getByRole('button', { name: 'Add task' })).toBeTruthy();
+      unmount();
+    }
   });
 
   it('keeps exactly four destinations', () => {

@@ -255,21 +255,17 @@ export function BottomNav({
           );
         })}
       </nav>
-      {/* One page has an add button of its own. Anywhere else the floating
-          button only ever covered the card underneath it. */}
-      {page === 'tasks' ? (
-        <button
-          type="button"
-          className="fab"
-          aria-label="Add task"
-          onClick={() => {
-            onAddTask();
-            haptic('press');
-          }}
-        >
-          <Plus size={22} />
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="fab"
+        aria-label="Add task"
+        onClick={() => {
+          onAddTask();
+          haptic('press');
+        }}
+      >
+        <Plus size={22} />
+      </button>
     </>
   );
 }
