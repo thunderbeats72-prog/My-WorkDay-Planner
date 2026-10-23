@@ -837,6 +837,32 @@ always available as an explicit action. Copy falls back from
 puts the caret in the preview — a blocked clipboard is a message, not a lost
 report.
 
+### Teams does not read tildes, so Copy carries two flavours
+
+WhatsApp renders `~text~` as a strikethrough; Teams and Outlook do not. Pasted
+there, the tildes are just characters — which is exactly what showed up in the
+group chat. The report text is correct for WhatsApp and useless for Teams, and
+no single string can be right for both.
+
+A clipboard can hold more than one flavour, so Copy now writes **both**:
+
+- `text/plain` — the report as it reads in the preview (`~title~ - note`), which
+  is what WhatsApp pastes and what keeps the strikethrough there.
+- `text/html` — the same report with a real `<s>` around each completed title,
+  `<br>` for line breaks and the note outside the strike, which is what Teams
+  and Outlook render as an actual strikethrough.
+
+The rich path is `navigator.clipboard.write` with a `ClipboardItem`. Where that
+is unavailable or refuses mixed flavours (older Safari, some WebViews), the
+legacy path selects a hidden textarea and fills both flavours from the `copy`
+event, so the strikethrough survives there too. "Copy as Markdown" and "Copy as
+plain text" stay literal on purpose — their whole point is marker text.
+
+A hand-edited preview is converted from the markers it already contains, so a
+paste never quietly drops the user's own wording; the plain-text format is
+marker-free and therefore copies text only rather than guessing where a title
+ends and its note begins.
+
 ### One update per day, and yesterday stays yesterday
 
 Saved updates are a Dexie v3 table keyed by `dateISO`. Re-saving a day replaces
@@ -892,7 +918,7 @@ asserts the computed margins on phone, tablet and laptop, and that the 46ch cap
 still applies.
 
 Batch gates: `tsc -b` clean, `npm run build` clean, lint at the 21-warning
-baseline with 0 errors, and the suite grew 460 → 506 tests
+baseline with 0 errors, and the suite grew 460 → 513 tests
 (`dailyReport.test.ts` 23, `DailyReportFlow.test.tsx` 16 end-to-end through the
 real App and fake IndexedDB — including which tab Reports opens on — plus
 `db.test.ts` 4 for the storage and backup round-trip and three cascade
