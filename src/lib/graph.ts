@@ -1,6 +1,7 @@
 import type { GraphRef, Settings } from './types';
 import type { BusyInterval } from './engine';
 import { toISODate } from './dates';
+import type { MailSample } from './replyWindow';
 
 export const GRAPH_SCOPES = ['User.Read', 'Mail.Read', 'Chat.ReadBasic', 'ChatMessage.Read', 'Calendars.Read'];
 export const GRAPH_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
@@ -349,6 +350,68 @@ export function graphCalendarViewUrl(dateISO: string): string {
     $select: 'id,subject,start,end,isAllDay,showAs',
   });
   return `https://graph.microsoft.com/v1.0/me/calendarView?${params.toString()}`;
+}
+
+/** Mail mentioning a client, newest first — for reply windows (#7). */
+export function graphClientMailUrl(client: string): string {
+  // OData string literals escape single quotes by doubling them.
+  const safe = client.replace(/'/g, "''");
+  const params = new URLSearchParams({
+    $top: '25',
+    $orderby: 'receivedDateTime desc',
+    $select: 'id,subject,from,receivedDateTime',
+    $filter: `contains(subject,'${safe}') or contains(from/emailAddress/name,'${safe}')`,
+  });
+  return `https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`;
+}
+
+interface ClientMailResponse {
+  value?: Array<{
+    subject?: string;
+    receivedDateTime?: string;
+    from?: { emailAddress?: { name?: string; address?: string } };
+  }>;
+}
+
+export interface ClientMailResult {
+  messages: MailSample[];
+  /** Honest failure text — never a silent empty list. */
+  error: string | null;
+}
+
+/**
+ * Best time to follow up (#7): the messages a client actually sent, so the
+ * reply-window stats are theirs, not a guess. Never throws.
+ */
+export async function fetchClientMail(token: GraphToken, client: string): Promise<ClientMailResult> {
+  try {
+    const response = await fetch(graphClientMailUrl(client), {
+      headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      return { messages: [], error: describeGraphError(response.status, 'mail', detail) };
+    }
+    const data = (await response.json()) as ClientMailResponse;
+    const messages: MailSample[] = [];
+    for (const message of data.value ?? []) {
+      if (!message.receivedDateTime) continue;
+      const at = new Date(message.receivedDateTime);
+      if (Number.isNaN(at.getTime())) continue;
+      messages.push({
+        fromName: message.from?.emailAddress?.name ?? message.from?.emailAddress?.address ?? 'Unknown sender',
+        fromAddress: message.from?.emailAddress?.address ?? '',
+        receivedAt: at.toISOString(),
+        subject: message.subject ?? '(no subject)',
+      });
+    }
+    return { messages, error: null };
+  } catch (error) {
+    return {
+      messages: [],
+      error: error instanceof Error ? error.message : 'Could not reach Microsoft Graph for this client’s mail.',
+    };
+  }
 }
 
 interface CalendarResponse {

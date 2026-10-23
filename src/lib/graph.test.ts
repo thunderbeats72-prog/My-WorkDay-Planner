@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GRAPH_SCOPES,
   describeGraphError,
+  fetchClientMail,
   fetchDayMeetings,
   graphCalendarViewUrl,
+  graphClientMailUrl,
   type GraphToken,
 } from './graph';
 
@@ -92,5 +94,55 @@ describe('fetchDayMeetings', () => {
     const result = await fetchDayMeetings(token, '2026-10-21');
     expect(result.items).toEqual([]);
     expect(result.error).toBe('network down');
+  });
+});
+
+describe('fetchClientMail (#7)', () => {
+  it('escapes OData quotes and filters by subject or sender name', () => {
+    const url = new URL(graphClientMailUrl("O'Brien & Co"));
+    expect(url.pathname).toBe('/v1.0/me/messages');
+    const filter = url.searchParams.get('$filter') ?? '';
+    expect(filter).toContain("O''Brien & Co");
+    expect(filter).toContain('contains(from/emailAddress/name');
+    expect(url.searchParams.get('$orderby')).toBe('receivedDateTime desc');
+  });
+
+  it('parses messages into reply-window samples with real timestamps', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          value: [
+            {
+              subject: 'Re: renewal',
+              receivedDateTime: '2026-10-20T09:30:00Z',
+              from: { emailAddress: { name: 'Sam Rivera', address: 'sam@nova.test' } },
+            },
+            { subject: 'No date', from: { emailAddress: { name: 'X' } } },
+          ],
+        }),
+      ),
+    );
+    const result = await fetchClientMail(token, 'Nova');
+    expect(result.error).toBeNull();
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toEqual({
+      fromName: 'Sam Rivera',
+      fromAddress: 'sam@nova.test',
+      receivedAt: new Date('2026-10-20T09:30:00Z').toISOString(),
+      subject: 'Re: renewal',
+    });
+  });
+
+  it('never throws — failures come back as readable errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('offline');
+      }),
+    );
+    const result = await fetchClientMail(token, 'Nova');
+    expect(result.messages).toEqual([]);
+    expect(result.error).toBe('offline');
   });
 });

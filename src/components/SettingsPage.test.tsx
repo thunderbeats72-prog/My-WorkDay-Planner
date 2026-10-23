@@ -38,6 +38,7 @@ function renderSettings(overrides: { theme?: 'light' | 'dark' | 'system' } = {})
   render(
     <SettingsPage
       tasks={[]}
+      graphHighlights={[]}
       settings={{ ...DEFAULT_SETTINGS, onboardingComplete: true, theme: overrides.theme ?? 'light' }}
       now={new Date('2026-01-05T10:00:00.000Z')}
       timer={{

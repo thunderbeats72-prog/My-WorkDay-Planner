@@ -51,6 +51,8 @@ import {
   cleanGraphRedirectUrl,
   clearGraphToken,
   completeGraphSignIn,
+  fetchClientMail,
+  type ClientMailResult,
   fetchDayMeetings,
   fetchGraphHighlights,
   graphRedirectPending,
@@ -1420,6 +1422,21 @@ export default function App() {
     [finishTimer, pauseTimer, requestDelete, rescheduleTask, resumeTask, snoozeTask, startTask, toggleBlocked, toggleComplete],
   );
 
+  /** On-demand per-client mail for reply-window stats (#7) — never throws. */
+  const handleFetchClientMail = useCallback(
+    async (client: string): Promise<ClientMailResult> => {
+      const token = graphToken ?? loadGraphToken();
+      if (!token) {
+        return {
+          messages: [],
+          error: 'Connect Microsoft in Settings first — reply windows come from your Microsoft mail.',
+        };
+      }
+      return fetchClientMail(token, client);
+    },
+    [graphToken],
+  );
+
   if (loading) {
     return (
       <div className="app-shell loading-shell">
@@ -1435,8 +1452,7 @@ export default function App() {
   }
 
   const common: CommonPageProps = {
-    tasks,
-    settings,
+    tasks,    settings,
     now,
     timer,
     taskHandlers,
@@ -1449,6 +1465,7 @@ export default function App() {
     },
     addToast,
     online,
+    graphHighlights: graphItems,
   };
 
   const graphConnected = Boolean(graphToken && graphToken.expiresAt > now.getTime());
@@ -1512,6 +1529,7 @@ export default function App() {
             {...common}
             onOpenImport={() => setImportOpen(true)}
             onApplyPlan={applyPlan}
+            onFetchClientMail={handleFetchClientMail}
           />
         );
       case 'completed':
