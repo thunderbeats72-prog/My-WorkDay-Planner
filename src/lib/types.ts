@@ -114,6 +114,11 @@ export interface Settings {
   theme: Theme;
   /** Blur client names and titles when the tab hides or nobody is typing. */
   privacyBlur: boolean;
+  /**
+   * BCP-47 language for voice dictation. Empty means “follow the device”,
+   * which `resolveDictationLang` only trusts when the device is English.
+   */
+  dictationLang: string;
   graphClientId: string;
   onboardingComplete: boolean;
   lastBackupAt: string;
@@ -197,6 +202,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notificationsEnabled: false,
   theme: 'light',
   privacyBlur: true,
+  dictationLang: '',
   graphClientId: '',
   onboardingComplete: false,
   lastBackupAt: '',

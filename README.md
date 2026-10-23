@@ -750,3 +750,47 @@ your own connection).
 
 Batch gates: lint held at the 19-warning baseline with 0 errors, `tsc -b`
 clean, and the suite grew 353 → 432 tests across the five commits.
+
+## Fixes — the menu that hid behind the bar, and dictation that heard the wrong words
+
+Two reports from a phone. Neither was a missing feature, and both were real.
+
+### The ⋮ menu showed three of its five actions
+
+"Other options is not visible": Snooze, Edit and Complete were there, Mark
+blocked and Delete were not. Every item was rendered all along — the problem was
+paint order. `.task-card:focus-within` raises the card to `z-index: 20`, which
+creates a stacking context, so the menu's own `z-index: 60` was trapped inside
+the card and could not beat the fixed bottom navigation at 45. The menu also
+always opened downwards, so on the last card of a list its lower half had
+nowhere to go.
+
+`MenuPopover` (`ui.tsx`) now renders the menu into `document.body`, positions it
+from the trigger's rectangle, flips it above the trigger when the bottom of the
+screen is nearer than the menu is tall, stops short of the bottom navigation,
+and scrolls internally when even that is not enough. It closes on Escape, on an
+outside press, or on the action — a press on the trigger itself only toggles it.
+`TaskCard.test.tsx` holds both promises with a 640px viewport and a 64px bar.
+
+### Dictation heard two words and then stopped
+
+`continuous = false` ends a session at the first pause; on Android that was often
+after the first two words, which reads as "it heard me wrong". The recogniser now
+runs continuously and is restarted after the browser's own silence stop (up to a
+minute), the trailing phrase is folded in even when a session ends mid-sentence,
+and `normaliseTranscript` repairs what speech actually produces into the syntax
+the parser already reads — "to morrow" → "tomorrow", "three thirty pm" →
+"3:30 pm", "thirty minutes" → "30 minutes", "hash tag email" → "#email". When
+the browser offers several guesses, `pickBestTranscript` keeps the one that
+yields the most task tokens.
+
+Language was the other half: a phone set to Hindi transcribes English speech
+into words `quickAdd.ts` cannot parse. Settings → Voice pins the language
+(`Settings.dictationLang`; empty means follow the device, but only when the
+device is already English). The microphone is requested *before* the recogniser
+starts, so a blocked or missing mic gets a sentence instead of a dead button, and
+the New task sheet carries the same mic on its title field.
+
+Batch gates: `tsc -b` clean, lint at the 19-warning baseline with 0 errors, and
+the suite grew 432 → 460 tests (`TaskCard.test.tsx`, `useDictation.test.tsx`,
+and the rewritten `speech.test.ts`).

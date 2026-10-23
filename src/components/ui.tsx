@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ComponentType, CSSProperties, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, CSSProperties, ReactNode, RefObject } from 'react';
 import { useLayoutEffect, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, X } from 'lucide-react';
@@ -123,6 +123,143 @@ export function IconButton({
       <Icon size={18} />
     </button>
   );
+}
+
+/**
+ * A menu that cannot be covered or cut off.
+ *
+ * The card menu used to be a plain child of `.menu-wrap`, which was fine on a
+ * laptop and wrong on a phone. Two things compounded:
+ *
+ *  1. `.task-card:focus-within` raises the card to `z-index: 20`, which creates
+ *     a stacking context. The menu's own `z-index: 60` was trapped inside it,
+ *     so the fixed bottom navigation (z-index 45) was painted *over* the lower
+ *     half of the list — "Edit" and "Complete" showed, "Mark blocked" and
+ *     "Delete" did not.
+ *  2. It always opened downwards. On the last card of a page there is no room
+ *     below, so the menu ran past the bottom of the screen.
+ *
+ * The menu now lives in `document.body`, which leaves every stacking context
+ * behind. It positions itself from the trigger's rectangle, flips above the
+ * trigger when the bottom of the screen is nearer than the menu is tall, and
+ * stops short of the bottom navigation instead of disappearing underneath it.
+ * Whatever still does not fit scrolls inside the menu.
+ */
+export function MenuPopover({
+  open,
+  anchorRef,
+  onClose,
+  align = 'end',
+  label,
+  className = '',
+  children,
+}: {
+  open: boolean;
+  /** The element the menu belongs to — usually the wrapper around the trigger. */
+  anchorRef: RefObject<HTMLElement | null>;
+  onClose: () => void;
+  align?: 'start' | 'end';
+  label?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [frame, setFrame] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const anchor = anchorRef.current;
+      const menu = menuRef.current;
+      if (!anchor || !menu) return;
+      const rect = anchor.getBoundingClientRect();
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+      const floor = menuFloor();
+      const gutter = 8;
+      const gap = 6;
+      const width = menu.offsetWidth;
+      /* `scrollHeight` is the menu's natural height: a `maxHeight` left over
+         from the previous placement cannot shrink it and make the menu flip
+         back and forth. */
+      const naturalHeight = menu.scrollHeight || menu.offsetHeight;
+      const roomBelow = floor - rect.bottom - gap;
+      const roomAbove = rect.top - gap - gutter;
+      const openUp = naturalHeight > roomBelow && roomAbove > roomBelow;
+      const maxHeight = Math.max(96, openUp ? roomAbove : roomBelow);
+      const height = Math.min(naturalHeight, maxHeight);
+      const top = openUp ? Math.max(gutter, rect.bottom - gap - height) : rect.bottom + gap;
+      const preferredLeft = align === 'end' ? rect.right - width : rect.left;
+      const left = Math.max(gutter, Math.min(preferredLeft, Math.max(gutter, viewportWidth - width - gutter)));
+      setFrame({ top, left, maxHeight });
+    };
+    place();
+    /* A second pass after the first paint: the menu is measured while it is
+       still parked off-screen, and web fonts or a late-arriving icon can change
+       its height between layout and paint. */
+    const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(place) : 0;
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open, align, anchorRef]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      /* A tap on the trigger is the menu's own toggle; closing here as well
+         would close and immediately reopen it. */
+      if (anchorRef.current?.contains(target)) return;
+      onCloseRef.current();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, anchorRef]);
+
+  if (!open) return null;
+  return createPortal(
+    <div
+      ref={menuRef}
+      className={`menu menu-popover ${align === 'end' ? 'menu-right' : ''} ${className}`.trim()}
+      role="menu"
+      aria-label={label}
+      style={{ top: frame?.top ?? -9999, left: frame?.left ?? -9999, maxHeight: frame?.maxHeight }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * The lowest safe edge for a floating menu: the top of the fixed bottom
+ * navigation when it is on screen, otherwise the bottom of the viewport.
+ */
+function menuFloor(): number {
+  const viewport = window.innerHeight || document.documentElement.clientHeight || 0;
+  const nav = document.querySelector<HTMLElement>('.bottom-nav');
+  if (!nav || typeof window.getComputedStyle !== 'function') return viewport;
+  const style = window.getComputedStyle(nav);
+  if (style.display === 'none' || style.visibility === 'hidden') return viewport;
+  const rect = nav.getBoundingClientRect();
+  return rect.height > 0 ? Math.min(viewport, rect.top) : viewport;
 }
 
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: string }) {

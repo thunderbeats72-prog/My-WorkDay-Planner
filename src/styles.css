@@ -20020,3 +20020,85 @@ button.palette-cite:hover {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
 }
+
+/* ---------- Menus that float above the page ---------- */
+
+/*
+ * The card menus are portalled to <body> so a card's stacking context cannot
+ * trap them. `position: fixed` + the inline top/left/ max-height from
+ * `MenuPopover` do the placement; these rules only override the in-flow
+ * anchoring the base `.menu` class still carries for any older markup.
+ *
+ * 88 sits above the fixed bottom navigation (45), the floating add button (46)
+ * and the page, but below the command palette (95) and modals (100) — a menu
+ * must never float over a dialog that is asking a question.
+ */
+.menu.menu-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
+  z-index: 88;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  transform-origin: top left;
+}
+
+.menu.menu-popover.menu-right {
+  transform-origin: top right;
+}
+
+/* A finger needs a bigger target than a cursor does. */
+@media (pointer: coarse) {
+  .menu.menu-popover > button {
+    min-height: 44px;
+    font-size: 14px;
+  }
+}
+
+/* ---------- Inline input actions (dictation) ---------- */
+
+.input-with-action {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.input-with-action .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-mic {
+  position: relative;
+  flex: none;
+  width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.input-mic:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.input-mic.is-listening {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+/* A failure has to stay readable even when the field already has text. */
+.quick-note.is-error,
+.field-hint.is-error {
+  color: var(--danger);
+}
