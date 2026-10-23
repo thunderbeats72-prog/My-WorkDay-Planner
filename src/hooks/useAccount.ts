@@ -28,6 +28,7 @@ import {
   testCloudConnection,
 } from '../lib/cloudSync';
 import { apiStatus } from '../lib/neonBackend';
+import { attachmentsShouldSync, syncAttachments } from '../lib/attachmentSync';
 import {
   createBackupPayload,
   listAllEvents,
@@ -209,8 +210,48 @@ export function useAccount({
   }, [cloudConfigured]);
 
   /**
+   * A shelf of photos can outlast one sync run — the mover deliberately takes
+   * only a batch at a time. This picks the rest up shortly, outside the
+   * running sync, so the first sign-in with a hundred files finishes in
+   * seconds and keeps quietly draining in the background.
+   */
+  const attachmentCatchUpTimer = useRef<number | null>(null);
+  // A named function expression, not a self-capturing arrow: the recursion
+  // calls the inner name, which is fully bound before any timer fires, so the
+  // compiler can see the function does not read itself while initializing.
+  const scheduleAttachmentCatchUp = useCallback(function scheduleCatchUp(delay = 2500): void {
+    if (attachmentCatchUpTimer.current !== null) return;
+    attachmentCatchUpTimer.current = window.setTimeout(() => {
+      attachmentCatchUpTimer.current = null;
+      if (!attachmentsShouldSync()) return;
+      void syncAttachments().then((res) => {
+        if (res.pulled > 0 || res.pushed > 0) refreshData.current();
+        if (res.more) scheduleCatchUp(delay);
+        else if (!res.ok && res.error) notice.current(`Photos & voice notes: ${res.error}`, 'warning');
+      });
+    }, delay);
+  }, []);
+
+  // A pending catch-up must not fire after the component goes away.
+  useEffect(
+    () => () => {
+      if (attachmentCatchUpTimer.current !== null) {
+        window.clearTimeout(attachmentCatchUpTimer.current);
+        attachmentCatchUpTimer.current = null;
+      }
+    },
+    [],
+  );
+
+  /**
    * Full round trip: read local, read remote, merge, write back if — and only
    * if — the server is missing something this device has.
+   *
+   * Photos and voice memos ride along in their own channel once the snapshot
+   * is settled (see `attachmentSync.ts`). They are deliberately after — and
+   * never in place of — the task data: a photo that fails to upload must not
+   * stop your tasks from syncing, so an attachment error is appended to the
+   * message, never turned into a failed sync.
    */
   const syncNow = useCallback(
     async (options: { quiet?: boolean } = {}): Promise<{ ok: boolean; message: string }> => {
@@ -227,34 +268,49 @@ export function useAccount({
         const pulled = await pullCloudSnapshot();
         if (!pulled.ok) return { ok: false, message: pulled.error ?? 'Could not reach the sync project.' };
 
+        let message: string;
         if (!pulled.data) {
           const pushed = await pushCloudSnapshot(local);
           if (!pushed.ok) return { ok: false, message: pushed.error ?? 'Upload failed.' };
           writeLastSync();
           setLastSyncedAt(readLastSync());
-          return { ok: true, message: 'This device uploaded its first snapshot — your other device will pick it up.' };
+          message = 'This device uploaded its first snapshot — your other device will pick it up.';
+        } else {
+          const { merged, stats } = mergeSnapshots(local, pulled.data);
+          if (!mergeIsQuiet(stats)) {
+            await restoreBackup(merged, 'replace');
+            refreshData.current();
+          }
+          // No write means no new timestamp, which means the other device stops
+          // seeing a change. Without this the two devices trade updates forever.
+          if (stats.needsPush) {
+            const pushed = await pushCloudSnapshot(merged);
+            if (!pushed.ok) return { ok: false, message: pushed.error ?? 'Upload failed.' };
+          }
+          writeLastSync();
+          setLastSyncedAt(readLastSync());
+          message = describeMerge(stats);
         }
 
-        const { merged, stats } = mergeSnapshots(local, pulled.data);
-        if (!mergeIsQuiet(stats)) {
-          await restoreBackup(merged, 'replace');
-          refreshData.current();
+        if (attachmentsShouldSync()) {
+          const attachments = await syncAttachments();
+          if (attachments.pulled > 0 || attachments.pushed > 0) refreshData.current();
+          if (!attachments.ok && attachments.error) {
+            message = `${message} · Photos & voice notes: ${attachments.error}`;
+          } else if (attachments.more) {
+            // More files are waiting; pick them up shortly without holding
+            // this sync (and its spinner) open while a shelf of photos loads.
+            scheduleAttachmentCatchUp();
+          }
         }
-        // No write means no new timestamp, which means the other device stops
-        // seeing a change. Without this the two devices trade updates forever.
-        if (stats.needsPush) {
-          const pushed = await pushCloudSnapshot(merged);
-          if (!pushed.ok) return { ok: false, message: pushed.error ?? 'Upload failed.' };
-        }
-        writeLastSync();
-        setLastSyncedAt(readLastSync());
-        return { ok: true, message: describeMerge(stats) };
+
+        return { ok: true, message };
       } finally {
         syncing.current = false;
         if (!options.quiet) setBusy(false);
       }
     },
-    [],
+    [scheduleAttachmentCatchUp],
   );
 
   const syncNowPublic = useCallback(() => syncNow(), [syncNow]);
@@ -361,7 +417,14 @@ export function useAccount({
           if (Date.now() - lastActivity.current < IDLE_AFTER_MS) await syncNow({ quiet: true });
         } else if (remoteVersion.current !== null && version.data !== remoteVersion.current) {
           const result = await syncNow({ quiet: true });
-          if (result.ok && !/already match/.test(result.message)) notice.current(result.message, 'info');
+          // Quiet snapshot merges stay silent; an attachment error inside an
+          // otherwise quiet sync must not — it would otherwise never surface.
+          if (
+            result.ok &&
+            (!/already match/.test(result.message) || /Photos & voice notes:/.test(result.message))
+          ) {
+            notice.current(result.message, 'info');
+          }
         }
         remoteVersion.current = version.data ?? null;
       }

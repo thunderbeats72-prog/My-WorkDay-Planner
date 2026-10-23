@@ -69,6 +69,7 @@ export const TABLES = {
   users: 'app_users',
   sessions: 'app_sessions',
   snapshots: 'planner_snapshots',
+  attachments: 'planner_attachments',
 } as const;
 
 /* ------------------------------------------------------------ responses */
@@ -166,12 +167,21 @@ export async function deleteSession(tokenHash: string): Promise<void> {
 /**
  * Just the timestamp of the last write, for devices that only want to ask
  * "has anything changed?" A few dozen bytes instead of the whole snapshot.
+ *
+ * The answer spans both tables now: adding a photo on the laptop must change
+ * the number the phone is polling, or the phone would never learn there is a
+ * new attachment to fetch. The newest of snapshot and attachments wins; with
+ * neither present the answer stays null, exactly as before.
  */
 export async function snapshotVersion(userId: string): Promise<string | null> {
-  const found = await rows<{ updated_at: string | Date }>(sql()`
-    select updated_at from planner_snapshots where user_id = ${userId} limit 1
+  const found = await rows<{ at: string | Date | null }>(sql()`
+    select max(at) as at from (
+      select (select updated_at from planner_snapshots where user_id = ${userId}) as at
+      union all
+      select max(updated_at) as at from planner_attachments where user_id = ${userId}
+    ) versions
   `);
-  const value = found[0]?.updated_at;
+  const value = found[0]?.at;
   if (!value) return null;
   return value instanceof Date ? value.toISOString() : String(value);
 }
@@ -190,4 +200,122 @@ export async function writeSnapshot(userId: string, payload: unknown): Promise<v
     on conflict (user_id) do update
       set payload = excluded.payload, updated_at = now()
   `;
+}
+
+/* ---------------------------------------------------------- attachments */
+
+/**
+ * Metadata only — the list never drags bytes across the wire, so a device can
+ * work out what it is missing with a payload of a few kilobytes.
+ */
+export interface AttachmentMetaRow {
+  id: string;
+  task_id: string;
+  kind: string;
+  mime: string;
+  size: number;
+  duration_ms: number | null;
+  created_at: string | Date;
+}
+
+export interface AttachmentUsage {
+  count: number;
+  bytes: number;
+}
+
+function metaOf(row: AttachmentMetaRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    kind: row.kind,
+    mime: row.mime,
+    size: row.size,
+    durationMs: row.duration_ms,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  };
+}
+
+export async function listAttachments(userId: string): Promise<{ attachments: Record<string, unknown>[]; usage: AttachmentUsage }> {
+  const found = await rows<AttachmentMetaRow & { total_count: string | number; total_bytes: string | number }>(sql()`
+    select id, task_id, kind, mime, size, duration_ms, created_at,
+           count(*) over() as total_count,
+           coalesce(sum(size) over(), 0) as total_bytes
+    from planner_attachments
+    where user_id = ${userId}
+    order by created_at asc
+  `);
+  const usage: AttachmentUsage = {
+    count: Number(found[0]?.total_count ?? 0),
+    bytes: Number(found[0]?.total_bytes ?? 0),
+  };
+  return { attachments: found.map(metaOf), usage };
+}
+
+export async function getAttachment(userId: string, id: string): Promise<(Record<string, unknown> & { data: string }) | null> {
+  const found = await rows<AttachmentMetaRow & { data: string }>(sql()`
+    select id, task_id, kind, mime, size, duration_ms, created_at, encode(data, 'bytea') as data
+    from planner_attachments
+    where user_id = ${userId} and id = ${id}
+    limit 1
+  `);
+  const row = found[0];
+  if (!row) return null;
+  return { ...metaOf(row), data: row.data };
+}
+
+export type PutAttachmentOutcome = 'ok' | 'too-many' | 'too-large';
+
+/**
+ * Upsert one file, enforcing both caps against the *other* rows — a re-push of
+ * an id the server already holds must not double-count its own size.
+ */
+export async function putAttachment(
+  userId: string,
+  meta: { id: string; taskId: string; kind: string; mime: string; size: number; durationMs: number | null; createdAt: string },
+  dataHex: string,
+  limits: { maxFileBytes: number; maxUserBytes: number; maxUserCount: number },
+): Promise<PutAttachmentOutcome> {
+  const others = await rows<{ count: string | number; bytes: string | number }>(sql()`
+    select count(*) as count, coalesce(sum(size), 0) as bytes
+    from planner_attachments
+    where user_id = ${userId} and id != ${meta.id}
+  `);
+  const count = Number(others[0]?.count ?? 0);
+  const bytes = Number(others[0]?.bytes ?? 0);
+  if (count + 1 > limits.maxUserCount) return 'too-many';
+  if (bytes + meta.size > limits.maxUserBytes) return 'too-large';
+
+  await sql()`
+    insert into planner_attachments (user_id, id, task_id, kind, mime, size, duration_ms, created_at, updated_at, data)
+    values (
+      ${userId}, ${meta.id}, ${meta.taskId}, ${meta.kind}, ${meta.mime}, ${meta.size}, ${meta.durationMs},
+      ${meta.createdAt}::timestamptz, now(), decode(${dataHex}, 'bytea')
+    )
+    on conflict (user_id, id) do update
+      set updated_at = now(), data = excluded.data
+  `;
+  return 'ok';
+}
+
+/** How many rows actually went — ids from another account silently vanish. */
+export async function deleteAttachments(userId: string, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  // The id list travels as JSON text and is expanded server-side: one scalar
+  // parameter the HTTP driver definitely serialises, rather than relying on
+  // array-parameter behaviour that has changed between driver versions.
+  const deleted = await rows<{ id: string }>(sql()`
+    delete from planner_attachments
+    where user_id = ${userId}
+      and id in (select jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb))
+    returning id
+  `);
+  if (deleted.length > 0) {
+    // A delete must be as visible as a create. Removing a row can leave the
+    // attachments max(updated_at) *lower* than the snapshot's timestamp, in
+    // which case the version other devices poll would not move at all and
+    // they would keep the file indefinitely. Bumping the snapshot's clock —
+    // without touching its payload — changes the answer they are polling for.
+    await sql()`update planner_snapshots set updated_at = now() where user_id = ${userId}`;
+  }
+  return deleted.length;
 }

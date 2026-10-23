@@ -11,6 +11,7 @@
  */
 
 import type { BackupFile } from './db';
+import type { AttachmentKind, AttachmentMeta } from './attachmentLimits';
 
 const BASE = '/api';
 
@@ -179,6 +180,74 @@ export async function neonVersion(token: string): Promise<NeonResult<string | nu
 
 export async function neonSignOut(token: string): Promise<void> {
   await call('/snapshot', { method: 'DELETE' }, token).catch(() => undefined);
+}
+
+/* ---------------------------------------------------------- attachments */
+
+export interface NeonAttachmentUsage {
+  count: number;
+  bytes: number;
+}
+
+export interface NeonAttachmentList {
+  attachments: AttachmentMeta[];
+  usage: NeonAttachmentUsage;
+}
+
+export interface NeonAttachmentEnvelope extends AttachmentMeta {
+  data: string;
+}
+
+/** Metadata for every attachment this account holds — no bytes. */
+export async function neonAttachmentList(
+  token: string,
+): Promise<NeonResult<NeonAttachmentList>> {
+  return call<NeonAttachmentList>('/attachments', { method: 'GET' }, token);
+}
+
+/** One file, base64-encoded — a few hundred kilobytes, never the camera roll. */
+export async function neonAttachmentGet(
+  token: string,
+  id: string,
+): Promise<NeonResult<{ attachment: NeonAttachmentEnvelope }>> {
+  return call<{ attachment: NeonAttachmentEnvelope }>(
+    `/attachments?id=${encodeURIComponent(id)}`,
+    { method: 'GET' },
+    token,
+  );
+}
+
+export interface NeonAttachmentPut {
+  id: string;
+  taskId: string;
+  kind: AttachmentKind;
+  mime: string;
+  size: number;
+  durationMs: number | null;
+  createdAt: string;
+  data: string;
+}
+
+export async function neonAttachmentPut(
+  token: string,
+  attachment: NeonAttachmentPut,
+): Promise<NeonResult<undefined>> {
+  const result = await call<{ ok: boolean }>('/attachments', {
+    method: 'POST',
+    body: JSON.stringify({ attachment }),
+  }, token);
+  return result.ok ? { ok: true } : { ok: false, error: result.error, status: result.status };
+}
+
+export async function neonAttachmentDelete(
+  token: string,
+  ids: string[],
+): Promise<NeonResult<undefined>> {
+  const result = await call<{ ok: boolean }>('/attachments', {
+    method: 'DELETE',
+    body: JSON.stringify({ ids }),
+  }, token);
+  return result.ok ? { ok: true } : { ok: false, error: result.error, status: result.status };
 }
 
 /** A round trip that proves the API and the database are both alive. */

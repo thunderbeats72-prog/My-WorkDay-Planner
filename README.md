@@ -22,6 +22,7 @@ npx -y pnpm@10 lint
 - Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per deadline, and clickable straight into the task
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
+- **Attachments:** photos (compressed in-browser) and 15-second voice memos on any task, with playback in the task panel — stored locally first, and synced across devices as their own rows, never inside the snapshot
 
 ## Honest limitations
 - **Notifications:** in-app reminders are always written and survive reloads. System banners fire while the app is open, and — on Android, for the installed PWA — from a best-effort background check. A fully closed browser on desktop cannot be woken; there is no push server by design, and the app says so rather than pretending otherwise.
@@ -566,3 +567,77 @@ removed.
 
 No new colours and none of the removed effects came back: no spotlight, no lift,
 no gradient bar, no timer sweep, no check burst.
+
+## Attachments — photos and voice memos that sync, without a heavier sync
+
+A task can carry a photo (the visiting card, the receipt, the whiteboard) and
+a voice memo (the thought on the way out of the meeting), captured right in
+the task panel:
+
+- **Voice notes** use `MediaRecorder` with a 15-second cap — the recorder
+  stops itself, so a press in a pocket cannot run up an hour of audio.
+  Stop/Discard are live while it records, and one code path saves the result,
+  so a memo can never be recorded and silently dropped. Browsers without
+  `MediaRecorder` simply do not get the button, and a blocked microphone says
+  so in one actionable sentence.
+- **Photos** are resized (1600px long edge) and re-encoded on a quality ladder
+  *before anything is stored*, aiming under 380 KB against a hard cap of
+  600 KB — the same numbers the server enforces, imported from one shared
+  module (`src/lib/attachmentLimits.ts`), so the client can never compress to
+  a size the server refuses. Files already under the cap are stored as-is.
+- The panel shows a thumbnail grid and inline `<audio>` playback, per-file
+  size and date, an honest sync badge (*Synced* / *Waiting to sync* /
+  *This device*), and two-step deletes.
+
+### Why the bytes never enter the snapshot
+
+The snapshot is re-sent whole whenever anything changes, it is stringified
+and diffed per record on every sync, and it rides the ~4.5 MB serverless body
+cap. A single megabyte inside a task would re-travel on every title edit; a
+single unsqueezed camera photo would take down sync for **every** device at
+once. So attachments have their own channel:
+
+| | Snapshot | Attachments |
+| --- | --- | --- |
+| Transport | one JSON body, merged per record | one row + one request per file |
+| Table | `planner_snapshots` (1 row/user) | `planner_attachments` (1 row/file) |
+| Endpoint | `/api/snapshot` | `/api/attachments` |
+| Cap | what a planner needs | 600 KB/file · 400 files · 40 MB/account (server-enforced) |
+
+`db/neon-schema.sql` documents the table, and `api/_lib/schema.ts` creates it
+automatically on the first request like everything else.
+
+### How the merge works when media is immutable
+
+Attachments are **never edited** after capture — only created and deleted —
+so there is no edit conflict to resolve. `planAttachmentSync()`
+(`src/lib/attachmentSync.ts`) reduces the whole question to one pure function
+over two lists, tested in `src/lib/attachments.test.ts`:
+
+- local row the server lacks → **push**; remote row the device lacks → **pull**;
+- local deletion → a **tombstone** (id kept, bytes dropped) until the server
+  acknowledges the delete, then the row is purged — an offline delete can
+  never resurrect the file;
+- a live row the server no longer holds → purged locally (deletion made on
+  another device, same direction snapshots already flow);
+- a tombstone the server never saw → purged with no round trip at all.
+
+Each sync run moves at most 30 files and reports `more` when a shelf is
+waiting, so first sign-in with a hundred photos finishes in seconds and keeps
+draining quietly in the background. Failures are appended to the sync message
+(`· Photos & voice notes: …`) and never turn a successful task sync into a
+failed one.
+
+The version other devices poll (`/api/version`) is now `max(snapshot
+updated_at, attachments updated_at)` — a photo added on the laptop changes
+the number the phone is watching. Deleting one bumps the snapshot's clock
+*without touching its payload*, because a delete can otherwise leave every
+timestamp unchanged and linger forever.
+
+### Honest limits
+
+- JSON/CSV backups do **not** include attachments (blobs are not JSON);
+  files live in IndexedDB plus — when sync is on — the attachment table.
+- With sync off, attachments are on this device only, and the panel says so.
+- The per-account caps are a safety rail on the free database, not a plan
+  tier; Settings → Account shows usage whenever there is any.

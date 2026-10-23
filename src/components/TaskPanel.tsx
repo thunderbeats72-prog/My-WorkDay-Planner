@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   CircleCheck,
   Clock,
   ExternalLink,
+  ImagePlus,
   Link2,
+  Mic,
+  Paperclip,
   Pause,
   Pencil,
   Play,
   Sparkles,
   Square,
   Target,
+  Trash2,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -26,6 +30,22 @@ import {
 } from '../lib/dates';
 import { deadlineRisk, suggestForTask } from '../lib/ml';
 import { listEvents } from '../lib/db';
+import {
+  ATTACHMENT_LIMITS,
+  compressPhoto,
+  formatBytes,
+  listAttachments,
+  microphoneErrorText,
+  notifyAttachmentsChanged,
+  saveAttachment,
+  startVoiceMemo,
+  tombstoneAttachment,
+  voiceRecorderSupported,
+  onAttachmentsChanged,
+  type AttachmentRecord,
+  type VoiceCapture,
+} from '../lib/attachments';
+import { isCloudConfigured, loadCloudSession } from '../lib/cloudSync';
 import { Badge, Button, CategoryBadge, IconButton, PriorityBadge, ProgressBar } from './ui';
 
 export function TaskPanel({
@@ -45,6 +65,7 @@ export function TaskPanel({
   onToggleComplete,
   onApplySuggestion,
   onOpenTask,
+  onAttachmentsChange,
 }: {
   task: Task | null;
   tasks: Task[];
@@ -62,8 +83,18 @@ export function TaskPanel({
   onToggleComplete: () => void;
   onApplySuggestion: (input: { category: Task['category']; priority: Task['priority']; estimatedMinutes: number }) => void;
   onOpenTask: (id: string) => void;
+  /** Fire after any attachment change so the app queues a sync push. */
+  onAttachmentsChange: () => void;
 }) {
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentRecord[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState<'photo' | 'voice' | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [confirmAttachment, setConfirmAttachment] = useState<string | null>(null);
+  const [recording, setRecording] = useState<VoiceCapture | null>(null);
+  const [recordingSince, setRecordingSince] = useState(0);
+  const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!task) return;
@@ -71,10 +102,43 @@ export function TaskPanel({
     void listEvents(task.id).then((loaded) => {
       if (!cancelled) setEvents(loaded);
     });
+    const reloadAttachments = () => {
+      void listAttachments(task.id).then((rows) => {
+        if (!cancelled) setAttachments(rows);
+      });
+    };
+    reloadAttachments();
+    const off = onAttachmentsChanged(reloadAttachments);
     return () => {
       cancelled = true;
+      off();
     };
   }, [task]);
+
+  // A live count for the recording bar: the panel's `now` only ticks every
+  // 15 seconds, which is no use when the whole capture is 15 seconds long.
+  // The counter is only rendered while recording, and `beginRecording` zeroes
+  // it in the click handler — so this effect only ever starts and stops a
+  // timer, never resets visible state.
+  useEffect(() => {
+    if (!recording) return;
+    const interval = window.setInterval(() => {
+      setRecordingElapsed(Math.floor((Date.now() - recordingSince) / 1000));
+    }, 350);
+    return () => window.clearInterval(interval);
+  }, [recording, recordingSince]);
+
+  // Object URLs for the blobs, rebuilt when the set changes and revoked when
+  // it does — an open panel holds megabytes of photos, and leaking them per
+  // keystroke of the panel's lifetime is not acceptable.
+  const attachmentUrls = useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const row of attachments) {
+      if (row.blob) urls.set(row.id, URL.createObjectURL(row.blob));
+    }
+    return urls;
+  }, [attachments]);
+  useEffect(() => () => attachmentUrls.forEach((url) => URL.revokeObjectURL(url)), [attachmentUrls]);
 
   useEffect(() => {
     if (!task) return;
@@ -98,6 +162,8 @@ export function TaskPanel({
     () => (task ? deadlineRisk(task, tasks, settings, now) : null),
     [task, tasks, settings, now],
   );
+  // Memoised so a browser without MediaRecorder doesn't re-probe every render.
+  const canRecordVoice = useMemo(() => voiceRecorderSupported(), []);
 
   if (!task) return null;
   const completed = task.status === 'completed';
@@ -111,6 +177,85 @@ export function TaskPanel({
     (suggestion.category !== task.category ||
       suggestion.priority !== task.priority ||
       suggestion.estimatedMinutes !== task.estimatedMinutes);
+
+  const taskId = task.id;
+  const photos = attachments.filter((row) => row.kind === 'photo');
+  const voices = attachments.filter((row) => row.kind === 'voice');
+  const canRecord = canRecordVoice;
+  const attachmentsSyncOn = isCloudConfigured() && loadCloudSession() !== null;
+
+  const attachmentBadge = (row: AttachmentRecord) => {
+    if (row.synced) return <span className="att-badge is-synced">Synced</span>;
+    if (attachmentsSyncOn) return <span className="att-badge">Waiting to sync</span>;
+    return <span className="att-badge">This device</span>;
+  };
+
+  const pickPhoto = async (file: File) => {
+    setAttachmentError(null);
+    setAttachmentBusy('photo');
+    try {
+      const blob = await compressPhoto(file);
+      await saveAttachment({
+        taskId,
+        kind: 'photo',
+        mime: blob.type || file.type || 'image/jpeg',
+        blob,
+      });
+      notifyAttachmentsChanged();
+      onAttachmentsChange();
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : 'Could not save that photo.');
+    } finally {
+      setAttachmentBusy(null);
+    }
+  };
+
+  const beginRecording = async () => {
+    setAttachmentError(null);
+    let capture: VoiceCapture;
+    try {
+      capture = await startVoiceMemo();
+    } catch (error) {
+      setAttachmentError(microphoneErrorText(error));
+      return;
+    }
+    setRecording(capture);
+    setRecordingSince(Date.now());
+    setRecordingElapsed(0);
+    // Resolves after the 15-second auto-stop, a manual stop, or a discard —
+    // one code path, so a memo can never be recorded and silently dropped.
+    const result = await capture.done;
+    setRecording((current) => (current === capture ? null : current));
+    if (!result) return;
+    setAttachmentBusy('voice');
+    try {
+      await saveAttachment({
+        taskId,
+        kind: 'voice',
+        mime: result.blob.type || 'audio/webm',
+        blob: result.blob,
+        durationMs: result.durationMs,
+      });
+      notifyAttachmentsChanged();
+      onAttachmentsChange();
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : 'Could not save the voice note.');
+    } finally {
+      setAttachmentBusy(null);
+    }
+  };
+
+  const removeAttachment = async (row: AttachmentRecord) => {
+    setConfirmAttachment(null);
+    setAttachmentError(null);
+    try {
+      await tombstoneAttachment(row.id);
+      notifyAttachmentsChanged();
+      onAttachmentsChange();
+    } catch {
+      setAttachmentError('Could not delete that attachment. Try again.');
+    }
+  };
 
   return (
     <div className="panel-layer">
@@ -323,6 +468,174 @@ export function TaskPanel({
                 Marked blocked — the scheduler leaves it queued and shows “Why not scheduled”.
               </p>
             ) : null}
+          </section>
+
+          <section className="panel-section">
+            <div className="section-title-row">
+              <h3>
+                <Paperclip size={15} /> Attachments
+              </h3>
+              <div className="att-actions">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={ImagePlus}
+                  disabled={attachmentBusy !== null || recording !== null}
+                  onClick={() => photoInputRef.current?.click()}
+                >
+                  Photo
+                </Button>
+                {canRecord ? (
+                  recording ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        icon={Square}
+                        onClick={() => recording.stop()}
+                      >
+                        Stop
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => recording.cancel()}>
+                        Discard
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={Mic}
+                      disabled={attachmentBusy !== null}
+                      onClick={() => void beginRecording()}
+                    >
+                      Voice note
+                    </Button>
+                  )
+                ) : null}
+              </div>
+            </div>
+
+            {recording ? (
+              <div className="att-rec" role="status">
+                <span className="att-rec-dot" aria-hidden="true" />
+                Recording {Math.min(Math.floor(ATTACHMENT_LIMITS.maxVoiceMs / 1000), recordingElapsed)}s of{' '}
+                {Math.floor(ATTACHMENT_LIMITS.maxVoiceMs / 1000)}s — it stops itself
+              </div>
+            ) : null}
+
+            {attachmentBusy === 'photo' ? <p className="muted">Compressing and saving photo…</p> : null}
+            {attachmentBusy === 'voice' ? <p className="muted">Saving voice note…</p> : null}
+            {attachmentError ? (
+              <p className="att-error" role="alert">
+                {attachmentError}
+              </p>
+            ) : null}
+
+            {photos.length > 0 ? (
+              <div className="att-grid">
+                {photos.map((row) => {
+                  const url = attachmentUrls.get(row.id);
+                  return (
+                    <div className="att-photo" key={row.id}>
+                      {url ? (
+                        <a href={url} target="_blank" rel="noreferrer" className="att-photo-open">
+                          <img src={url} alt={`Photo attached ${formatDateLong(row.createdAt.slice(0, 10))}`} />
+                        </a>
+                      ) : (
+                        <div className="att-photo-gone" aria-hidden="true" />
+                      )}
+                      <div className="att-photo-foot">
+                        {attachmentBadge(row)}
+                        {confirmAttachment === row.id ? (
+                          <button
+                            type="button"
+                            className="att-del is-confirm"
+                            onClick={() => void removeAttachment(row)}
+                          >
+                            Delete?
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="att-del"
+                            aria-label="Delete this photo"
+                            onClick={() => setConfirmAttachment(row.id)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {voices.length > 0 ? (
+              <div className="att-voices">
+                {voices.map((row) => (
+                  <div className="att-voice" key={row.id}>
+                    {attachmentUrls.get(row.id) ? (
+                      <audio controls preload="none" src={attachmentUrls.get(row.id)} />
+                    ) : (
+                      <p className="muted">Voice note waiting to download…</p>
+                    )}
+                    <div className="att-voice-meta">
+                      <small>
+                        {row.durationMs ? `${Math.max(1, Math.round(row.durationMs / 1000))}s · ` : ''}
+                        {formatDateLong(row.createdAt.slice(0, 10))} · {formatBytes(row.size)}
+                      </small>
+                      <div className="att-voice-actions">
+                        {attachmentBadge(row)}
+                        {confirmAttachment === row.id ? (
+                          <button
+                            type="button"
+                            className="att-del is-confirm"
+                            onClick={() => void removeAttachment(row)}
+                          >
+                            Delete?
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="att-del"
+                            aria-label="Delete this voice note"
+                            onClick={() => setConfirmAttachment(row.id)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {attachments.length === 0 && !recording ? (
+              <p className="muted">
+                Nothing attached yet — a photo of the visiting card, a receipt, or a quick memo on the way out of
+                the meeting.
+              </p>
+            ) : null}
+
+            <p className="fine-print">
+              {attachmentsSyncOn
+                ? `Compressed on this device, then synced with your account — one file per request, ${formatBytes(ATTACHMENT_LIMITS.maxFileBytes)} each and ${Math.round(ATTACHMENT_LIMITS.maxUserBytes / 1_000_000)} MB per account. Never stored inside the sync snapshot.`
+                : `Stays on this device until you sign in with sync — photos and memos never enter the snapshot, and never leave the browser on their own.`}
+            </p>
+
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="att-file-input"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void pickPhoto(file);
+              }}
+            />
           </section>
 
           <section className="panel-section">

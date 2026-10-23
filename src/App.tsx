@@ -1636,6 +1636,7 @@ export default function App() {
         onToggleComplete={() => panelTask && void toggleComplete(panelTask.id)}
         onApplySuggestion={(input) => panelTask && void applySuggestion(panelTask.id, input)}
         onOpenTask={(id) => setPanelId(id)}
+        onAttachmentsChange={() => accountRef.current?.schedulePush()}
       />
       <TaskForm
         open={formState.open}

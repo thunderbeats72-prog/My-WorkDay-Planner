@@ -19314,3 +19314,221 @@ select,
     font-size: 8px;
   }
 }
+
+/* ---------------------------------------------------------- attachments */
+
+/* Photos and voice memos inside the task panel. The vocabulary is the rest of
+   the product's: hairline cards, ink actions, one badge shape, no colour that
+   is not semantic. */
+
+.att-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.att-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.att-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.att-rec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.att-rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .att-rec-dot {
+    animation: att-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes att-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.att-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.att-badge.is-synced {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 25%, transparent);
+}
+
+.att-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.att-photo {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.att-photo-open {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: var(--canvas, var(--surface-2));
+}
+
+.att-photo-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.att-photo-gone {
+  aspect-ratio: 4 / 3;
+}
+
+.att-photo-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+
+.att-voices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.att-voice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.att-voice audio {
+  width: 100%;
+  height: 36px;
+}
+
+.att-voice-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.att-voice-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.att-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.att-del:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.att-del.is-confirm {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.account-row-title .lucide-paperclip {
+  vertical-align: -1.5px;
+  margin-right: 2px;
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .att-actions {
+    width: 100%;
+  }
+
+  .att-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  }
+}
