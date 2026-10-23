@@ -4,6 +4,7 @@ import {
   CalendarClock,
   ChartColumn,
   CircleCheck as CheckCircleIcon,
+  ClipboardList,
   House,
   PanelLeftClose,
   PanelLeftOpen,
@@ -19,10 +20,18 @@ import { BrandMark } from './BrandMark';
 import { haptic } from '../lib/haptics';
 import { AnalogClock } from './AnalogClock';
 
-export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House; mobile?: boolean }> = [
+export const NAV_ITEMS: Array<{
+  page: PageId;
+  label: string;
+  /** Shorter label for the five-slot phone bar (320px has 64px per slot). */
+  mobileLabel?: string;
+  icon: typeof House;
+  mobile?: boolean;
+}> = [
   { page: 'today', label: 'Today', icon: House, mobile: true },
   { page: 'tasks', label: 'My Tasks', icon: CalendarClock, mobile: true },
   { page: 'completed', label: 'Completed', icon: CheckCircleIcon, mobile: true },
+  { page: 'daily', label: 'Daily update', mobileLabel: 'Daily', icon: ClipboardList, mobile: true },
   { page: 'reports', label: 'Reports', icon: ChartColumn, mobile: true },
   { page: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
@@ -30,7 +39,7 @@ export const NAV_ITEMS: Array<{ page: PageId; label: string; icon: typeof House;
 /** Fewer, calmer groups: what is now, what you look back at. */
 const NAV_GROUPS: Array<{ label: string; pages: PageId[] }> = [
   { label: 'Work', pages: ['today', 'tasks'] },
-  { label: 'Review', pages: ['completed', 'reports'] },
+  { label: 'Review', pages: ['completed', 'daily', 'reports'] },
 ];
 
 export interface NavCounts {
@@ -250,7 +259,7 @@ export function BottomNav({
               }}
             >
               <Icon size={19} />
-              <span>{item.label}</span>
+              <span>{item.mobileLabel ?? item.label}</span>
             </button>
           );
         })}

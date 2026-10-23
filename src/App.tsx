@@ -20,6 +20,7 @@ import {
   createBackupPayload,
   listAllEvents,
   listReminders,
+  listReports,
   listTasks,
   loadSettings,
   logEvent,
@@ -82,6 +83,8 @@ import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { TodayPage } from './components/TodayPage';
 import { MyTasksPage } from './components/MyTasksPage';
 import { CompletedPage } from './components/CompletedPage';
+import { DailyReportPage } from './components/DailyReportPage';
+import { CompletionDialog } from './components/CompletionDialog';
 import { ReportsPage } from './components/ReportsPage';
 import { ImportPage } from './components/ImportPage';
 import { SettingsPage } from './components/SettingsPage';
@@ -106,7 +109,7 @@ import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
 import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun, ScanText } from 'lucide-react';
 
-const PAGE_IDS: PageId[] = ['today', 'tasks', 'completed', 'reports', 'settings'];
+const PAGE_IDS: PageId[] = ['today', 'tasks', 'completed', 'daily', 'reports', 'settings'];
 const SIDEBAR_STORAGE_KEY = 'workday.sidebar';
 
 /* Bookmarks and old links keep working: the retired pages were merged into
@@ -177,6 +180,9 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
+  /* Which task is waiting for its optional completion note. The dialog never
+     completes anything by itself — a cancel leaves the task untouched. */
+  const [completeId, setCompleteId] = useState<string | null>(null);
   // A line shared from another app (PWA share sheet) waits here until Today's
   // Quick add has taken it — consumed exactly once, see shareInbox.ts.
   const [quickSeed, setQuickSeed] = useState<string | null>(null);
@@ -552,6 +558,67 @@ export default function App() {
     [addToast, updateTaskById],
   );
 
+  /**
+   * Save a task's own note, dating it.
+   *
+   * `notesUpdatedAt` is what puts the note on the right day's report: a note
+   * edited today belongs to today even when the task was created last week.
+   * The note is the task's, not the report's — the report reads it, never the
+   * other way round.
+   */
+  const saveTaskNote = useCallback(
+    (id: string, notes: string) => {
+      const next = notes.trim();
+      const current = tasksRef.current.find((task) => task.id === id);
+      if (!current || (current.notes ?? '') === next) return;
+      const at = new Date().toISOString();
+      const updated: Task = {
+        ...current,
+        notes: next,
+        notesUpdatedAt: next ? at : null,
+        updatedAt: at,
+      };
+      persistTasks(
+        tasksRef.current.map((task) => (task.id === id ? updated : task)),
+        [updated],
+      );
+      void logEvent(id, 'updated', next ? 'Note updated' : 'Note cleared');
+    },
+    [persistTasks],
+  );
+
+  /**
+   * Store a completion note after the fact — from the task panel, or by
+   * correcting one written in a hurry. An empty string clears it, which also
+   * takes it back out of that day's report.
+   */
+  const saveCompletionNote = useCallback(
+    (id: string, note: string) => {
+      const next = note.trim();
+      const current = tasksRef.current.find((task) => task.id === id);
+      if (!current || (current.completionNote ?? '') === next) return;
+      const at = new Date().toISOString();
+      const updated: Task = {
+        ...current,
+        completionNote: next || undefined,
+        completionNoteAt: next ? at : null,
+        updatedAt: at,
+      };
+      persistTasks(
+        tasksRef.current.map((task) => (task.id === id ? updated : task)),
+        [updated],
+      );
+      void logEvent(id, 'updated', next ? 'Completion note updated' : 'Completion note cleared');
+    },
+    [persistTasks],
+  );
+
+  /**
+   * Completing is now a two-step intent: ask for the optional note, then save.
+   *
+   * Tapping Complete on a task that is already complete is still the undo —
+   * reopening must not go through a note dialog for work that is being undone.
+   */
   const toggleComplete = useCallback(
     async (id: string) => {
       const task = tasksRef.current.find((candidate) => candidate.id === id);
@@ -560,22 +627,37 @@ export default function App() {
         await reopenTask(id);
         return;
       }
+      setCompleteId(id);
+    },
+    [reopenTask],
+  );
+
+  /** The dialog's “Complete Task” / “Complete Without Note”. */
+  const confirmComplete = useCallback(
+    async (id: string, note: string) => {
+      setCompleteId(null);
+      const task = tasksRef.current.find((candidate) => candidate.id === id);
+      if (!task || task.status === 'completed') return;
       if (timer.isRunning(id)) {
         await timer.finish();
       }
       haptic('success');
       const latest = tasksRef.current.find((candidate) => candidate.id === id) ?? task;
+      const at = new Date().toISOString();
+      const keptNote = note.trim() || (latest.completionNote ?? '');
       const updated: Task = {
         ...latest,
         status: 'completed',
-        completedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        completedAt: at,
+        completionNote: keptNote.trim() ? keptNote.trim() : undefined,
+        completionNoteAt: keptNote.trim() ? at : null,
+        updatedAt: at,
       };
       persistTasks(
         tasksRef.current.map((candidate) => (candidate.id === id ? updated : candidate)),
         [updated],
       );
-      await logEvent(id, 'status', 'Task completed');
+      await logEvent(id, 'status', keptNote.trim() ? 'Task completed with a note' : 'Task completed');
 
       // What just happened, in the assistant's terms: how many are done today,
       // whether the board is now clear, and what it would do next.
@@ -862,9 +944,17 @@ export default function App() {
   );
 
   const importDrafts = useCallback(
-    (drafts: ParsedDraft[]) => {
-      const created = drafts.map((draft) =>
-        buildTask(
+    (
+      drafts: ParsedDraft[],
+      meta: { createdAt: string; completedAt: string; completedIds: string[]; dateISO: string },
+    ) => {
+      /* The reporting date, not “now”: a screenshot of yesterday's priorities
+         is dated yesterday, so it lands in yesterday's daily update and does
+         not turn up in today's as though it were new work. */
+      const done = new Set(meta.completedIds.map((title) => title.trim().toLowerCase()));
+      const created = drafts.map((draft) => {
+        const completed = done.has(draft.title.trim().toLowerCase());
+        return buildTask(
           {
             title: draft.title,
             notes: draft.notes,
@@ -877,16 +967,30 @@ export default function App() {
             blocked: false,
             dependencyIds: [],
           },
-          { source: 'ocr', status: 'inbox' },
-        ),
-      );
+          {
+            source: 'ocr',
+            status: completed ? 'completed' : 'inbox',
+            createdAt: meta.createdAt,
+            updatedAt: meta.completedAt,
+            completedAt: completed ? meta.completedAt : null,
+            section: draft.section || undefined,
+          },
+        );
+      });
       persistTasks([...tasksRef.current, ...created], created);
       for (const task of created) {
-        void logEvent(task.id, 'created', `Created from reviewed screenshot text (${task.source})`);
+        void logEvent(
+          task.id,
+          'created',
+          `Created from reviewed screenshot text (${task.source}) for ${meta.dateISO}`,
+        );
       }
       setPage('tasks');
+      const completedCount = created.filter((task) => task.status === 'completed').length;
       addToast(
-        `${created.length} screenshot task${created.length === 1 ? '' : 's'} saved to My Tasks after review.`,
+        `${created.length} screenshot task${created.length === 1 ? '' : 's'} saved to My Tasks after review${
+          completedCount > 0 ? `, ${completedCount} already done` : ''
+        }.`,
         'success',
       );
     },
@@ -894,13 +998,14 @@ export default function App() {
   );
 
   const handleExportBackup = useCallback(async () => {
-    const events = await listAllEvents();
+    const [events, reports] = await Promise.all([listAllEvents(), listReports()]);
     const payload = createBackupPayload(
       settingsRef.current,
       tasksRef.current,
       timer.sessions,
       remindersRef.current,
       events,
+      reports,
     );
     downloadFile(`workday-backup-${todayISO()}.json`, JSON.stringify(payload, null, 2), 'application/json');
     const next = { ...settingsRef.current, lastBackupAt: new Date().toISOString() };
@@ -1331,6 +1436,7 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  const completeTask = completeId ? tasks.find((task) => task.id === completeId) ?? null : null;
   const panelTask = panelId ? tasks.find((task) => task.id === panelId) ?? null : null;
 
   const learned: LearnedDurations = useMemo(
@@ -1543,6 +1649,15 @@ export default function App() {
         );
       case 'completed':
         return <CompletedPage {...common} />;
+      case 'daily':
+        return (
+          <DailyReportPage
+            {...common}
+            onSaveCompletionNote={saveCompletionNote}
+            onSaveTaskNote={saveTaskNote}
+            onComplete={(id) => void toggleComplete(id)}
+          />
+        );
       case 'reports':
         return <ReportsPage {...common} onExportCsv={handleExportCsv} />;
       case 'settings':
@@ -1703,7 +1818,13 @@ export default function App() {
         size="lg"
       >
         <div className="import-embed">
-          <ImportPage {...common} onImportDrafts={(drafts) => { importDrafts(drafts); setImportOpen(false); }} />
+          <ImportPage
+            {...common}
+            onImportDrafts={(drafts, meta) => {
+              importDrafts(drafts, meta);
+              setImportOpen(false);
+            }}
+          />
         </div>
       </Modal>
       <TaskPanel
@@ -1727,6 +1848,8 @@ export default function App() {
         onResume={() => panelTask && void resumeTask(panelTask.id)}
         onFinish={() => void finishTimer()}
         onToggleComplete={() => panelTask && void toggleComplete(panelTask.id)}
+        onSaveNote={(note) => panelTask && saveTaskNote(panelTask.id, note)}
+        onSaveCompletionNote={(note) => panelTask && saveCompletionNote(panelTask.id, note)}
         onApplySuggestion={(input) => panelTask && void applySuggestion(panelTask.id, input)}
         onOpenTask={(id) => setPanelId(id)}
         onAttachmentsChange={() => accountRef.current?.schedulePush()}
@@ -1748,6 +1871,14 @@ export default function App() {
         tone={confirmState?.tone ?? 'danger'}
         onCancel={() => setConfirmState(null)}
         onConfirm={() => confirmState?.onConfirm()}
+      />
+      <CompletionDialog
+        key={completeTask?.id ?? 'closed'}
+        task={completeTask}
+        onCancel={() => setCompleteId(null)}
+        onComplete={(note) => {
+          if (completeTask) void confirmComplete(completeTask.id, note);
+        }}
       />
       <StickerPop moment={stickerMoment} onDone={() => setStickerMoment(null)} />
       {confettiKey > 0 ? <Confetti key={confettiKey} /> : null}

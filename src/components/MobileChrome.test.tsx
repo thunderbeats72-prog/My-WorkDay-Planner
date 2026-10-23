@@ -76,8 +76,14 @@ describe('the floating add button', () => {
     }
   });
 
-  it('keeps exactly four destinations', () => {
+  it('keeps five destinations, one of them the daily update', () => {
+    /* Five is the ceiling for a phone bar: at 320px each slot is still 64px
+       wide, and the last one is the end-of-day update — the one screen a phone
+       is most likely to be used for. Its label is shortened to “Daily” so it
+       never wraps to two lines. */
     render(<BottomNav page="today" onNavigate={noop} onAddTask={noop} />);
-    expect(screen.getByRole('navigation', { name: 'Mobile navigation' }).querySelectorAll('button')).toHaveLength(4);
+    const nav = screen.getByRole('navigation', { name: 'Mobile navigation' });
+    const labels = Array.from(nav.querySelectorAll('button')).map((button) => button.textContent?.trim());
+    expect(labels).toEqual(['Today', 'My Tasks', 'Completed', 'Daily', 'Reports']);
   });
 });

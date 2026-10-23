@@ -13,7 +13,6 @@ import {
   resolveDictationLang,
   startDictation,
 } from './speech';
-import { parseQuickAdd } from './quickAdd';
 
 /* ------------------------------------------------------------------ */
 /* A recogniser that records what it was asked to do                   */

@@ -21,6 +21,7 @@ npx -y pnpm@10 lint
 - Time tracking: Start/Pause/Resume/Complete, one active session, timestamp-based elapsed time persisted in IndexedDB so it recovers after refresh
 - Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per deadline, and clickable straight into the task
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
+- Daily update: an optional note when completing a task, and a one-tap "Generate Daily Report" for any date — completed struck through, pending plain, notes after their task, WhatsApp/Markdown/plain text, one saved update per day
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
 - **Attachments:** photos (compressed in-browser) and 15-second voice memos on any task, with playback in the task panel — stored locally first, and synced across devices as their own rows, never inside the snapshot
 
@@ -794,3 +795,98 @@ the New task sheet carries the same mic on its title field.
 Batch gates: `tsc -b` clean, lint at the 19-warning baseline with 0 errors, and
 the suite grew 432 → 460 tests (`TaskCard.test.tsx`, `useDictation.test.tsx`,
 and the rewritten `speech.test.ts`).
+
+## Notes that write themselves into the daily update
+
+The planner could already finish a task. What it could not do was say *what
+happened* — and the WhatsApp update was being retyped by hand every evening
+from the same tasks the app already held.
+
+### Completing asks one question, and only one
+
+Tapping Complete now opens a sheet with the task's title and a multiline
+"Completion Note / Progress Update": **Complete Task** (saves the note),
+**Complete Without Note** (saves the task, writes nothing else) and **Cancel**
+(closes, completes nothing — the App owns the task, so a dismissed sheet cannot
+leave it half-done). The note is optional; the saved one is shown as history
+instead of being pre-filled, so "Complete Without Note" can never quietly
+overwrite words the person already wrote. On a phone the field does not grab
+focus, because that raises the keyboard over the sheet.
+
+Notes live on the task (`completionNote`, `notes`, `notesUpdatedAt`) — not on
+the report. That is the whole sync design: there is no sync step. Editing a note
+in the task panel or in the day list edits the same row the report reads, so the
+preview updates, a deleted note disappears, and nothing can be duplicated.
+
+### "Generate Daily Report" reads the day, and only the day
+
+`src/lib/dailyReport.ts` turns one date's tasks into text: `Priorities -` first,
+then one named section per heading kept from the screenshot the work came from
+(`BizConnect Leads Follow-ups -`), each item as `- Title` with its note appended
+as `Title - note.` Struck-through titles mark completed work, and titles only —
+`~~Follow up with Narayani Group~~ - Couldn't connect today.` The note is never
+struck, a pending task is never struck, and a note never marks anything done.
+Three output variants are offered (`~…~` for WhatsApp, `~~…~~` for Markdown,
+`[COMPLETED] …` for plain text) because the same string is pasted into different
+places.
+
+The preview is a textarea, not a picture. Typing in it sets a `dirty` flag;
+regeneration then asks before replacing what was written, and "Regenerate" is
+always available as an explicit action. Copy falls back from
+`navigator.clipboard` to a hidden textarea and, if both are refused, says so and
+puts the caret in the preview — a blocked clipboard is a message, not a lost
+report.
+
+### One update per day, and yesterday stays yesterday
+
+Saved updates are a Dexie v3 table keyed by `dateISO`. Re-saving a day replaces
+that day's text on purpose; saving today can never touch yesterday, because it is
+a different row. The date bar carries ←/→, a date picker and a jump list of days
+that already have an update, and the history panel opens an old day's saved text
+without touching the tasks. Deleting a snapshot never deletes work. JSON backups
+now carry the saved updates too, and restore them one row per date.
+
+### Screenshots: headings and "already done" are read, not guessed
+
+`parseScreenshotText` now walks sectioned blocks: a heading line
+(`Priorities -`, `Today:`, `BizConnect Leads Follow-ups -`) becomes the section
+of the tasks under it rather than a task itself, so imported work keeps its
+grouping in the report. A struck line (`~~…~~`, `~…~`, `[x] …`) only raises a
+"struck through" badge and an unticked **Already done** checkbox — OCR is not a
+reliable witness to completion, so the person confirms it. The review step also
+carries the **reporting date** (default today): imported work is dated to that
+day, so a screenshot of yesterday's chat lands in yesterday's update instead of
+this evening's. The heading of each draft is editable, and a draft whose text
+already exists is flagged as a duplicate rather than silently added twice.
+
+### The phone bar had four columns and five destinations
+
+Adding "Daily" to the bottom navigation without touching the grid would have
+wrapped Reports onto a second row — a taller bar over the bottom of every page,
+while the layout still reserved 76px. The phone bar is now
+`repeat(5, minmax(0, 1fr))` at 320px, its labels truncate instead of pushing the
+row wider, and the slot reads "Daily" so it fits one line. Everything else on
+the new screens reuses the existing mobile rules: full-width cards, 16px fields
+(no iOS zoom), action rows that wrap rather than overflow, and one-column format
+cards below 620px.
+
+Batch gates: `tsc -b` clean, `npm run build` clean, lint at the 21-warning
+baseline with 0 errors, and the suite grew 460 → 500 tests
+(`dailyReport.test.ts` 23, `DailyReportFlow.test.tsx` 13 end-to-end through the
+real App and fake IndexedDB, `db.test.ts` 4 for the storage and backup
+round-trip).
+
+### Honest limits of this batch
+
+- There is no browser in this environment, so the mobile layout was checked by
+  reviewing the CSS at 320/375/620px and by jsdom tests — not by eye on a real
+  phone. The rules are the existing ones (full-bleed cards, 16px fields, wrapping
+  action rows, one-column format cards), not a new layout.
+- A reopened task keeps its completion note deliberately: the words were the
+  person's, and the day's report still reads them rather than inventing silence.
+  The note is only ever shown next to its own task.
+- Section headings survive import, but a task added by hand has no heading and
+  falls under `Priorities`.
+- A day change with a hand-edited preview asks first; there is no background
+  draft autosave, so "Save this update" remains the only way to keep wording
+  past the day you are looking at.
