@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link2, TriangleAlert } from 'lucide-react';
+import { Link2, Mic, TriangleAlert } from 'lucide-react';
 import type { Category, Priority, Settings, Task } from '../lib/types';
 import { CATEGORIES, CATEGORY_ORDER, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import { findDependencyCycle } from '../lib/engine';
+import { useDictation } from '../hooks/useDictation';
 import { Button, Field, Modal, Switch } from './ui';
 
 export interface TaskDraft {
@@ -72,6 +73,19 @@ export function TaskForm({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dependencyQuery, setDependencyQuery] = useState('');
+  /* The same microphone as quick add: speak the title here instead of typing
+     it. Dates, estimates and clients stay the form's job — a title is a title. */
+  const dictation = useDictation({
+    value: draft.title,
+    onChange: (title) => setDraft((current) => ({ ...current, title })),
+    lang: settings.dictationLang,
+  });
+  /* Closing the sheet must close the microphone with it: the form stays
+     mounted while the dialog is hidden, so without this a cancelled task would
+     keep listening in the background. */
+  useEffect(() => {
+    if (!open) dictation.stop();
+  }, [open, dictation.stop]);
 
   useEffect(() => {
     if (!open) return;
@@ -132,13 +146,37 @@ export function TaskForm({
     >
       <div className="form-grid">
         <Field label="Task" htmlFor="task-title" error={errors.title} className="span-2">
-          <input
-            id="task-title"
-            className={`input ${errors.title ? 'invalid' : ''}`.trim()}
-            value={draft.title}
-            placeholder="e.g. Follow up with Acme on the proposal"
-            onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-          />
+          <div className="input-with-action">
+            <input
+              id="task-title"
+              className={`input ${errors.title ? 'invalid' : ''}`.trim()}
+              value={draft.title}
+              placeholder="e.g. Follow up with Acme on the proposal"
+              onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+            />
+            {dictation.supported ? (
+              <button
+                type="button"
+                className={`input-mic ${dictation.listening ? 'is-listening' : ''}`.trim()}
+                aria-label={dictation.listening ? 'Stop dictating the task title' : 'Dictate the task title'}
+                aria-pressed={dictation.listening}
+                title={dictation.listening ? 'Stop listening' : 'Speak the title'}
+                onClick={dictation.toggle}
+              >
+                <Mic size={16} aria-hidden="true" />
+                {dictation.listening ? <span className="quick-dictate-live" aria-hidden="true" /> : null}
+              </button>
+            ) : null}
+          </div>
+          {dictation.error ? (
+            <p className="field-hint is-error" role="alert">
+              {dictation.error}
+            </p>
+          ) : dictation.note ? (
+            <p className="field-hint" role={dictation.listening ? 'status' : undefined}>
+              {dictation.note}
+            </p>
+          ) : null}
         </Field>
 
         <Field label="Client / account" htmlFor="task-client" hint="Used for client-level duration learning.">

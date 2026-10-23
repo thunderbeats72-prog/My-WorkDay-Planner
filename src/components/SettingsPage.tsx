@@ -12,6 +12,7 @@ import {
   Shield,
   Sun,
   Upload,
+  Mic,
 } from 'lucide-react';
 import type { Settings, Theme } from '../lib/types';
 import { DAY_SHORT, DEFAULT_SETTINGS, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
@@ -23,6 +24,13 @@ import type { AccountApi } from '../hooks/useAccount';
 import { AccountPanel } from './AccountPanel';
 import { Badge, Button, ConfirmDialog, Field, Switch } from './ui';
 import { canHaptic, haptic, hapticsEnabled, setHapticsEnabled } from '../lib/haptics';
+import {
+  DICTATION_LANGUAGES,
+  deviceLanguage,
+  dictationLanguageLabel,
+  dictationSupported,
+  resolveDictationLang,
+} from '../lib/speech';
 import { PageHeader } from './Shell';
 
 const WORKING_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -324,6 +332,47 @@ export function SettingsPage({
                 />
               </Field>
             </div>
+          </section>
+
+          <section className="card settings-section">
+            <div className="section-head">
+              <h2>
+                <Mic size={16} /> Voice
+              </h2>
+              <Badge tone={dictationSupported() ? 'success' : 'neutral'}>
+                {dictationSupported() ? 'Dictation available' : 'Type instead — no dictation here'}
+              </Badge>
+            </div>
+            <Field
+              label="Dictation language"
+              htmlFor="settings-dictation-lang"
+              hint={
+                dictationSupported()
+                  ? `What the microphone listens for. Listening now: ${dictationLanguageLabel(
+                      resolveDictationLang(draft.dictationLang),
+                    )}.`
+                  : 'This browser has no speech recognition. Quick add still works from the keyboard, and photos import as usual.'
+              }
+            >
+              <select
+                id="settings-dictation-lang"
+                className="input"
+                value={draft.dictationLang}
+                onChange={(event) => setDraft({ ...draft, dictationLang: event.target.value })}
+              >
+                <option value="">Match this device ({deviceLanguage()})</option>
+                {DICTATION_LANGUAGES.map((language) => (
+                  <option key={language.tag} value={language.tag}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <p className="field-hint">
+              Speech is transcribed by the browser, not by this app. A language that matches the way you actually speak
+              is the biggest accuracy win — the words have to arrive in English for the date, time and duration parser
+              to read them.
+            </p>
           </section>
 
           <section className="card settings-section">

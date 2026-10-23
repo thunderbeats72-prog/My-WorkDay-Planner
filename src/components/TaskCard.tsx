@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Bell,
   CalendarClock,
@@ -25,8 +25,7 @@ import {
   nextWeekdayISO,
   relativeDayLabel,
 } from '../lib/dates';
-import { useClickOutside } from '../hooks/useEnvironment';
-import { Badge, Button, CategoryBadge, IconButton, PriorityBadge } from './ui';
+import { Badge, Button, CategoryBadge, IconButton, MenuPopover, PriorityBadge } from './ui';
 
 export interface TaskCardHandlers {
   onOpen: () => void;
@@ -61,8 +60,12 @@ export function TaskCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [pickDate, setPickDate] = useState(task.dueDate ?? '');
-  const menuRef = useClickOutside<HTMLDivElement>(menuOpen, () => setMenuOpen(false));
-  const rescheduleRef = useClickOutside<HTMLDivElement>(rescheduleOpen, () => setRescheduleOpen(false));
+  /* Anchors only: the menus themselves are portalled to `document.body` so the
+     card's stacking context (and the fixed bottom bar) cannot clip them. */
+  const menuAnchor = useRef<HTMLDivElement | null>(null);
+  const rescheduleAnchor = useRef<HTMLDivElement | null>(null);
+  const closeMenu = () => setMenuOpen(false);
+  const closeReschedule = () => setRescheduleOpen(false);
   const completed = task.status === 'completed';
   const tone = dueTone(task, now);
   const primary = (() => {
@@ -147,7 +150,7 @@ export function TaskCard({
           </Button>
         ) : null}
         <IconButton label={`Edit “${task.title}”`} icon={Pencil} onClick={handlers.onEdit} />
-        <div className="menu-wrap" ref={rescheduleRef}>
+        <div className="menu-wrap" ref={rescheduleAnchor}>
           <IconButton
             label={`Reschedule “${task.title}”`}
             icon={CalendarClock}
@@ -155,63 +158,67 @@ export function TaskCard({
             aria-expanded={rescheduleOpen}
             onClick={() => setRescheduleOpen((open) => !open)}
           />
-          {rescheduleOpen ? (
-            <div className="menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
+          <MenuPopover
+            open={rescheduleOpen}
+            anchorRef={rescheduleAnchor}
+            align="start"
+            label={`Reschedule “${task.title}”`}
+            onClose={closeReschedule}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                handlers.onReschedule(relativeISO(1, now));
+                closeReschedule();
+              }}
+            >
+              Tomorrow
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                handlers.onReschedule(relativeISO(2, now));
+                closeReschedule();
+              }}
+            >
+              In 2 days
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                handlers.onReschedule(nextWeekdayISO(1, now));
+                closeReschedule();
+              }}
+            >
+              Next Monday
+            </button>
+            <div className="menu-date">
+              <label htmlFor={`pick-${task.id}`}>Pick a date</label>
+              <input
+                id={`pick-${task.id}`}
+                type="date"
+                value={pickDate}
+                onChange={(event) => setPickDate(event.target.value)}
+                min={relativeISO(0, now)}
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!pickDate}
                 onClick={() => {
-                  handlers.onReschedule(relativeISO(1, now));
-                  setRescheduleOpen(false);
+                  handlers.onReschedule(pickDate);
+                  closeReschedule();
                 }}
               >
-                Tomorrow
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  handlers.onReschedule(relativeISO(2, now));
-                  setRescheduleOpen(false);
-                }}
-              >
-                In 2 days
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  handlers.onReschedule(nextWeekdayISO(1, now));
-                  setRescheduleOpen(false);
-                }}
-              >
-                Next Monday
-              </button>
-              <div className="menu-date">
-                <label htmlFor={`pick-${task.id}`}>Pick a date</label>
-                <input
-                  id={`pick-${task.id}`}
-                  type="date"
-                  value={pickDate}
-                  onChange={(event) => setPickDate(event.target.value)}
-                  min={relativeISO(0, now)}
-                />
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={!pickDate}
-                  onClick={() => {
-                    handlers.onReschedule(pickDate);
-                    setRescheduleOpen(false);
-                  }}
-                >
-                  Set date
-                </Button>
-              </div>
+                Set date
+              </Button>
             </div>
-          ) : null}
+          </MenuPopover>
         </div>
-        <div className="menu-wrap" ref={menuRef}>
+        <div className="menu-wrap" ref={menuAnchor}>
           <IconButton
             label={`More actions for “${task.title}”`}
             icon={Ellipsis}
@@ -219,66 +226,69 @@ export function TaskCard({
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           />
-          {menuOpen ? (
-            <div className="menu menu-right" role="menu">
-              {!completed ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    handlers.onSnooze();
-                    setMenuOpen(false);
-                  }}
-                >
-                  <Bell size={14} /> Snooze 15m
-                </button>
-              ) : null}
+          <MenuPopover
+            open={menuOpen}
+            anchorRef={menuAnchor}
+            label={`More actions for “${task.title}”`}
+            onClose={closeMenu}
+          >
+            {!completed ? (
               <button
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  handlers.onEdit();
-                  setMenuOpen(false);
+                  handlers.onSnooze();
+                  closeMenu();
                 }}
               >
-                <Pencil size={14} /> Edit
+                <Bell size={14} /> Snooze 15m
               </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                handlers.onEdit();
+                closeMenu();
+              }}
+            >
+              <Pencil size={14} /> Edit
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                handlers.onToggleComplete();
+                closeMenu();
+              }}
+            >
+              {completed ? <RotateCcw size={14} /> : <Check size={14} />}
+              {completed ? 'Reopen task' : 'Complete'}
+            </button>
+            {!completed ? (
               <button
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  handlers.onToggleComplete();
-                  setMenuOpen(false);
+                  handlers.onToggleBlocked();
+                  closeMenu();
                 }}
               >
-                {completed ? <RotateCcw size={14} /> : <Check size={14} />}
-                {completed ? 'Reopen task' : 'Complete'}
+                <Flag size={14} /> {task.blocked ? 'Unblock' : 'Mark blocked'}
               </button>
-              {!completed ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    handlers.onToggleBlocked();
-                    setMenuOpen(false);
-                  }}
-                >
-                  <Flag size={14} /> {task.blocked ? 'Unblock' : 'Mark blocked'}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                role="menuitem"
-                className="danger"
-                onClick={() => {
-                  handlers.onDelete();
-                  setMenuOpen(false);
-                }}
-              >
-                <Trash size={14} /> Delete
-              </button>
-            </div>
-          ) : null}
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="danger"
+              onClick={() => {
+                handlers.onDelete();
+                closeMenu();
+              }}
+            >
+              <Trash size={14} /> Delete
+            </button>
+          </MenuPopover>
         </div>
       </div>
       {elapsedMinutes > 0 ? <p className="sr-only">{elapsedMinutes} minutes tracked on this task</p> : null}

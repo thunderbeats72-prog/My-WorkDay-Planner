@@ -46,7 +46,7 @@ import { forecastTask } from '../lib/forecast';
 import { nextWorkingISO, rehearsalFor } from '../lib/rehearsal';
 import { suggestFocus } from '../lib/focus';
 import { parseQuickAdd } from '../lib/quickAdd';
-import { dictationErrorText, dictationSupported, startDictation, type Dictation } from '../lib/speech';
+import { useDictation } from '../hooks/useDictation';
 import { dayVibe } from '../lib/vibe';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
@@ -95,11 +95,13 @@ export function TodayPage({
 }) {
   const [quickTitle, setQuickTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState<Priority>(settings.defaultPriority);
-  const [dictating, setDictating] = useState(false);
-  const [dictationNote, setDictationNote] = useState<string | null>(null);
-  const dictationRef = useRef<Dictation | null>(null);
-  const quickBaseRef = useRef('');
   const quickInputRef = useRef<HTMLInputElement | null>(null);
+  const dictation = useDictation({
+    value: quickTitle,
+    onChange: setQuickTitle,
+    lang: settings.dictationLang,
+    onFinish: () => quickInputRef.current?.focus(),
+  });
   const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
   const [rehearsalDismissed, setRehearsalDismissed] = useState(false);
   const [focusSkip, setFocusSkip] = useState(0);
@@ -241,45 +243,6 @@ export function TodayPage({
     return () => window.clearTimeout(timer);
   }, [seedSeen]);
 
-  const toggleDictation = () => {
-    if (dictating) {
-      dictationRef.current?.stop();
-      return;
-    }
-    if (!dictationSupported()) {
-      setDictationNote('This browser cannot dictate — type the line instead.');
-      return;
-    }
-    const base = quickTitle.trim();
-    quickBaseRef.current = quickTitle;
-    setDictationNote('Listening…');
-    setDictating(true);
-    const compose = (heard: string) => {
-      const prefix = base ? `${base} ` : '';
-      setQuickTitle(`${prefix}${heard}`.replace(/\s+/g, ' ').trimStart());
-    };
-    try {
-      dictationRef.current = startDictation({
-        onPartial: compose,
-        onFinal: (text) => {
-          compose(text);
-          setDictationNote('Heard — check the chips, then press Enter.');
-        },
-        onError: (kind) => {
-          setDictationNote(dictationErrorText(kind));
-        },
-        onEnd: () => {
-          setDictating(false);
-          dictationRef.current = null;
-          quickInputRef.current?.focus();
-        },
-      });
-    } catch {
-      setDictating(false);
-      setDictationNote(dictationErrorText('unknown'));
-    }
-  };
-
   return (
     <div className="page today-page">
       <section className="hero" data-tod={timeOfDay}>
@@ -387,7 +350,7 @@ export function TodayPage({
           id="quick-add-input"
           ref={quickInputRef}
           className="quick-add-input"
-          placeholder={dictating ? 'Listening…' : 'Add a task — press Enter'}
+          placeholder={dictation.listening ? 'Listening…' : 'Add a task — press Enter'}
           autoComplete="off"
           value={quickTitle}
           aria-describedby="quick-add-help"
@@ -401,17 +364,21 @@ export function TodayPage({
             }
           }}
         />
-        {dictationSupported() ? (
+        {dictation.supported ? (
           <button
             type="button"
-            className={`quick-dictate ${dictating ? 'is-listening' : ''}`.trim()}
-            aria-label={dictating ? 'Stop dictating' : 'Dictate a task'}
-            aria-pressed={dictating}
-            title={dictating ? 'Stop listening' : 'Speak the task — the parser reads dates, times and #tags as you talk'}
-            onClick={toggleDictation}
+            className={`quick-dictate ${dictation.listening ? 'is-listening' : ''}`.trim()}
+            aria-label={dictation.listening ? 'Stop dictating' : 'Dictate a task'}
+            aria-pressed={dictation.listening}
+            title={
+              dictation.listening
+                ? 'Stop listening and keep what was heard'
+                : 'Speak the task — dates, times, priorities and durations are read as you talk'
+            }
+            onClick={dictation.toggle}
           >
             <Mic size={16} aria-hidden="true" />
-            {dictating ? <span className="quick-dictate-live" aria-hidden="true" /> : null}
+            {dictation.listening ? <span className="quick-dictate-live" aria-hidden="true" /> : null}
           </button>
         ) : null}
         <select
@@ -449,10 +416,18 @@ export function TodayPage({
               </span>
             </>
           ) : null}
-          {dictationNote && !quickPreview.tokens.length ? (
-            <p className={`quick-note ${dictating ? 'is-listening' : ''}`.trim()} role={dictating ? 'status' : undefined}>
+          {dictation.error ? (
+            <p className="quick-note is-error" role="alert">
               <Mic size={11} aria-hidden="true" />
-              {dictationNote}
+              {dictation.error}
+            </p>
+          ) : dictation.note && (!quickPreview.tokens.length || dictation.listening) ? (
+            <p
+              className={`quick-note ${dictation.listening ? 'is-listening' : ''}`.trim()}
+              role={dictation.listening ? 'status' : undefined}
+            >
+              <Mic size={11} aria-hidden="true" />
+              {dictation.note}
             </p>
           ) : (
             <p className="quick-tip">

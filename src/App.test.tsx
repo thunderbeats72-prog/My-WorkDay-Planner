@@ -157,7 +157,10 @@ describe('My Workday Planner app', () => {
     const cardScope = within(card);
 
     await user.click(cardScope.getByRole('button', { name: /Reschedule/ }));
-    await user.click(within(card).getByRole('menuitem', { name: 'Tomorrow' }));
+    /* The menu is portalled to <body> on purpose — inside the card its z-index
+       was trapped under the fixed bottom bar on a phone — so it is found at
+       document level, not inside the card. */
+    await user.click(screen.getByRole('menuitem', { name: 'Tomorrow' }));
     await waitFor(() => {
       expect(cardScope.getByText(/Due tomorrow/)).toBeTruthy();
     });
