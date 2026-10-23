@@ -1,6 +1,8 @@
 import type { GraphRef, Settings } from './types';
+import type { BusyInterval } from './engine';
+import { toISODate } from './dates';
 
-export const GRAPH_SCOPES = ['User.Read', 'Mail.Read', 'Chat.ReadBasic', 'ChatMessage.Read'];
+export const GRAPH_SCOPES = ['User.Read', 'Mail.Read', 'Chat.ReadBasic', 'ChatMessage.Read', 'Calendars.Read'];
 export const GRAPH_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 export const GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 export const GRAPH_ME_URL = 'https://graph.microsoft.com/v1.0/me';
@@ -201,17 +203,21 @@ export async function completeGraphSignIn(clientId: string): Promise<GraphToken>
   return token;
 }
 
-export function describeGraphError(status: number, source: 'mail' | 'chat', detail: string): string {
+export function describeGraphError(status: number, source: 'mail' | 'chat' | 'calendar', detail: string): string {
   if (status === 401) return 'Microsoft sign-in expired (401). Please reconnect in Settings.';
   if (status === 403) {
-    return source === 'chat'
-      ? 'Teams chat read was refused (403) — your admin may need to grant consent for Chat.ReadBasic / ChatMessage.Read.'
-      : 'Mail read was refused (403) — your admin may need to grant Mail.Read consent.';
+    if (source === 'chat') {
+      return 'Teams chat read was refused (403) — your admin may need to grant consent for Chat.ReadBasic / ChatMessage.Read.';
+    }
+    if (source === 'calendar') {
+      return 'Calendar read was refused (403) — reconnect Microsoft in Settings to grant the Calendars.Read scope (it was added after the first connection).';
+    }
+    return 'Mail read was refused (403) — your admin may need to grant Mail.Read consent.';
   }
-  return `${source === 'mail' ? 'Mail' : 'Teams chat'} request failed (${status}). ${detail.slice(0, 200)}`;
+  return `${source === 'mail' ? 'Mail' : source === 'calendar' ? 'Calendar' : 'Teams chat'} request failed (${status}). ${detail.slice(0, 200)}`;
 }
 
-async function graphGet<T>(url: string, token: GraphToken, source: 'mail' | 'chat'): Promise<T> {
+async function graphGet<T>(url: string, token: GraphToken, source: 'mail' | 'chat' | 'calendar'): Promise<T> {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },
   });
@@ -327,4 +333,81 @@ export async function fetchGraphHighlights(token: GraphToken): Promise<GraphFetc
 
   items.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   return { items, errors, account, fetchedAt: new Date().toISOString() };
+}
+
+/** One local day of calendarView, padded to UTC bounds Graph accepts. */
+export function graphCalendarViewUrl(dateISO: string): string {
+  const startUtc = `${dateISO}T00:00:00Z`;
+  const parsed = new Date(`${dateISO}T00:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + 1);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const endUtc = `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())}T00:00:00Z`;
+  const params = new URLSearchParams({
+    startDateTime: startUtc,
+    endDateTime: endUtc,
+    $top: '50',
+    $select: 'id,subject,start,end,isAllDay,showAs',
+  });
+  return `https://graph.microsoft.com/v1.0/me/calendarView?${params.toString()}`;
+}
+
+interface CalendarResponse {
+  value?: Array<{
+    id?: string;
+    subject?: string;
+    isAllDay?: boolean;
+    showAs?: string;
+    start?: { dateTime?: string };
+    end?: { dateTime?: string };
+  }>;
+}
+
+export interface CalendarFetchResult {
+  /** Timed, non-free events on `dateISO`, as minutes-of-day. */
+  items: BusyInterval[];
+  /** Honest failure text (scope, consent, network) — never a silent zero. */
+  error: string | null;
+  fetchedAt: string;
+}
+
+/**
+ * Calendar truth (#10): today's meetings as busy intervals the scheduler must
+ * not schedule into. Never throws — a missing scope yields a readable error
+ * instead of pretending the day is free.
+ */
+export async function fetchDayMeetings(token: GraphToken, dateISO: string): Promise<CalendarFetchResult> {
+  try {
+    const response = await fetch(graphCalendarViewUrl(dateISO), {
+      headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      return { items: [], error: describeGraphError(response.status, 'calendar', detail), fetchedAt: new Date().toISOString() };
+    }
+    const data = (await response.json()) as CalendarResponse;
+    const items: BusyInterval[] = [];
+    for (const event of data.value ?? []) {
+      if (!event.start?.dateTime || !event.end?.dateTime) continue;
+      if (event.isAllDay) continue; // an all-day banner is not a timed block
+      if (event.showAs === 'free') continue;
+      const start = new Date(event.start.dateTime);
+      const end = new Date(event.end.dateTime);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) continue;
+      if (toISODate(start) !== dateISO) continue; // keep only this local day
+      items.push({
+        id: event.id ?? `evt_${start.getTime()}`,
+        title: event.subject?.trim() || '(no subject)',
+        start: start.getHours() * 60 + start.getMinutes(),
+        end: end.getHours() * 60 + end.getMinutes(),
+      });
+    }
+    items.sort((a, b) => a.start - b.start);
+    return { items, error: null, fetchedAt: new Date().toISOString() };
+  } catch (error) {
+    return {
+      items: [],
+      error: error instanceof Error ? error.message : 'Could not reach Microsoft Graph for your calendar.',
+      fetchedAt: new Date().toISOString(),
+    };
+  }
 }

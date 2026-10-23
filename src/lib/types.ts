@@ -125,8 +125,10 @@ export interface ScheduleBlock {
   title: string;
   start: number;
   end: number;
-  kind: 'focus' | 'break' | 'buffer';
+  kind: 'focus' | 'break' | 'buffer' | 'meeting';
   learned?: boolean;
+  /** Why this block sits where it does (energy placement, calendar fact). */
+  reason?: string;
 }
 
 export interface PriorityMeta {

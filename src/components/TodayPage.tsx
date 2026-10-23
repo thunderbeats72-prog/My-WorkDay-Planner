@@ -20,7 +20,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import type { Priority } from '../lib/types';
+import type { Priority, Task } from '../lib/types';
 import { PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import {
   countdownLabel,
@@ -39,9 +39,9 @@ import {
   taskDueAt,
   todayISO,
 } from '../lib/dates';
-import { buildDayPlan } from '../lib/engine';
-import type { ReminderItem } from '../lib/engine';
-import { deadlineRisk, learnDurations } from '../lib/ml';
+import { buildDayPlan, diffDayPlans } from '../lib/engine';
+import type { BusyInterval, EnergyCurve, PlanShift, ReminderItem } from '../lib/engine';
+import { buildInsights, deadlineRisk, learnDurations } from '../lib/ml';
 import { forecastTask } from '../lib/forecast';
 import { nextWorkingISO, rehearsalFor } from '../lib/rehearsal';
 import { suggestFocus } from '../lib/focus';
@@ -64,6 +64,7 @@ export function TodayPage({
   addToast,
   online,
   graphCard,
+  meetings,
   reminders,
   notificationsPermission,
   onRequestNotifications,
@@ -77,6 +78,8 @@ export function TodayPage({
   onDraftSeedConsumed,
 }: CommonPageProps & {
   graphCard: ReactNode;
+  /** Today's calendar meetings (minutes of day) that block capacity. */
+  meetings: BusyInterval[];
   reminders: ReminderItem[];
   notificationsPermission: string;
   onRequestNotifications: () => void;
@@ -103,7 +106,29 @@ export function TodayPage({
   const today = todayISO(now);
   const openTasks = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
   const learned = learnDurations(tasks, timer.sessions).learned;
-  const plan = buildDayPlan(tasks, settings, now, { learned });
+  const insights = buildInsights(tasks, timer.sessions);
+  const energy: EnergyCurve | null =
+    insights.sharpestHour || insights.slumpHour
+      ? {
+          sharpestHour: insights.sharpestHour?.hour ?? null,
+          slumpHour: insights.slumpHour?.hour ?? null,
+          sharpestMinutes: insights.sharpestHour?.minutes,
+          slumpMinutes: insights.slumpHour?.minutes,
+        }
+      : null;
+  const plan = buildDayPlan(tasks, settings, now, { learned, energy, busy: meetings });
+
+  // Live day reflow (#9): when the task set changes, show the human-visible
+  // diff against the plan that the previous task set produced at the same
+  // clock — render-adjust pattern (guarded, same component, no effects).
+  const [reflow, setReflow] = useState<PlanShift[] | null>(null);
+  const [prevPlanTasks, setPrevPlanTasks] = useState<Task[]>(tasks);
+  if (prevPlanTasks !== tasks) {
+    const previousPlan = buildDayPlan(prevPlanTasks, settings, now, { learned, energy, busy: meetings });
+    const shifts = diffDayPlans(previousPlan, plan);
+    setPrevPlanTasks(tasks);
+    if (shifts.length > 0) setReflow(shifts);
+  }
   const capacity = plan.capacityMinutes;
   const planned = plan.plannedMinutes;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -112,9 +137,15 @@ export function TodayPage({
   const workingToday = settings.workingDays.includes(now.getDay());
   // Free time is the smaller of uncommitted capacity and the hours actually
   // left — at 17:00 there is an hour, not the whole morning's remainder.
+  // Meetings still ahead count against capacity too (calendar truth).
   const minutesLeft = Math.max(0, endMinutes - nowMinutes);
+  const meetingMinutesLeft = plan.blocks
+    .filter((block) => block.kind === 'meeting' && block.end > nowMinutes)
+    .reduce((sum, block) => sum + (block.end - Math.max(block.start, nowMinutes)), 0);
   const freeMinutes =
-    workdayOver || !workingToday ? 0 : Math.max(0, Math.min(capacity - planned, minutesLeft));
+    workdayOver || !workingToday
+      ? 0
+      : Math.max(0, Math.min(capacity - planned - meetingMinutesLeft, minutesLeft));
   const completedToday = tasks.filter(
     (task) => task.status === 'completed' && task.completedAt && task.completedAt.slice(0, 10) === today,
   ).length;
@@ -844,6 +875,40 @@ export function TodayPage({
         </div>
 
         <aside className="dashboard-side">
+          {reflow && reflow.length > 0 ? (
+            <div className="reflow-notice" role="status" aria-label="Plan re-flowed">
+              <div className="reflow-head">
+                <RefreshCw size={14} aria-hidden="true" />
+                <strong>
+                  {reflow.length} task{reflow.length === 1 ? '' : 's'} re-flowed live
+                </strong>
+                <Button size="sm" variant="ghost" onClick={() => setReflow(null)}>
+                  Got it
+                </Button>
+              </div>
+              <p className="fine-print">
+                The rest of today re-planned itself after a change. Honest autopilot — nothing was dropped, and the
+                queue below still shows what didn’t fit:
+              </p>
+              <ul className="reflow-list">
+                {reflow.slice(0, 4).map((shift) => (
+                  <li key={`${shift.kind}-${shift.taskId}`}>
+                    <span className="reflow-title">{shift.title}</span>{' '}
+                    <span className="reflow-detail">
+                      {shift.kind === 'moved'
+                        ? `${shift.from} → ${shift.to}`
+                        : shift.kind === 'queued'
+                          ? `left the timeline (was planned ${shift.from})`
+                          : `pulled in at ${shift.to}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {reflow.length > 4 ? (
+                <p className="fine-print">+{reflow.length - 4} more — full plan below.</p>
+              ) : null}
+            </div>
+          ) : null}
           <section className="card plan-card">
             <div className="section-head">
               <h2>Today's plan</h2>
@@ -852,10 +917,12 @@ export function TodayPage({
             <ProgressBar value={percent(planned, capacity)} label="Planned capacity" />
             <p className="fine-print">
               {formatDuration(planned)} planned · {formatDuration(freeMinutes)} free · {plan.queued.length} queued
+              {plan.busyMinutes > 0 ? ` · ${formatDuration(plan.busyMinutes)} in meetings` : ''}
               {learned.factors && Object.keys(learned.factors).length > 0
                 ? ` · estimates corrected ×${Object.values(learned.factors).join(', ×')}`
                 : ''}
             </p>
+            {plan.energyNote ? <p className="fine-print energy-note">{plan.energyNote}</p> : null}
             <ul className="mini-timeline">
               {plan.blocks.slice(0, 8).map((block) => {
                 const live = workingToday && nowMinutes >= block.start && nowMinutes < block.end;
@@ -864,7 +931,7 @@ export function TodayPage({
                     <span>
                       {String(Math.floor(block.start / 60)).padStart(2, '0')}:{String(block.start % 60).padStart(2, '0')}
                     </span>
-                    <p>
+                    <p title={block.reason}>
                       {block.title}
                       {block.learned ? (
                         <em className="mini-learned" title="Length comes from your completed work, not the estimate">

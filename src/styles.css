@@ -1797,6 +1797,11 @@ a.btn {
   font-size: 11px;
 }
 
+.mini-block.meeting {
+  border-left-color: var(--accent-ice, #6aa9cf);
+  background: color-mix(in srgb, var(--accent-ice, #6aa9cf) 8%, transparent);
+}
+
 .mini-block span {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -19773,4 +19778,59 @@ body[data-private='true'] .att-photo-open img {
   align-items: center;
   gap: 6px;
   font-weight: 600;
+}
+
+/* ---------- Energy curve note ---------- */
+.energy-note {
+  margin-top: 6px;
+}
+
+/* ---------- Live day reflow (#9) ---------- */
+
+.reflow-notice {
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px 14px;
+}
+
+.reflow-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reflow-head strong {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+}
+
+.reflow-head svg {
+  color: var(--primary);
+}
+
+.reflow-notice .fine-print {
+  margin: 6px 0 0;
+}
+
+.reflow-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.reflow-title {
+  font-weight: 600;
+}
+
+.reflow-detail {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }

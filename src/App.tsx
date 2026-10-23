@@ -45,12 +45,13 @@ import {
   wasDelivered,
 } from './lib/notifications';
 import type { AppNotification } from './lib/notifications';
-import type { DayPlan, LearnedDurations, ParsedDraft, ReminderItem } from './lib/engine';
+import type { BusyInterval, DayPlan, LearnedDurations, ParsedDraft, ReminderItem } from './lib/engine';
 import {
   beginGraphSignIn,
   cleanGraphRedirectUrl,
   clearGraphToken,
   completeGraphSignIn,
+  fetchDayMeetings,
   fetchGraphHighlights,
   graphRedirectPending,
   loadGraphCache,
@@ -186,6 +187,7 @@ export default function App() {
   const [graphAccount, setGraphAccount] = useState<GraphAccount | null>(null);
   const [graphErrors, setGraphErrors] = useState<string[]>([]);
   const [graphBusy, setGraphBusy] = useState(false);
+  const [meetings, setMeetings] = useState<BusyInterval[]>([]);
   const graphRedirectHandled = useRef(false);
   const [notificationPermission, requestNotificationPermission] = useNotificationPermission();
   const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
@@ -1026,13 +1028,18 @@ export default function App() {
       setGraphBusy(true);
       setGraphErrors([]);
       try {
-        const result = await fetchGraphHighlights(token);
+        // Mail/chat highlights and today's calendar truth in one round trip.
+        const [result, calendar] = await Promise.all([
+          fetchGraphHighlights(token),
+          fetchDayMeetings(token, todayISO()),
+        ]);
         setGraphItems(result.items);
-        setGraphErrors(result.errors);
+        setMeetings(calendar.items);
+        setGraphErrors(calendar.error ? [...result.errors, calendar.error] : result.errors);
         setGraphAccount(result.account);
         setGraphFetchedAt(result.fetchedAt);
         saveGraphCache({ fetchedAt: result.fetchedAt, items: result.items });
-        if (result.errors.some((message) => message.includes('401'))) {
+        if ([...result.errors, calendar.error ?? ''].some((message) => message.includes('401'))) {
           clearGraphToken();
           setGraphToken(null);
         }
@@ -1057,6 +1064,19 @@ export default function App() {
     autoCheckedGraph.current = true;
     void checkGraph(token);
   }, [graphToken, checkGraph]);
+
+  // A session that crosses midnight must not keep yesterday's meetings.
+  const lastMeetingDay = useRef(todayISO());
+  useEffect(() => {
+    const day = todayISO();
+    if (day === lastMeetingDay.current) return;
+    lastMeetingDay.current = day;
+    const token = graphToken ?? loadGraphToken();
+    if (!token) return;
+    void fetchDayMeetings(token, day).then((calendar) => {
+      setMeetings(calendar.items);
+    });
+  }, [graphToken, now]);
 
   const createTaskFromHighlight = useCallback(
     async (item: GraphHighlight) => {
@@ -1472,6 +1492,7 @@ export default function App() {
           <TodayPage
             {...common}
             graphCard={graphCard}
+            meetings={meetings}
             reminders={activeReminders}
             notificationsPermission={notificationPermission}
             onRequestNotifications={() => void handleRequestNotifications()}

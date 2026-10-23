@@ -390,6 +390,8 @@ export interface WorkingHourInsight {
 
 export interface ReportInsights {
   sharpestHour: WorkingHourInsight | null;
+  /** The hour with the fewest tracked minutes — only when the spread is real. */
+  slumpHour: WorkingHourInsight | null;
   bias: EstimateBias[];
   durations: DurationInsight[];
   hasEnoughData: boolean;
@@ -449,9 +451,18 @@ export function buildInsights(tasks: Task[], sessions: TimeSession[]): ReportIns
   for (const [hour, minutes] of byHour) {
     if (!sharpestHour || minutes > sharpestHour.minutes) sharpestHour = { hour, minutes };
   }
+  // A "slowest hour" only means something when more than one hour has data —
+  // with a single hour, sharpest and slump would be the same number.
+  let slumpHour: WorkingHourInsight | null = null;
+  if (byHour.size >= 2) {
+    for (const [hour, minutes] of byHour) {
+      if (!slumpHour || minutes < slumpHour.minutes) slumpHour = { hour, minutes };
+    }
+  }
 
   return {
     sharpestHour,
+    slumpHour,
     bias: bias.sort((a, b) => Math.abs(b.differencePct) - Math.abs(a.differencePct)),
     durations,
     hasEnoughData: bias.length > 0 || sessions.length >= 3,
