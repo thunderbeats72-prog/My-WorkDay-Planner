@@ -11,7 +11,6 @@ import {
   Search,
   Settings as SettingsIcon,
   ListChecks,
-  ClipboardList,
   Wifi,
 } from 'lucide-react';
 import type { PageId, Task } from '../lib/types';
@@ -24,7 +23,6 @@ const PAGE_ICONS: Record<PageId, IconComponent> = {
   today: House,
   tasks: CalendarClock,
   completed: CircleCheck,
-  daily: ClipboardList,
   reports: ChartColumn,
   settings: SettingsIcon,
 };

@@ -21,7 +21,7 @@ npx -y pnpm@10 lint
 - Time tracking: Start/Pause/Resume/Complete, one active session, timestamp-based elapsed time persisted in IndexedDB so it recovers after refresh
 - Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per deadline, and clickable straight into the task
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
-- Daily update: an optional note when completing a task, and a one-tap "Generate Daily Report" for any date — completed struck through, pending plain, notes after their task, WhatsApp/Markdown/plain text, one saved update per day
+- Daily update, as a tab inside Reports: an optional note when completing a task, and a one-tap "Generate Daily Report" for any date — completed struck through, pending plain, notes after their task, WhatsApp/Markdown/plain text, one saved update per day
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
 - **Attachments:** photos (compressed in-browser) and 15-second voice memos on any task, with playback in the task panel — stored locally first, and synced across devices as their own rows, never inside the snapshot
 
@@ -859,22 +859,30 @@ day, so a screenshot of yesterday's chat lands in yesterday's update instead of
 this evening's. The heading of each draft is editable, and a draft whose text
 already exists is flagged as a duplicate rather than silently added twice.
 
-### The phone bar had four columns and five destinations
+### The daily update is a tab in Reports, not a sixth destination
 
-Adding "Daily" to the bottom navigation without touching the grid would have
-wrapped Reports onto a second row — a taller bar over the bottom of every page,
-while the layout still reserved 76px. The phone bar is now
-`repeat(5, minmax(0, 1fr))` at 320px, its labels truncate instead of pushing the
-row wider, and the slot reads "Daily" so it fits one line. Everything else on
-the new screens reuses the existing mobile rules: full-width cards, 16px fields
-(no iOS zoom), action rows that wrap rather than overflow, and one-column format
-cards below 620px.
+It shipped briefly as its own page in the navigation, which made the app ask a
+question it should not: *is this the weekly report or the daily one?* They are
+two views of the same saved work. **Reports** now carries a two-tab switch —
+**Daily update** first, **Weekly summary** second — and the sidebar is back to
+five destinations with the phone bar back to its four (Today, My Tasks,
+Completed, Reports). The daily view keeps everything it had: the date bar, the
+format picker, the editable preview, copy, and saved history; only its page
+header went away, replaced by a one-line toolbar inside the view.
+
+`#/daily` is kept as a redirect. It was a real URL for one release, so old
+bookmarks still open Reports with the daily tab selected — the App reads the
+hash once at boot, before the router normalises it to `#/reports`.
+
+Everything on these screens reuses the existing mobile rules: full-width cards,
+16px fields (no iOS zoom), action rows that wrap rather than overflow, tabs that
+split the width evenly at 620px, and one-column format cards below 620px.
 
 Batch gates: `tsc -b` clean, `npm run build` clean, lint at the 21-warning
-baseline with 0 errors, and the suite grew 460 → 500 tests
-(`dailyReport.test.ts` 23, `DailyReportFlow.test.tsx` 13 end-to-end through the
-real App and fake IndexedDB, `db.test.ts` 4 for the storage and backup
-round-trip).
+baseline with 0 errors, and the suite grew 460 → 503 tests
+(`dailyReport.test.ts` 23, `DailyReportFlow.test.tsx` 16 end-to-end through the
+real App and fake IndexedDB — including which tab Reports opens on — plus
+`db.test.ts` 4 for the storage and backup round-trip).
 
 ### Honest limits of this batch
 

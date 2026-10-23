@@ -370,3 +370,51 @@ describe('the daily update', () => {
     expect(screen.queryByText('Old task')).toBeNull();
   }, 30000);
 });
+
+describe('where the daily update lives', () => {
+  it('is a tab inside Reports, not a destination of its own', async () => {
+    await seed([task({ id: 't1', title: 'Task one' })]);
+    const user = userEvent.setup();
+    /* Opened the way the sidebar opens it. */
+    await openApp('#/reports');
+
+    const weekly = screen.getByRole('tab', { name: 'Weekly summary' });
+    const daily = screen.getByRole('tab', { name: 'Daily update' });
+    expect(weekly.getAttribute('aria-selected')).toBe('true');
+    expect(daily.getAttribute('aria-selected')).toBe('false');
+    // The weekly report itself is still there.
+    expect(screen.getByText('Completed by category')).toBeTruthy();
+    expect(screen.queryByLabelText('Report text')).toBeNull();
+
+    await user.click(daily);
+    expect((await screen.findByLabelText('Report text')) as HTMLTextAreaElement).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Daily update' }).getAttribute('aria-selected')).toBe('true');
+    // And it can go back, with the weekly charts rebuilt.
+    await user.click(weekly);
+    expect(screen.queryByLabelText('Report text')).toBeNull();
+    expect(screen.getByText('Completed by category')).toBeTruthy();
+  }, 30000);
+
+  it('still honours an old #/daily bookmark', async () => {
+    await seed([task({ id: 't1', title: 'Task one' })]);
+    await openApp('#/daily');
+
+    expect(await screen.findByLabelText('Report text')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Daily update' }).getAttribute('aria-selected')).toBe('true');
+    // The URL is normalised to the page that owns the tab.
+    expect(window.location.hash).toBe('#/reports');
+  }, 30000);
+
+  it('has no fifth destination in the sidebar or the phone bar', async () => {
+    await seed([task({ id: 't1', title: 'Task one' })]);
+    await openApp('#/reports');
+
+    const sidebar = document.querySelector('.sidebar') as HTMLElement;
+    const labels = Array.from(sidebar.querySelectorAll('.nav-item')).map((item) => item.textContent?.trim() ?? '');
+    expect(labels.some((label) => /daily/i.test(label))).toBe(false);
+
+    const nav = screen.getByRole('navigation', { name: 'Mobile navigation' });
+    const mobile = Array.from(nav.querySelectorAll('button')).map((button) => button.textContent?.trim());
+    expect(mobile).toEqual(['Today', 'My Tasks', 'Completed', 'Reports']);
+  }, 30000);
+});

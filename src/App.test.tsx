@@ -407,13 +407,14 @@ describe('live behaviour', () => {
     Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
   }, 30000);
 
-  it('keeps the sidebar to six destinations with no repeated icons', async () => {
+  it('keeps the sidebar to five destinations with no repeated icons', async () => {
     render(<StrictMode><App /></StrictMode>);
     await screen.findByPlaceholderText(/Add a task — press Enter/, {}, { timeout: 15000 });
     const sidebar = document.querySelector('.sidebar') as HTMLElement;
     const icons = Array.from(sidebar.querySelectorAll('.nav-item svg')).map((svg) => svg.innerHTML);
-    // Today, My Tasks, Completed, Daily update, Reports + Settings.
-    expect(icons.length).toBe(6);
+    // Today, My Tasks, Completed, Reports + Settings — the daily update is a
+    // tab inside Reports, so it adds no destination.
+    expect(icons.length).toBe(5);
     expect(new Set(icons).size).toBe(icons.length);
   }, 30000);
 });
