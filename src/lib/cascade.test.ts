@@ -354,3 +354,26 @@ describe('zoom is pinned, text is not', () => {
     expect(lastDeclaration('html', 'text-size-adjust', phone)).toBe('100%');
   });
 });
+
+describe('an empty state sits in the middle of its card', () => {
+  it('centres the block, not only the words inside it', () => {
+    /* The bug: a late rule caps `.empty-state` at 46ch. In a wide card a capped
+       flex item cannot stretch, so the leftover space went to the right and the
+       icon and sentence hugged the left edge while their own text stayed
+       centred — visibly off-centre on a laptop, and the same on a phone where
+       the card is wider than 46ch. */
+    for (const view of [phone, laptop, tablet]) {
+      expect(lastDeclaration('.empty-state', 'margin-left', view)).toBe('auto');
+      expect(lastDeclaration('.empty-state', 'margin-right', view)).toBe('auto');
+    }
+  });
+
+  it('keeps the cap that makes the sentence readable', () => {
+    expect(lastDeclaration('.empty-state', 'max-width', laptop)).toBe('46ch');
+  });
+
+  it('leaves the plan strip\u2019s own empty line left-aligned', () => {
+    // `.plan-empty` is a line inside the plan body, not a centred block.
+    expect(lastDeclaration('.plan-empty', 'margin-left', laptop)).toBeUndefined();
+  });
+});

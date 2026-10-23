@@ -83,7 +83,6 @@ import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { TodayPage } from './components/TodayPage';
 import { MyTasksPage } from './components/MyTasksPage';
 import { CompletedPage } from './components/CompletedPage';
-import { DailyReportPage } from './components/DailyReportPage';
 import { CompletionDialog } from './components/CompletionDialog';
 import { ReportsPage } from './components/ReportsPage';
 import { ImportPage } from './components/ImportPage';
@@ -109,11 +108,13 @@ import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
 import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun, ScanText } from 'lucide-react';
 
-const PAGE_IDS: PageId[] = ['today', 'tasks', 'completed', 'daily', 'reports', 'settings'];
+const PAGE_IDS: PageId[] = ['today', 'tasks', 'completed', 'reports', 'settings'];
 const SIDEBAR_STORAGE_KEY = 'workday.sidebar';
 
 /* Bookmarks and old links keep working: the retired pages were merged into
-   My Tasks, so every alias lands there. */
+   My Tasks, so every alias lands there. The daily update is now the first tab
+   of Reports, so `#/daily` opens Reports — ReportsPage reads the hash once at
+   mount and selects that tab. */
 const LEGACY_HASHES: Record<string, PageId> = {
   inbox: 'tasks',
   schedule: 'tasks',
@@ -121,6 +122,7 @@ const LEGACY_HASHES: Record<string, PageId> = {
   import: 'tasks',
   planner: 'tasks',
   tasks: 'tasks',
+  daily: 'reports',
 };
 
 function pageFromHash(): PageId {
@@ -178,6 +180,12 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  /* `#/daily` was a destination of its own until the daily update moved into
+     Reports. Read once at boot — the router normalises the hash on mount — so
+     an old bookmark still opens that tab. */
+  const [reportsView] = useState<'daily' | 'weekly'>(() =>
+    window.location.hash.replace(/^#\/?/, '').trim() === 'daily' ? 'daily' : 'weekly',
+  );
   const [panelId, setPanelId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
   /* Which task is waiting for its optional completion note. The dialog never
@@ -1649,17 +1657,17 @@ export default function App() {
         );
       case 'completed':
         return <CompletedPage {...common} />;
-      case 'daily':
+      case 'reports':
         return (
-          <DailyReportPage
+          <ReportsPage
             {...common}
+            initialView={reportsView}
+            onExportCsv={handleExportCsv}
             onSaveCompletionNote={saveCompletionNote}
             onSaveTaskNote={saveTaskNote}
             onComplete={(id) => void toggleComplete(id)}
           />
         );
-      case 'reports':
-        return <ReportsPage {...common} onExportCsv={handleExportCsv} />;
       case 'settings':
         return (
           <SettingsPage

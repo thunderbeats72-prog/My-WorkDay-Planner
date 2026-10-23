@@ -26,10 +26,9 @@ import { deleteReport, listReports, saveReport } from '../lib/db';
 import { uniqueId } from '../lib/db';
 import type { CommonPageProps } from './pageProps';
 import { Badge, Button, ConfirmDialog, EmptyState } from './ui';
-import { PageHeader } from './Shell';
 
 /**
- * The end-of-day update, generated from saved work.
+ * The end-of-day update, generated from saved work — a view inside Reports.
  *
  * Two decisions shape this page:
  *
@@ -41,7 +40,7 @@ import { PageHeader } from './Shell';
  *     changing shows a banner with an explicit Regenerate, and regenerating
  *     asks for confirmation when the current text has unsaved edits.
  */
-export function DailyReportPage({
+export function DailyReportView({
   tasks,
   now,
   taskHandlers,
@@ -182,27 +181,28 @@ export function DailyReportPage({
   }, [tasks, savedReports, dateISO]);
 
   return (
-    <div className="page daily-page">
-      <PageHeader
-        eyebrow="End of day"
-        title="Daily update"
-        description="Built from the tasks you saved and the notes you wrote. Nothing here is typed twice — edit a note in the planner and the next preview has it."
-        actions={
-          <>
-            <Button variant="secondary" icon={Save} onClick={() => void save()} disabled={!hasTasks}>
-              Save this update
-            </Button>
-            <Button
-              variant="primary"
-              icon={Copy}
-              onClick={() => void copy(text, 'Daily update')}
-              disabled={!hasTasks && !edited}
-            >
-              Copy update
-            </Button>
-          </>
-        }
-      />
+    <div className="daily-view">
+      {/* The page header belongs to Reports; this is the toolbar that page
+          offers while the daily view is open. */}
+      <div className="daily-toolbar">
+        <p className="daily-toolbar-note">
+          Built from the tasks you saved and the notes you wrote. Nothing here is typed twice — edit a note in the
+          planner and the next preview has it.
+        </p>
+        <div className="daily-toolbar-actions">
+          <Button variant="secondary" icon={Save} onClick={() => void save()} disabled={!hasTasks}>
+            Save this update
+          </Button>
+          <Button
+            variant="primary"
+            icon={Copy}
+            onClick={() => void copy(text, 'Daily update')}
+            disabled={!hasTasks && !edited}
+          >
+            Copy update
+          </Button>
+        </div>
+      </div>
 
       <section className="card daily-date-bar" aria-label="Reporting date">
         <div className="daily-date-nav">

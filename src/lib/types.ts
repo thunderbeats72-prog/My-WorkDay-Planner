@@ -20,7 +20,7 @@ export type ReminderStatus = 'queued' | 'done' | 'dismissed';
 
 export type Theme = 'light' | 'dark' | 'system';
 
-export type PageId = 'today' | 'tasks' | 'completed' | 'daily' | 'reports' | 'settings';
+export type PageId = 'today' | 'tasks' | 'completed' | 'reports' | 'settings';
 
 export interface GraphRef {
   kind: 'mail' | 'chat';
