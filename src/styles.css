@@ -17466,6 +17466,16 @@ textarea.input,
   max-width: 46ch;
 }
 
+/* ...but only the empty state is a centred block. In a wide card its
+   `max-width` stops it stretching, and the leftover space then goes to the
+   right, so the icon and its sentence sat against the left edge — the one
+   thing a centred empty state must not do. Auto margins centre the block
+   itself; `.plan-empty` stays a left-aligned line inside the plan body. */
+.empty-state {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* Report tables: numbers right, text left, and the row survives a narrow pane. */
 .table-wrap {
   border-radius: var(--radius-card);

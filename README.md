@@ -878,11 +878,25 @@ Everything on these screens reuses the existing mobile rules: full-width cards,
 16px fields (no iOS zoom), action rows that wrap rather than overflow, tabs that
 split the width evenly at 620px, and one-column format cards below 620px.
 
+### The empty state was centred, but not centred
+
+The "Nothing on this day yet" card sat against the left edge of a wide preview
+while its own words were centred inside it. Two rules were both true: the
+component is a centred flex column, and a later rule caps it at `46ch` for
+readability. A capped flex item cannot stretch, so the space it did not fill
+went to the **right** — the block hugged the left edge and only its text looked
+centred. `.empty-state` now carries `margin-left/right: auto`, so the block
+itself is centred at every width; `.plan-empty`, which is a line inside the plan
+body rather than a centred block, is deliberately left alone. `cascade.test.ts`
+asserts the computed margins on phone, tablet and laptop, and that the 46ch cap
+still applies.
+
 Batch gates: `tsc -b` clean, `npm run build` clean, lint at the 21-warning
-baseline with 0 errors, and the suite grew 460 → 503 tests
+baseline with 0 errors, and the suite grew 460 → 506 tests
 (`dailyReport.test.ts` 23, `DailyReportFlow.test.tsx` 16 end-to-end through the
 real App and fake IndexedDB — including which tab Reports opens on — plus
-`db.test.ts` 4 for the storage and backup round-trip).
+`db.test.ts` 4 for the storage and backup round-trip and three cascade
+assertions for the empty-state centring).
 
 ### Honest limits of this batch
 
