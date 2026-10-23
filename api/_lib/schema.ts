@@ -39,6 +39,25 @@ async function run(): Promise<void> {
       updated_at  timestamptz not null default now()
     )
   `;
+  // Photos and voice memos live in their own rows, never inside the snapshot:
+  // one camera photo in a jsonb payload would blow past the request-body cap
+  // and take every device's sync down with it. One file, one row, one request.
+  await sql()`
+    create table if not exists planner_attachments (
+      user_id     text not null references app_users (id) on delete cascade,
+      id          text not null,
+      task_id     text not null,
+      kind        text not null,
+      mime        text not null,
+      size        integer not null,
+      duration_ms integer,
+      created_at  timestamptz not null default now(),
+      updated_at  timestamptz not null default now(),
+      data        bytea not null,
+      primary key (user_id, id)
+    )
+  `;
+  await sql()`create index if not exists planner_attachments_user on planner_attachments (user_id, updated_at)`;
 }
 
 /**

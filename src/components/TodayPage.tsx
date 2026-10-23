@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlarmClock,
   Bell,
@@ -9,6 +9,7 @@ import {
   Clock,
   Flame,
   Inbox,
+  Mic,
   MoonStar,
   PieChart,
   Play,
@@ -19,14 +20,16 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import type { Priority } from '../lib/types';
+import type { Priority, Task } from '../lib/types';
 import { PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import {
   countdownLabel,
   daysFromNow,
   formatDateLong,
+  formatDateShort,
   formatDuration,
   formatWeekday,
+  fromISODate,
   isTaskOverdue,
   formatDayNumber,
   greetingForHour,
@@ -36,11 +39,14 @@ import {
   taskDueAt,
   todayISO,
 } from '../lib/dates';
-import { buildDayPlan } from '../lib/engine';
-import type { ReminderItem } from '../lib/engine';
-import { deadlineRisk, learnDurations } from '../lib/ml';
+import { buildDayPlan, diffDayPlans } from '../lib/engine';
+import type { BusyInterval, EnergyCurve, PlanShift, ReminderItem } from '../lib/engine';
+import { buildInsights, deadlineRisk, learnDurations } from '../lib/ml';
+import { forecastTask } from '../lib/forecast';
+import { nextWorkingISO, rehearsalFor } from '../lib/rehearsal';
 import { suggestFocus } from '../lib/focus';
 import { parseQuickAdd } from '../lib/quickAdd';
+import { dictationErrorText, dictationSupported, startDictation, type Dictation } from '../lib/speech';
 import { dayVibe } from '../lib/vibe';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
@@ -58,6 +64,7 @@ export function TodayPage({
   addToast,
   online,
   graphCard,
+  meetings,
   reminders,
   notificationsPermission,
   onRequestNotifications,
@@ -67,8 +74,12 @@ export function TodayPage({
   onResumeTask,
   onCompleteReminder,
   onDeferTodayToTomorrow,
+  draftSeed,
+  onDraftSeedConsumed,
 }: CommonPageProps & {
   graphCard: ReactNode;
+  /** Today's calendar meetings (minutes of day) that block capacity. */
+  meetings: BusyInterval[];
   reminders: ReminderItem[];
   notificationsPermission: string;
   onRequestNotifications: () => void;
@@ -78,15 +89,46 @@ export function TodayPage({
   onResumeTask: (taskId: string) => void;
   onCompleteReminder: (taskId: string) => void;
   onDeferTodayToTomorrow: () => void;
+  /** A line shared from another app, waiting to land in Quick add. */
+  draftSeed: string | null;
+  onDraftSeedConsumed: () => void;
 }) {
   const [quickTitle, setQuickTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState<Priority>(settings.defaultPriority);
+  const [dictating, setDictating] = useState(false);
+  const [dictationNote, setDictationNote] = useState<string | null>(null);
+  const dictationRef = useRef<Dictation | null>(null);
+  const quickBaseRef = useRef('');
+  const quickInputRef = useRef<HTMLInputElement | null>(null);
   const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
+  const [rehearsalDismissed, setRehearsalDismissed] = useState(false);
   const [focusSkip, setFocusSkip] = useState(0);
   const today = todayISO(now);
   const openTasks = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
   const learned = learnDurations(tasks, timer.sessions).learned;
-  const plan = buildDayPlan(tasks, settings, now, { learned });
+  const insights = buildInsights(tasks, timer.sessions);
+  const energy: EnergyCurve | null =
+    insights.sharpestHour || insights.slumpHour
+      ? {
+          sharpestHour: insights.sharpestHour?.hour ?? null,
+          slumpHour: insights.slumpHour?.hour ?? null,
+          sharpestMinutes: insights.sharpestHour?.minutes,
+          slumpMinutes: insights.slumpHour?.minutes,
+        }
+      : null;
+  const plan = buildDayPlan(tasks, settings, now, { learned, energy, busy: meetings });
+
+  // Live day reflow (#9): when the task set changes, show the human-visible
+  // diff against the plan that the previous task set produced at the same
+  // clock — render-adjust pattern (guarded, same component, no effects).
+  const [reflow, setReflow] = useState<PlanShift[] | null>(null);
+  const [prevPlanTasks, setPrevPlanTasks] = useState<Task[]>(tasks);
+  if (prevPlanTasks !== tasks) {
+    const previousPlan = buildDayPlan(prevPlanTasks, settings, now, { learned, energy, busy: meetings });
+    const shifts = diffDayPlans(previousPlan, plan);
+    setPrevPlanTasks(tasks);
+    if (shifts.length > 0) setReflow(shifts);
+  }
   const capacity = plan.capacityMinutes;
   const planned = plan.plannedMinutes;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -95,9 +137,15 @@ export function TodayPage({
   const workingToday = settings.workingDays.includes(now.getDay());
   // Free time is the smaller of uncommitted capacity and the hours actually
   // left — at 17:00 there is an hour, not the whole morning's remainder.
+  // Meetings still ahead count against capacity too (calendar truth).
   const minutesLeft = Math.max(0, endMinutes - nowMinutes);
+  const meetingMinutesLeft = plan.blocks
+    .filter((block) => block.kind === 'meeting' && block.end > nowMinutes)
+    .reduce((sum, block) => sum + (block.end - Math.max(block.start, nowMinutes)), 0);
   const freeMinutes =
-    workdayOver || !workingToday ? 0 : Math.max(0, Math.min(capacity - planned, minutesLeft));
+    workdayOver || !workingToday
+      ? 0
+      : Math.max(0, Math.min(capacity - planned - meetingMinutesLeft, minutesLeft));
   const completedToday = tasks.filter(
     (task) => task.status === 'completed' && task.completedAt && task.completedAt.slice(0, 10) === today,
   ).length;
@@ -163,11 +211,73 @@ export function TodayPage({
   const focusRunning = Boolean(focus && timer.isRunning(focus.task.id));
   const focusPaused = Boolean(focus && timer.hasPausedSession(focus.task.id));
   const showWrapUp = workdayOver && dueToday.length > 0 && !wrapUpDismissed;
+  const rehearsal = workdayOver && workingToday && !rehearsalDismissed
+    ? rehearsalFor(tasks, settings, now, learned)
+    : null;
+  const rehearsalNeedsAttention =
+    rehearsal !== null && (rehearsal.overflowMinutes > 0 || rehearsal.atRisk.length > 0);
 
   const submitQuickAdd = () => {
     if (!quickTitle.trim()) return;
     onQuickAdd(quickPreview.draft);
     setQuickTitle('');
+  };
+
+  // A share from another app (the PWA share sheet) lands as a seed line.
+  // The value is adopted during render (React's adjust-state-on-prop-change
+  // pattern — no effect writes state here); the effect only reports it
+  // consumed, and a separate one only moves focus.
+  const [seedSeen, setSeedSeen] = useState<string | null>(draftSeed);
+  if (draftSeed !== seedSeen) {
+    setSeedSeen(draftSeed);
+    if (draftSeed && draftSeed.trim()) setQuickTitle(draftSeed);
+  }
+  useEffect(() => {
+    if (draftSeed) onDraftSeedConsumed();
+  }, [draftSeed, onDraftSeedConsumed]);
+  useEffect(() => {
+    if (!seedSeen || !seedSeen.trim()) return;
+    const timer = window.setTimeout(() => quickInputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timer);
+  }, [seedSeen]);
+
+  const toggleDictation = () => {
+    if (dictating) {
+      dictationRef.current?.stop();
+      return;
+    }
+    if (!dictationSupported()) {
+      setDictationNote('This browser cannot dictate — type the line instead.');
+      return;
+    }
+    const base = quickTitle.trim();
+    quickBaseRef.current = quickTitle;
+    setDictationNote('Listening…');
+    setDictating(true);
+    const compose = (heard: string) => {
+      const prefix = base ? `${base} ` : '';
+      setQuickTitle(`${prefix}${heard}`.replace(/\s+/g, ' ').trimStart());
+    };
+    try {
+      dictationRef.current = startDictation({
+        onPartial: compose,
+        onFinal: (text) => {
+          compose(text);
+          setDictationNote('Heard — check the chips, then press Enter.');
+        },
+        onError: (kind) => {
+          setDictationNote(dictationErrorText(kind));
+        },
+        onEnd: () => {
+          setDictating(false);
+          dictationRef.current = null;
+          quickInputRef.current?.focus();
+        },
+      });
+    } catch {
+      setDictating(false);
+      setDictationNote(dictationErrorText('unknown'));
+    }
   };
 
   return (
@@ -275,8 +385,9 @@ export function TodayPage({
         <Plus size={18} aria-hidden="true" />
         <input
           id="quick-add-input"
+          ref={quickInputRef}
           className="quick-add-input"
-          placeholder="Add a task — press Enter"
+          placeholder={dictating ? 'Listening…' : 'Add a task — press Enter'}
           autoComplete="off"
           value={quickTitle}
           aria-describedby="quick-add-help"
@@ -290,6 +401,19 @@ export function TodayPage({
             }
           }}
         />
+        {dictationSupported() ? (
+          <button
+            type="button"
+            className={`quick-dictate ${dictating ? 'is-listening' : ''}`.trim()}
+            aria-label={dictating ? 'Stop dictating' : 'Dictate a task'}
+            aria-pressed={dictating}
+            title={dictating ? 'Stop listening' : 'Speak the task — the parser reads dates, times and #tags as you talk'}
+            onClick={toggleDictation}
+          >
+            <Mic size={16} aria-hidden="true" />
+            {dictating ? <span className="quick-dictate-live" aria-hidden="true" /> : null}
+          </button>
+        ) : null}
         <select
           className="input quick-add-priority"
           aria-label="Priority for quick add"
@@ -324,6 +448,12 @@ export function TodayPage({
                 Saves for {quickPreview.draft.dueDate ? relativeDayLabel(quickPreview.draft.dueDate, now) : 'no date'}
               </span>
             </>
+          ) : null}
+          {dictationNote && !quickPreview.tokens.length ? (
+            <p className={`quick-note ${dictating ? 'is-listening' : ''}`.trim()} role={dictating ? 'status' : undefined}>
+              <Mic size={11} aria-hidden="true" />
+              {dictationNote}
+            </p>
           ) : (
             <p className="quick-tip">
               <CornerDownLeft size={12} aria-hidden="true" />
@@ -355,6 +485,76 @@ export function TodayPage({
               Keep {dueToday.length === 1 ? 'it' : 'them'} today
             </Button>
           </div>
+        </section>
+      ) : null}
+
+      {rehearsalNeedsAttention && rehearsal ? (
+        <section className="card rehearsal-card" aria-label="Tomorrow rehearsal">
+          <div className="section-head">
+            <h2>
+              <MoonStar size={16} /> Tomorrow rehearsal · {formatDateShort(rehearsal.date)}
+            </h2>
+            <Button size="sm" variant="ghost" onClick={() => setRehearsalDismissed(true)}>
+              Noted
+            </Button>
+          </div>
+          <p className={`rehearsal-status ${rehearsal.overflowMinutes > 0 ? 'is-over' : ''}`}>
+            {rehearsal.overflowMinutes > 0 ? (
+              <>
+                Over capacity by <strong>{formatDuration(rehearsal.overflowMinutes)}</strong> —{' '}
+                {formatDuration(rehearsal.demandMinutes)} of dated work in a{' '}
+                {formatDuration(rehearsal.capacityMinutes)} day (learned durations applied).
+              </>
+            ) : (
+              <>
+                Fits with room: {formatDuration(rehearsal.demandMinutes)} of dated work in a{' '}
+                {formatDuration(rehearsal.capacityMinutes)} day — but deadlines below have no slot yet.
+              </>
+            )}
+          </p>
+          {rehearsal.atRisk.length > 0 ? (
+            <div className="rehearsal-block">
+              <h3 className="rehearsal-subhead">Due {formatDateShort(rehearsal.date)} with no slot</h3>
+              <ul className="rehearsal-list">
+                {rehearsal.atRisk.map(({ task }) => (
+                  <li key={task.id}>
+                    <button type="button" className="risk-title" onClick={() => taskHandlers(task).onOpen()}>
+                      {task.title}
+                    </button>
+                    <Badge tone="danger">deadline</Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {rehearsal.suggestedDefers.length > 0 ? (
+            <div className="rehearsal-block">
+              <h3 className="rehearsal-subhead">
+                Move tonight to make it fit — each counts as an honest deferral
+              </h3>
+              <ul className="rehearsal-list">
+                {rehearsal.suggestedDefers.map((item) => (
+                  <li key={item.task.id}>
+                    <button type="button" className="risk-title" onClick={() => taskHandlers(item.task).onOpen()}>
+                      {item.task.title}
+                    </button>
+                    <span className="muted">{formatDuration(item.estimateMinutes)}</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        taskHandlers(item.task).onReschedule(
+                          nextWorkingISO(settings, fromISODate(rehearsal.date)),
+                        )
+                      }
+                    >
+                      Move
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -511,10 +711,17 @@ export function TodayPage({
                       label={`Risk score for ${task.title}`}
                     />
                     <p className="fine-print">
-                      {risk.factors
-                        .filter((factor) => factor.points > 0)
-                        .map((factor) => factor.label)
-                        .join(' · ') || 'No risk factors recorded.'}
+                      {(() => {
+                        const fc = forecastTask({ task, tasks, settings, learned, now, runs: 400 });
+                        const line = risk.factors
+                          .filter((factor) => factor.points > 0)
+                          .map((factor) => factor.label)
+                          .join(' · ');
+                        if (!fc || fc.pOnTime === null) return line || 'No risk factors recorded.';
+                        return `${fc.pOnTime}% on time · median ${formatDateShort(
+                          fc.medianDate,
+                        )} — 400 sims. ${line}`;
+                      })()}
                     </p>
                   </li>
                 ))}
@@ -668,6 +875,40 @@ export function TodayPage({
         </div>
 
         <aside className="dashboard-side">
+          {reflow && reflow.length > 0 ? (
+            <div className="reflow-notice" role="status" aria-label="Plan re-flowed">
+              <div className="reflow-head">
+                <RefreshCw size={14} aria-hidden="true" />
+                <strong>
+                  {reflow.length} task{reflow.length === 1 ? '' : 's'} re-flowed live
+                </strong>
+                <Button size="sm" variant="ghost" onClick={() => setReflow(null)}>
+                  Got it
+                </Button>
+              </div>
+              <p className="fine-print">
+                The rest of today re-planned itself after a change. Honest autopilot — nothing was dropped, and the
+                queue below still shows what didn’t fit:
+              </p>
+              <ul className="reflow-list">
+                {reflow.slice(0, 4).map((shift) => (
+                  <li key={`${shift.kind}-${shift.taskId}`}>
+                    <span className="reflow-title">{shift.title}</span>{' '}
+                    <span className="reflow-detail">
+                      {shift.kind === 'moved'
+                        ? `${shift.from} → ${shift.to}`
+                        : shift.kind === 'queued'
+                          ? `left the timeline (was planned ${shift.from})`
+                          : `pulled in at ${shift.to}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {reflow.length > 4 ? (
+                <p className="fine-print">+{reflow.length - 4} more — full plan below.</p>
+              ) : null}
+            </div>
+          ) : null}
           <section className="card plan-card">
             <div className="section-head">
               <h2>Today's plan</h2>
@@ -676,7 +917,12 @@ export function TodayPage({
             <ProgressBar value={percent(planned, capacity)} label="Planned capacity" />
             <p className="fine-print">
               {formatDuration(planned)} planned · {formatDuration(freeMinutes)} free · {plan.queued.length} queued
+              {plan.busyMinutes > 0 ? ` · ${formatDuration(plan.busyMinutes)} in meetings` : ''}
+              {learned.factors && Object.keys(learned.factors).length > 0
+                ? ` · estimates corrected ×${Object.values(learned.factors).join(', ×')}`
+                : ''}
             </p>
+            {plan.energyNote ? <p className="fine-print energy-note">{plan.energyNote}</p> : null}
             <ul className="mini-timeline">
               {plan.blocks.slice(0, 8).map((block) => {
                 const live = workingToday && nowMinutes >= block.start && nowMinutes < block.end;
@@ -685,7 +931,14 @@ export function TodayPage({
                     <span>
                       {String(Math.floor(block.start / 60)).padStart(2, '0')}:{String(block.start % 60).padStart(2, '0')}
                     </span>
-                    <p>{block.title}</p>
+                    <p title={block.reason}>
+                      {block.title}
+                      {block.learned ? (
+                        <em className="mini-learned" title="Length comes from your completed work, not the estimate">
+                          learned
+                        </em>
+                      ) : null}
+                    </p>
                     {live ? <em className="mini-now">now</em> : null}
                   </li>
                 );

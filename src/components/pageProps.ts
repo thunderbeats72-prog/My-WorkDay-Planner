@@ -1,6 +1,7 @@
 import type { PageId, Settings, Task } from '../lib/types';
 import type { QuickAddDraft } from '../lib/quickAdd';
 import type { TimerApi } from '../hooks/useTimer';
+import type { GraphHighlight } from '../lib/graph';
 import type { TaskCardHandlers } from './TaskCard';
 import type { ToastTone } from './ui';
 
@@ -20,4 +21,6 @@ export interface CommonPageProps {
   onEditTask: (task: Task) => void;
   addToast: AddToast;
   online: boolean;
+  /** Cached Microsoft Graph highlights (mail + chat) for client briefs. */
+  graphHighlights: GraphHighlight[];
 }

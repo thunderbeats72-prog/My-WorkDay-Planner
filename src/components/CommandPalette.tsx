@@ -14,6 +14,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { PageId, Task } from '../lib/types';
+import type { QaAnswer } from '../lib/qa';
 import { NAV_ITEMS } from './Shell';
 import type { IconComponent } from './ui';
 import { Badge } from './ui';
@@ -44,6 +45,7 @@ export function CommandPalette({
   onOpenTask,
   onCheckGraph,
   onShowShortcuts,
+  onAsk,
 }: {
   open: boolean;
   tasks: Task[];
@@ -53,6 +55,8 @@ export function CommandPalette({
   onOpenTask: (id: string) => void;
   onCheckGraph: (() => void) | null;
   onShowShortcuts: () => void;
+  /** Local assistant Q&A (#13) — computed on-device from planner data. */
+  onAsk: (question: string) => QaAnswer;
 }) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -140,6 +144,11 @@ export function CommandPalette({
     setActive((current) => Math.min(current, Math.max(0, items.length - 1)));
   }, [items.length]);
 
+  const ask = useMemo(
+    () => (query.trim().length >= 3 ? onAsk(query.trim()) : null),
+    [query, onAsk],
+  );
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -178,8 +187,8 @@ export function CommandPalette({
           <input
             ref={inputRef}
             value={query}
-            placeholder="Jump to a page, add a task, or find work…"
-            aria-label="Search commands and tasks"
+            placeholder="Jump to a page, add a task — or ask about your data…"
+            aria-label="Search commands, tasks, or ask the local assistant"
             onChange={(event) => {
               setQuery(event.target.value);
               setActive(0);
@@ -201,8 +210,46 @@ export function CommandPalette({
           <kbd>Esc</kbd>
         </div>
         <div className="palette-results">
+          {ask ? (
+            <div className="palette-ask" role="status">
+              <p className="palette-group-label">
+                Local assistant ·{' '}
+                {ask.confidence === 'exact'
+                  ? 'computed from your data'
+                  : ask.confidence === 'closest'
+                    ? 'closest matches only'
+                    : 'not found in your data'}
+              </p>
+              <p className="palette-ask-text">{ask.text}</p>
+              {ask.citations.length > 0 ? (
+                <div className="palette-ask-cites">
+                  {ask.citations.map((citation, index) =>
+                    citation.taskId ? (
+                      <button
+                        key={`${citation.taskId}-${index}`}
+                        type="button"
+                        className="palette-cite"
+                        onClick={() => {
+                          onClose();
+                          onOpenTask(citation.taskId as string);
+                        }}
+                      >
+                        {citation.label}
+                      </button>
+                    ) : (
+                      <span key={`${citation.label}-${index}`} className="palette-cite">
+                        {citation.label}
+                      </span>
+                    ),
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {items.length === 0 ? (
-            <p className="palette-empty">No matches. Try a task title or a page name.</p>
+            <p className="palette-empty">
+              No matches. Try a task title or page name — or ask a question like “what's due today”.
+            </p>
           ) : null}
           {groups.map((group) => {
             const groupItems = items.filter((item) => item.group === group);

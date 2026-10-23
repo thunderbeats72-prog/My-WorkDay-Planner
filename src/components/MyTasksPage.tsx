@@ -3,6 +3,7 @@ import {
   CalendarClock,
   CalendarRange,
   ChevronDown,
+  Clock,
   Coffee,
   Flame,
   Info,
@@ -11,11 +12,23 @@ import {
   ScanText,
   Search,
   TriangleAlert,
+  Users,
 } from 'lucide-react';
-import { dayOffset, formatDuration, minutesToTime, todayISO } from '../lib/dates';
+import {
+  dayOffset,
+  formatDuration,
+  formatTimeAgo,
+  minutesToTime,
+  relativeDayLabel,
+  todayISO,
+} from '../lib/dates';
 import type { DayPlan } from '../lib/engine';
 import { buildDayPlan, scoreTask, summarisePlan } from '../lib/engine';
 import { learnDurations } from '../lib/ml';
+import { buildClientRadar } from '../lib/radar';
+import { followUpCadence, repliesFromHighlights } from '../lib/cadence';
+import { replyWindowFor, type ReplyWindow } from '../lib/replyWindow';
+import type { ClientMailResult } from '../lib/graph';
 import type { Task } from '../lib/types';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
@@ -42,15 +55,50 @@ export function MyTasksPage({
   onNewTask,
   onOpenImport,
   onApplyPlan,
+  addToast,
+  graphHighlights,
+  onFetchClientMail,
 }: CommonPageProps & {
   onOpenImport: () => void;
   onApplyPlan: (plan: DayPlan) => void;
+  /** Reply-window stats (#7) fetched on demand from Microsoft Graph. */
+  onFetchClientMail: (client: string) => Promise<ClientMailResult>;
 }) {
   const [scope, setScope] = useState<Scope>('all');
   const [sort, setSort] = useState<Sort>('smart');
   const [query, setQuery] = useState('');
   const [planOpen, setPlanOpen] = useState(true);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [briefOpen, setBriefOpen] = useState<string | null>(null);
+  const [replyWindows, setReplyWindows] = useState<Record<string, ReplyWindow | null>>({});
+  const [replyLoading, setReplyLoading] = useState<string | null>(null);
+
+  const briefs = useMemo(() => buildClientRadar(tasks, now, graphHighlights), [tasks, now, graphHighlights]);
+  const cadence = useMemo(() => {
+    const clients = [
+      ...new Set(
+        tasks
+          .filter((task) => task.client.trim() && task.deletedAt === null && task.status !== 'completed')
+          .map((task) => task.client.trim()),
+      ),
+    ];
+    return followUpCadence({ tasks, now, replies: repliesFromHighlights(graphHighlights, clients) });
+  }, [tasks, now, graphHighlights]);
+
+  const loadReplyWindow = async (client: string) => {
+    if (replyLoading !== null) return;
+    setReplyLoading(client);
+    try {
+      const result = await onFetchClientMail(client);
+      if (result.error) {
+        addToast(result.error, 'warning');
+        return;
+      }
+      setReplyWindows((current) => ({ ...current, [client]: replyWindowFor(client, result.messages, now) }));
+    } finally {
+      setReplyLoading(null);
+    }
+  };
 
   const today = todayISO(now);
   const openTasks = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
@@ -283,6 +331,149 @@ export function MyTasksPage({
             <p>Only real due dates count here — a suggested time passing never marks a task late.</p>
           </div>
         </div>
+      ) : null}
+
+      {/* ---- Client radar (#11 / #12 / #7) ---- */}
+      {briefs.length > 0 ? (
+        <section className="card radar-card" aria-label="Client radar">
+          <div className="section-head">
+            <h2>
+              <Users size={16} /> Client radar
+            </h2>
+            <Badge tone="neutral">
+              {briefs.length} client{briefs.length === 1 ? '' : 's'}
+            </Badge>
+          </div>
+          <div className="radar-grid">
+            {briefs.map((brief) => {
+              const actions = cadence.filter((action) => action.task.client.trim() === brief.client);
+              const windowLoaded = Object.prototype.hasOwnProperty.call(replyWindows, brief.client);
+              const windowValue = replyWindows[brief.client];
+              const expanded = briefOpen === brief.client;
+              return (
+                <article className="radar-brief" key={brief.client}>
+                  <button
+                    type="button"
+                    className="radar-toggle"
+                    aria-expanded={expanded}
+                    onClick={() => setBriefOpen(expanded ? null : brief.client)}
+                  >
+                    <span className="radar-name">Brief: {brief.client}</span>
+                    <span className="radar-counts">
+                      {brief.overdue > 0 ? <Badge tone="danger">{brief.overdue} late</Badge> : null}
+                      {brief.dueSoon > 0 ? <Badge tone="warning">{brief.dueSoon} due soon</Badge> : null}
+                      <Badge tone="neutral">{brief.openCount} open</Badge>
+                    </span>
+                    <ChevronDown size={15} className={expanded ? 'is-open' : ''} aria-hidden="true" />
+                  </button>
+                  {expanded ? (
+                    <div className="radar-detail">
+                      <p className="radar-meta">
+                        <CalendarClock size={13} aria-hidden="true" />
+                        {brief.nextDueDate
+                          ? `Next due ${relativeDayLabel(brief.nextDueDate, now)}`
+                          : 'No deadlines on file'}{' '}
+                        · {formatDuration(brief.estimatedMinutes)} of open work · priorities:{' '}
+                        {brief.priorities.join(', ')}
+                      </p>
+                      <ul className="radar-tasks">
+                        {brief.tasks.slice(0, 5).map((task) => (
+                          <li key={task.id}>
+                            <button type="button" className="risk-title" onClick={() => taskHandlers(task).onOpen()}>
+                              {task.title}
+                            </button>
+                            <span className="muted">
+                              {task.dueDate ? relativeDayLabel(task.dueDate, now) : 'no date'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {brief.mentions.length > 0 ? (
+                        <div className="radar-mentions">
+                          <h4>
+                            <Info size={13} aria-hidden="true" /> Mail mentions
+                          </h4>
+                          {brief.mentions.map((mention) => (
+                            <a
+                              key={mention.id}
+                              className="radar-mention"
+                              href={mention.webUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <strong>{mention.title}</strong>
+                              <span className="muted">
+                                {' '}
+                                · {mention.from} · {formatTimeAgo(mention.receivedAt, now)}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="fine-print">
+                          No cached mail mentions {brief.client} yet — highlights arrive with Connect/Refresh in
+                          Graph.
+                        </p>
+                      )}
+                      {actions.length > 0 ? (
+                        <div className="radar-cadence">
+                          <h4>Follow-up cadence</h4>
+                          {actions.map((action) => (
+                            <div className={`cadence-line level-${action.level}`} key={`${action.ruleId}-${action.task.id}`}>
+                              <Badge tone={action.level === 'escalate' ? 'danger' : 'warning'}>
+                                {action.level === 'escalate' ? 'Escalate' : 'Nudge'}
+                              </Badge>
+                              <p>{action.reason}</p>
+                              <Button size="sm" variant="ghost" onClick={() => taskHandlers(action.task).onOpen()}>
+                                Open
+                              </Button>
+                            </div>
+                          ))}
+                          <p className="fine-print">
+                            Rules run on this device from task dates and your cached mail — no server, no AI.
+                          </p>
+                        </div>
+                      ) : null}
+                      <div className="radar-window">
+                        <h4>
+                          <Clock size={13} aria-hidden="true" /> Best time to follow up
+                        </h4>
+                        {windowLoaded ? (
+                          windowValue ? (
+                            <p className="window-hint">
+                              {windowValue.hint}{' '}
+                              <span className="muted">
+                                (last seen {formatTimeAgo(windowValue.lastAt, now)})
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="fine-print">
+                              Not enough mail mentioning {brief.client} yet — the window needs at least 3 messages,
+                              so this stays honest instead of guessed.
+                            </p>
+                          )
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={replyLoading !== null}
+                            onClick={() => void loadReplyWindow(brief.client)}
+                          >
+                            {replyLoading === brief.client ? 'Checking…' : 'Check reply window'}
+                          </Button>
+                        )}
+                        <p className="fine-print">
+                          Window = middle 50% of when this client’s messages actually arrive, from your Microsoft
+                          mail.
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </section>
       ) : null}
 
       {/* ---- Filters ---- */}

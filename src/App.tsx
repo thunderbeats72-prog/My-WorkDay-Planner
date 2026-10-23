@@ -45,12 +45,15 @@ import {
   wasDelivered,
 } from './lib/notifications';
 import type { AppNotification } from './lib/notifications';
-import type { DayPlan, ParsedDraft, ReminderItem } from './lib/engine';
+import type { BusyInterval, DayPlan, LearnedDurations, ParsedDraft, ReminderItem } from './lib/engine';
 import {
   beginGraphSignIn,
   cleanGraphRedirectUrl,
   clearGraphToken,
   completeGraphSignIn,
+  fetchClientMail,
+  type ClientMailResult,
+  fetchDayMeetings,
   fetchGraphHighlights,
   graphRedirectPending,
   loadGraphCache,
@@ -61,6 +64,7 @@ import type { GraphAccount, GraphHighlight, GraphToken } from './lib/graph';
 import { tasksToCsv } from './lib/reports';
 import { useTimer } from './hooks/useTimer';
 import { useAmbientEffects } from './hooks/useAmbientEffects';
+import { usePrivacyBlur } from './hooks/usePrivacyBlur';
 import {
   useMediaQuery,
   useNotificationPermission,
@@ -92,6 +96,11 @@ import { loadShelf, recordSticker, saveShelf, stickerCaption, stickerFor, streak
 import { markNudged, nudgeFor, wasNudged } from './lib/assistant';
 import { haptic } from './lib/haptics';
 import type { QuickAddDraft } from './lib/quickAdd';
+import { sharedToQuickText, takeSharedPayload } from './lib/shareInbox';
+import { buildFoldedIcs } from './lib/ics';
+import { learnDurations } from './lib/ml';
+import { answerQuestion } from './lib/qa';
+import type { QaAnswer } from './lib/qa';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
@@ -168,6 +177,9 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
+  // A line shared from another app (PWA share sheet) waits here until Today's
+  // Quick add has taken it — consumed exactly once, see shareInbox.ts.
+  const [quickSeed, setQuickSeed] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [confettiKey, setConfettiKey] = useState(0);
   const [stickerMoment, setStickerMoment] = useState<StickerMoment | null>(null);
@@ -179,11 +191,13 @@ export default function App() {
   const [graphAccount, setGraphAccount] = useState<GraphAccount | null>(null);
   const [graphErrors, setGraphErrors] = useState<string[]>([]);
   const [graphBusy, setGraphBusy] = useState(false);
+  const [meetings, setMeetings] = useState<BusyInterval[]>([]);
   const graphRedirectHandled = useRef(false);
   const [notificationPermission, requestNotificationPermission] = useNotificationPermission();
   const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
 
   useAmbientEffects(!loading);
+  usePrivacyBlur(settings.privacyBlur);
 
   const online = useOnline();
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
@@ -354,6 +368,24 @@ export default function App() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // The share sheet parked a line at /share (service worker); take it once
+  // and land on Today with Quick add already holding it.
+  useEffect(() => {
+    let cancelled = false;
+    void takeSharedPayload().then((payload) => {
+      if (cancelled) return;
+      const text = payload ? sharedToQuickText(payload) : '';
+      if (!text) return;
+      setQuickSeed(text);
+      setPage('today');
+      window.setTimeout(() => window.scrollTo({ top: 0 }), 60);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const consumeQuickSeed = useCallback(() => setQuickSeed(null), []);
 
   useEffect(() => {
     if (window.location.hash !== `#/${page}`) {
@@ -881,6 +913,15 @@ export default function App() {
     addToast('Task CSV downloaded.', 'success');
   }, [addToast]);
 
+  const handleExportIcs = useCallback(() => {
+    downloadFile(
+      `workday-plan-${todayISO()}.ics`,
+      buildFoldedIcs(tasksRef.current, { now: new Date() }),
+      'text/calendar',
+    );
+    addToast('Calendar file downloaded — import or subscribe to it in any calendar app.', 'success');
+  }, [addToast]);
+
   const handleImportBackup = useCallback(
     async (file: File) => {
       let parsed: unknown;
@@ -991,13 +1032,18 @@ export default function App() {
       setGraphBusy(true);
       setGraphErrors([]);
       try {
-        const result = await fetchGraphHighlights(token);
+        // Mail/chat highlights and today's calendar truth in one round trip.
+        const [result, calendar] = await Promise.all([
+          fetchGraphHighlights(token),
+          fetchDayMeetings(token, todayISO()),
+        ]);
         setGraphItems(result.items);
-        setGraphErrors(result.errors);
+        setMeetings(calendar.items);
+        setGraphErrors(calendar.error ? [...result.errors, calendar.error] : result.errors);
         setGraphAccount(result.account);
         setGraphFetchedAt(result.fetchedAt);
         saveGraphCache({ fetchedAt: result.fetchedAt, items: result.items });
-        if (result.errors.some((message) => message.includes('401'))) {
+        if ([...result.errors, calendar.error ?? ''].some((message) => message.includes('401'))) {
           clearGraphToken();
           setGraphToken(null);
         }
@@ -1022,6 +1068,19 @@ export default function App() {
     autoCheckedGraph.current = true;
     void checkGraph(token);
   }, [graphToken, checkGraph]);
+
+  // A session that crosses midnight must not keep yesterday's meetings.
+  const lastMeetingDay = useRef(todayISO());
+  useEffect(() => {
+    const day = todayISO();
+    if (day === lastMeetingDay.current) return;
+    lastMeetingDay.current = day;
+    const token = graphToken ?? loadGraphToken();
+    if (!token) return;
+    void fetchDayMeetings(token, day).then((calendar) => {
+      setMeetings(calendar.items);
+    });
+  }, [graphToken, now]);
 
   const createTaskFromHighlight = useCallback(
     async (item: GraphHighlight) => {
@@ -1274,6 +1333,11 @@ export default function App() {
 
   const panelTask = panelId ? tasks.find((task) => task.id === panelId) ?? null : null;
 
+  const learned: LearnedDurations = useMemo(
+    () => learnDurations(tasks, timer.sessions).learned,
+    [tasks, timer.sessions],
+  );
+
   const counts: NavCounts = useMemo(() => {
     const open = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
     const today = todayISO(now);
@@ -1360,6 +1424,28 @@ export default function App() {
     [finishTimer, pauseTimer, requestDelete, rescheduleTask, resumeTask, snoozeTask, startTask, toggleBlocked, toggleComplete],
   );
 
+  /** Local assistant Q&A (#13) — pure function over local planner data. */
+  const handleAsk = useCallback(
+    (question: string): QaAnswer =>
+      answerQuestion({ question, tasks, settings, sessions: timer.sessions, now }),
+    [tasks, settings, timer.sessions, now],
+  );
+
+  /** On-demand per-client mail for reply-window stats (#7) — never throws. */
+  const handleFetchClientMail = useCallback(
+    async (client: string): Promise<ClientMailResult> => {
+      const token = graphToken ?? loadGraphToken();
+      if (!token) {
+        return {
+          messages: [],
+          error: 'Connect Microsoft in Settings first — reply windows come from your Microsoft mail.',
+        };
+      }
+      return fetchClientMail(token, client);
+    },
+    [graphToken],
+  );
+
   if (loading) {
     return (
       <div className="app-shell loading-shell">
@@ -1375,8 +1461,7 @@ export default function App() {
   }
 
   const common: CommonPageProps = {
-    tasks,
-    settings,
+    tasks,    settings,
     now,
     timer,
     taskHandlers,
@@ -1389,6 +1474,7 @@ export default function App() {
     },
     addToast,
     online,
+    graphHighlights: graphItems,
   };
 
   const graphConnected = Boolean(graphToken && graphToken.expiresAt > now.getTime());
@@ -1432,6 +1518,7 @@ export default function App() {
           <TodayPage
             {...common}
             graphCard={graphCard}
+            meetings={meetings}
             reminders={activeReminders}
             notificationsPermission={notificationPermission}
             onRequestNotifications={() => void handleRequestNotifications()}
@@ -1441,6 +1528,8 @@ export default function App() {
             onResumeTask={(taskId) => void resumeTask(taskId)}
             onCompleteReminder={(taskId) => void toggleComplete(taskId)}
             onDeferTodayToTomorrow={() => void deferTodayToTomorrow()}
+            draftSeed={quickSeed}
+            onDraftSeedConsumed={consumeQuickSeed}
           />
         );
       case 'tasks':
@@ -1449,6 +1538,7 @@ export default function App() {
             {...common}
             onOpenImport={() => setImportOpen(true)}
             onApplyPlan={applyPlan}
+            onFetchClientMail={handleFetchClientMail}
           />
         );
       case 'completed':
@@ -1464,6 +1554,7 @@ export default function App() {
             onExportBackup={() => void handleExportBackup()}
             onImportBackup={(file) => void handleImportBackup(file)}
             onExportCsv={handleExportCsv}
+            onExportIcs={handleExportIcs}
             onResetData={handleResetData}
             graph={{
               connected: graphConnected,
@@ -1601,6 +1692,7 @@ export default function App() {
         onOpenTask={(id) => setPanelId(id)}
         onCheckGraph={graphConnected ? () => void checkGraph() : null}
         onShowShortcuts={() => setShortcutsOpen(true)}
+        onAsk={handleAsk}
       />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <Modal
@@ -1622,6 +1714,7 @@ export default function App() {
         elapsedMs={panelTask ? timer.elapsedMsFor(panelTask.id) : 0}
         isRunning={panelTask ? timer.isRunning(panelTask.id) : false}
         isPaused={panelTask ? timer.hasPausedSession(panelTask.id) : false}
+        learned={learned}
         onClose={() => setPanelId(null)}
         onEdit={() => {
           if (!panelTask) return;
@@ -1636,6 +1729,7 @@ export default function App() {
         onToggleComplete={() => panelTask && void toggleComplete(panelTask.id)}
         onApplySuggestion={(input) => panelTask && void applySuggestion(panelTask.id, input)}
         onOpenTask={(id) => setPanelId(id)}
+        onAttachmentsChange={() => accountRef.current?.schedulePush()}
       />
       <TaskForm
         open={formState.open}

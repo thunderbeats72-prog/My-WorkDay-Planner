@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from './types';
 import {
   buildDayPlan,
   buildWeekSummary,
+  diffDayPlans,
   findDependencyCycle,
   findDuplicate,
   parseDuePhrase,
@@ -302,5 +303,167 @@ describe('dependency validation', () => {
     const b = makeTask({ id: 'b', dependencyIds: [] });
     expect(findDependencyCycle('b', ['a'], [a, b])).not.toBeNull();
     expect(findDependencyCycle('b', [], [a, b])).toBeNull();
+  });
+});
+
+describe('calendar meetings block capacity (#10)', () => {
+  const busy = [{ id: 'm1', title: 'Sync with Nova', start: 10 * 60, end: 11 * 60 }];
+
+  it('renders meetings as facts and never schedules across them', () => {
+    const tasks = [
+      makeTask({ id: 'a', estimatedMinutes: 240 }),
+      makeTask({ id: 'b', estimatedMinutes: 120 }),
+    ];
+    const plan = buildDayPlan(tasks, settings, WEDNESDAY, { busy });
+
+    const meeting = plan.blocks.find((block) => block.kind === 'meeting');
+    expect(meeting?.title).toBe('Sync with Nova');
+    expect(meeting?.start).toBe(600);
+    expect(meeting?.end).toBe(660);
+    expect(plan.busyMinutes).toBe(60);
+
+    for (const block of plan.blocks.filter((candidate) => candidate.kind === 'focus')) {
+      const overlapsMeeting = block.start < 11 * 60 && 10 * 60 < block.end;
+      expect(overlapsMeeting).toBe(false);
+    }
+  });
+
+  it('jumps the cursor over a meeting that starts when the day does', () => {
+    const plan = buildDayPlan([makeTask({ id: 'a', estimatedMinutes: 60 })], settings, WEDNESDAY, {
+      busy: [{ id: 'm0', title: 'Standup', start: 9 * 60, end: 9 * 60 + 30 }],
+    });
+    const firstFocus = plan.blocks.find((block) => block.kind === 'focus');
+    expect(firstFocus?.start).toBe(9 * 60 + 30);
+  });
+
+  it('merges overlapping meetings and never double-counts lunch', () => {
+    const plan = buildDayPlan([makeTask({ id: 'a', estimatedMinutes: 30 })], settings, WEDNESDAY, {
+      busy: [
+        { id: 'm1', title: 'Overlapping A', start: 10 * 60, end: 11 * 60 },
+        { id: 'm2', title: 'Overlapping B', start: 10 * 60 + 30, end: 11 * 60 + 30 },
+        { id: 'm3', title: 'Across lunch', start: 12 * 60 + 45, end: 13 * 60 + 15 },
+      ],
+    });
+    // 10:00–11:30 merged = 90m, plus 12:45–13:15 = 30m of which 15m sits in lunch.
+    expect(plan.busyMinutes).toBe(90 + 30 - 15);
+    const meetings = plan.blocks.filter((block) => block.kind === 'meeting');
+    expect(meetings).toHaveLength(2);
+  });
+
+  it('keeps meetings out of the lunch overlap in the timeline too', () => {
+    const plan = buildDayPlan([makeTask({ id: 'a', estimatedMinutes: 300 })], settings, WEDNESDAY, {
+      busy: [{ id: 'm', title: 'Lunch sync', start: 12 * 60 + 45, end: 13 * 60 + 15 }],
+    });
+    const lunch = plan.blocks.find((block) => block.kind === 'break');
+    const meeting = plan.blocks.find((block) => block.kind === 'meeting');
+    // Meeting block stays a raw calendar fact; capacity math subtracted lunch.
+    expect(meeting?.start).toBe(12 * 60 + 45);
+    expect(lunch?.start).toBe(13 * 60);
+    for (const block of plan.blocks.filter((candidate) => candidate.kind === 'focus')) {
+      const overlapsMeeting = block.start < 13 * 60 + 15 && 12 * 60 + 45 < block.end;
+      expect(overlapsMeeting).toBe(false);
+    }
+  });
+});
+
+describe('energy-curve placement (#8)', () => {
+  const curve = { sharpestHour: 10, slumpHour: 14, sharpestMinutes: 180, slumpMinutes: 12 };
+
+  it('moves deep work ahead of admin for the sharp hour, with a visible reason', () => {
+    const admin = makeTask({ id: 'admin', title: 'File invoices', category: 'admin', estimatedMinutes: 60 });
+    const deep = makeTask({ id: 'deep', title: 'Research competitors', category: 'research', estimatedMinutes: 60 });
+    const plan = buildDayPlan([admin, deep], settings, WEDNESDAY, { energy: curve });
+
+    const focus = plan.blocks.filter((block) => block.kind === 'focus');
+    expect(focus[0]?.taskId).toBe('deep');
+    expect(focus[0]?.reason).toContain('sharpest hour');
+    expect(focus[0]?.reason).toContain('10:00');
+    expect(plan.energyNote).toContain('sharpest 10:00');
+    expect(plan.energyNote).toContain('slowest 14:00');
+    expect(plan.energyNote).toContain('moved ahead of admin work');
+  });
+
+  it('deadlines beat energy: due-today admin keeps its scored place', () => {
+    const admin = makeTask({
+      id: 'admin',
+      title: 'Send compliance form',
+      category: 'admin',
+      estimatedMinutes: 60,
+      dueDate: todayISO(WEDNESDAY),
+    });
+    const deep = makeTask({ id: 'deep', title: 'Deep dive', category: 'research', estimatedMinutes: 60 });
+    const plan = buildDayPlan([admin, deep], settings, WEDNESDAY, { energy: curve });
+
+    const focus = plan.blocks.filter((block) => block.kind === 'focus');
+    expect(focus[0]?.taskId).toBe('admin');
+    expect(focus[1]?.reason).toBeUndefined();
+    // The curve still reports itself honestly even when it could not move anything.
+    expect(plan.energyNote).toContain('sharpest 10:00');
+  });
+
+  it('batches admin into the slump once the sharp hour has passed', () => {
+    const afternoon = new Date(2026, 9, 21, 14, 30, 0);
+    const deep = makeTask({ id: 'deep', title: 'Draft proposal', category: 'proposal', estimatedMinutes: 60 });
+    const admin = makeTask({ id: 'admin', title: 'Tidy inbox', category: 'email', estimatedMinutes: 60 });
+    const plan = buildDayPlan([deep, admin], settings, afternoon, { energy: curve });
+
+    const focus = plan.blocks.filter((block) => block.kind === 'focus');
+    expect(focus[0]?.taskId).toBe('admin');
+    expect(focus[0]?.reason).toContain('slowest hour');
+    expect(plan.energyNote).toContain('moved up');
+  });
+
+  it('changes nothing when no curve is given', () => {
+    const admin = makeTask({ id: 'admin', title: 'Admin', category: 'admin', estimatedMinutes: 60 });
+    const deep = makeTask({ id: 'deep', title: 'Research', category: 'research', estimatedMinutes: 60 });
+    const plan = buildDayPlan([admin, deep], settings, WEDNESDAY);
+    const focus = plan.blocks.filter((block) => block.kind === 'focus');
+    expect(focus[0]?.taskId).toBe('admin'); // pure score order
+    expect(plan.energyNote).toBeNull();
+    expect(focus[0]?.reason).toBeUndefined();
+  });
+});
+
+describe('diffDayPlans (#9)', () => {
+  it('shows the moves and the pull-in when urgent work lands mid-day', () => {
+    const a = makeTask({ id: 'a', title: 'Steady work', estimatedMinutes: 60 });
+    const b = makeTask({ id: 'b', title: 'More steady work', estimatedMinutes: 60 });
+    const before = buildDayPlan([a, b], settings, WEDNESDAY);
+
+    const urgent = makeTask({
+      id: 'urgent',
+      title: 'Client fire drill',
+      priority: 'critical',
+      estimatedMinutes: 60,
+      dueDate: todayISO(WEDNESDAY),
+    });
+    const after = buildDayPlan([a, b, urgent], settings, WEDNESDAY);
+
+    const shifts = diffDayPlans(before, after);
+    expect(shifts.some((shift) => shift.taskId === 'urgent' && shift.kind === 'scheduled')).toBe(true);
+    expect(shifts.some((shift) => shift.taskId === 'a' && shift.kind === 'moved')).toBe(true);
+    const movedA = shifts.find((shift) => shift.taskId === 'a' && shift.kind === 'moved');
+    expect(movedA?.from).toMatch(/^\d{2}:\d{2}$/);
+    expect(movedA?.to).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it('reports a task that fell out of the timeline', () => {
+    const a = makeTask({ id: 'a', estimatedMinutes: 60 });
+    const b = makeTask({ id: 'b', estimatedMinutes: 60 });
+    const before = buildDayPlan([a, b], settings, WEDNESDAY);
+    const blocked: Task = { ...b, blocked: true };
+    const after = buildDayPlan([a, blocked], settings, WEDNESDAY);
+
+    const shifts = diffDayPlans(before, after);
+    expect(shifts).toHaveLength(1);
+    expect(shifts[0]).toMatchObject({ taskId: 'b', kind: 'queued', from: expect.stringMatching(/^\d{2}:\d{2}$/), to: null });
+    expect(shifts[0]?.title).toBe(b.title);
+  });
+
+  it('stays empty for an unchanged plan', () => {
+    const tasks = [makeTask({ id: 'a', estimatedMinutes: 60 })];
+    const first = buildDayPlan(tasks, settings, WEDNESDAY);
+    const second = buildDayPlan(tasks, settings, WEDNESDAY);
+    expect(diffDayPlans(first, second)).toEqual([]);
   });
 });

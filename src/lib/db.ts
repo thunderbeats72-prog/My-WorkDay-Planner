@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { ReminderRecord, Settings, Task, TaskEvent, TimeSession } from './types';
+import type { AttachmentRecord } from './attachments';
 import { DEFAULT_SETTINGS } from './types';
 
 export const DB_NAME = 'bd-command-center';
@@ -10,6 +11,7 @@ export class PlannerDB extends Dexie {
   reminderRecords!: Table<ReminderRecord, string>;
   taskEvents!: Table<TaskEvent, string>;
   settings!: Table<Settings, string>;
+  attachments!: Table<AttachmentRecord, string>;
 
   constructor() {
     super(DB_NAME);
@@ -19,6 +21,12 @@ export class PlannerDB extends Dexie {
       reminderRecords: 'id, taskId, status, dueAt',
       taskEvents: 'id, taskId, at',
       settings: 'id',
+    });
+    // v2 adds one table and touches nothing else, so existing tasks, sessions
+    // and reminders carry over untouched — the same upgrade path this database
+    // has taken before.
+    this.version(2).stores({
+      attachments: 'id, taskId, createdAt, deletedAt',
     });
   }
 }
@@ -60,11 +68,23 @@ export async function saveTasks(tasks: Task[]): Promise<void> {
 }
 
 export async function removeTaskPermanently(id: string): Promise<void> {
-  await db.transaction('rw', db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, async () => {
+  await db.transaction('rw', db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, db.attachments, async () => {
     await db.tasks.delete(id);
     await db.timeSessions.where('taskId').equals(id).delete();
     await db.reminderRecords.where('taskId').equals(id).delete();
     await db.taskEvents.where('taskId').equals(id).delete();
+    // Attachments become tombstones, not vanishments: the id stays (without
+    // its bytes) until sync has told the server to delete the file too,
+    // otherwise a copy would live on in the database forever with nothing
+    // local pointing at it.
+    const attachments = await db.attachments.where('taskId').equals(id).toArray();
+    const at = new Date().toISOString();
+    const keep = attachments.filter((row) => row.deletedAt === null);
+    if (keep.length > 0) {
+      await db.attachments.bulkPut(keep.map((row) => ({ ...row, deletedAt: at, blob: null })));
+    }
+    const tombstoned = attachments.filter((row) => row.deletedAt !== null && row.synced === false);
+    if (tombstoned.length > 0) await db.attachments.bulkDelete(tombstoned.map((row) => row.id));
   });
 }
 
@@ -122,19 +142,21 @@ export async function saveReminders(records: ReminderRecord[]): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
+  // The array form of Dexie's transaction: seven tables is one past what the
+  // flat (mode, table, table, …) signature accepts.
   await db.transaction(
     'rw',
-    db.tasks,
-    db.timeSessions,
-    db.reminderRecords,
-    db.taskEvents,
-    db.settings,
+    [db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, db.settings, db.attachments],
     async () => {
       await db.tasks.clear();
       await db.timeSessions.clear();
       await db.reminderRecords.clear();
       await db.taskEvents.clear();
       await db.settings.clear();
+      // Local reset, local semantics: rows go without tombstones, exactly as
+      // tasks do — if a sync account is connected, the next pull restores what
+      // the server still holds, for records and for files alike.
+      await db.attachments.clear();
     },
   );
 }

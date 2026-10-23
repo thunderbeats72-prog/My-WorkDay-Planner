@@ -5,7 +5,7 @@
  * — on Android, for an installed app — during a periodic background check.
  */
 
-const CACHE = 'workday-shell-v6';
+const CACHE = 'workday-shell-v7';
 const SHELL = [
   '/',
   '/index.html',
@@ -41,10 +41,40 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
-  if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // Web Share Target: the system share sheet POSTs the shared title/text/url
+  // here when the installed app is chosen. Park the payload where the page
+  // half (src/lib/shareInbox.ts) can pick it up on the next open — a cold
+  // start included — then redirect into the app. No page is open to talk to,
+  // so a message channel alone would drop the share.
+  if (request.method === 'POST' && url.pathname === '/share') {
+    event.respondWith(
+      (async () => {
+        try {
+          const form = await request.formData();
+          const payload = {
+            text: String(form.get('text') ?? ''),
+            title: String(form.get('title') ?? ''),
+            url: String(form.get('url') ?? ''),
+            at: Date.now(),
+          };
+          const cache = await caches.open(CACHE);
+          await cache.put(
+            '/share/pending',
+            new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } }),
+          );
+        } catch {
+          // A malformed share must still land the user in the app.
+        }
+        return Response.redirect('/', 303);
+      })(),
+    );
+    return;
+  }
+
+  if (request.method !== 'GET') return;
 
   if (request.mode === 'navigate') {
     event.respondWith(

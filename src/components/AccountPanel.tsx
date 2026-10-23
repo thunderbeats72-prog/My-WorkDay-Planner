@@ -1,9 +1,10 @@
-import { useId, useState } from 'react';
-import { Cloud, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
+import { Cloud, KeyRound, LogOut, Paperclip, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { Button, Field } from './ui';
 import { AuthForm } from './AuthForm';
 import type { AccountApi } from '../hooks/useAccount';
 import type { AddToast } from './pageProps';
+import { ATTACHMENT_LIMITS, attachmentUsage, formatBytes, onAttachmentsChanged } from '../lib/attachments';
 
 /**
  * One sentence for the state the account is actually in.
@@ -40,6 +41,25 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
   const [publishPassword, setPublishPassword] = useState('');
 
   const signedIn = account.account !== null;
+
+  // Storage the user can see: the answer to "where are my photos going, and
+  // how much room is left" — refreshed whenever the set changes anywhere in
+  // the app, because the same event drives the task panel.
+  const [usage, setUsage] = useState<{ count: number; bytes: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      void attachmentUsage().then((next) => {
+        if (alive) setUsage(next);
+      });
+    };
+    refresh();
+    const off = onAttachmentsChanged(refresh);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
 
   const sync = async () => {
     const result = await account.syncNow();
@@ -128,6 +148,23 @@ export function AccountPanel({ account, addToast }: { account: AccountApi; addTo
               )}
             </div>
           </div>
+
+          {usage && usage.count > 0 ? (
+            <div className="account-row">
+              <div>
+                <p className="account-row-title">
+                  <Paperclip size={12} aria-hidden="true" /> Attachments
+                </p>
+                <p className="account-row-sub">
+                  {usage.count} {usage.count === 1 ? 'file' : 'files'} · {formatBytes(usage.bytes)} of{' '}
+                  {Math.round(ATTACHMENT_LIMITS.maxUserBytes / 1_000_000)} MB
+                  {account.cloudConnected
+                    ? ' · photos and memos sync one file at a time, never inside the snapshot'
+                    : ' · on this device until sync is connected'}
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="account-row account-row-danger">
             <div>

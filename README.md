@@ -22,6 +22,7 @@ npx -y pnpm@10 lint
 - Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per deadline, and clickable straight into the task
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
+- **Attachments:** photos (compressed in-browser) and 15-second voice memos on any task, with playback in the task panel — stored locally first, and synced across devices as their own rows, never inside the snapshot
 
 ## Honest limitations
 - **Notifications:** in-app reminders are always written and survive reloads. System banners fire while the app is open, and — on Android, for the installed PWA — from a best-effort background check. A fully closed browser on desktop cannot be woken; there is no push server by design, and the app says so rather than pretending otherwise.
@@ -566,3 +567,186 @@ removed.
 
 No new colours and none of the removed effects came back: no spotlight, no lift,
 no gradient bar, no timer sweep, no check burst.
+
+## Attachments — photos and voice memos that sync, without a heavier sync
+
+A task can carry a photo (the visiting card, the receipt, the whiteboard) and
+a voice memo (the thought on the way out of the meeting), captured right in
+the task panel:
+
+- **Voice notes** use `MediaRecorder` with a 15-second cap — the recorder
+  stops itself, so a press in a pocket cannot run up an hour of audio.
+  Stop/Discard are live while it records, and one code path saves the result,
+  so a memo can never be recorded and silently dropped. Browsers without
+  `MediaRecorder` simply do not get the button, and a blocked microphone says
+  so in one actionable sentence.
+- **Photos** are resized (1600px long edge) and re-encoded on a quality ladder
+  *before anything is stored*, aiming under 380 KB against a hard cap of
+  600 KB — the same numbers the server enforces, imported from one shared
+  module (`src/lib/attachmentLimits.ts`), so the client can never compress to
+  a size the server refuses. Files already under the cap are stored as-is.
+- The panel shows a thumbnail grid and inline `<audio>` playback, per-file
+  size and date, an honest sync badge (*Synced* / *Waiting to sync* /
+  *This device*), and two-step deletes.
+
+### Why the bytes never enter the snapshot
+
+The snapshot is re-sent whole whenever anything changes, it is stringified
+and diffed per record on every sync, and it rides the ~4.5 MB serverless body
+cap. A single megabyte inside a task would re-travel on every title edit; a
+single unsqueezed camera photo would take down sync for **every** device at
+once. So attachments have their own channel:
+
+| | Snapshot | Attachments |
+| --- | --- | --- |
+| Transport | one JSON body, merged per record | one row + one request per file |
+| Table | `planner_snapshots` (1 row/user) | `planner_attachments` (1 row/file) |
+| Endpoint | `/api/snapshot` | `/api/attachments` |
+| Cap | what a planner needs | 600 KB/file · 400 files · 40 MB/account (server-enforced) |
+
+`db/neon-schema.sql` documents the table, and `api/_lib/schema.ts` creates it
+automatically on the first request like everything else.
+
+### How the merge works when media is immutable
+
+Attachments are **never edited** after capture — only created and deleted —
+so there is no edit conflict to resolve. `planAttachmentSync()`
+(`src/lib/attachmentSync.ts`) reduces the whole question to one pure function
+over two lists, tested in `src/lib/attachments.test.ts`:
+
+- local row the server lacks → **push**; remote row the device lacks → **pull**;
+- local deletion → a **tombstone** (id kept, bytes dropped) until the server
+  acknowledges the delete, then the row is purged — an offline delete can
+  never resurrect the file;
+- a live row the server no longer holds → purged locally (deletion made on
+  another device, same direction snapshots already flow);
+- a tombstone the server never saw → purged with no round trip at all.
+
+Each sync run moves at most 30 files and reports `more` when a shelf is
+waiting, so first sign-in with a hundred photos finishes in seconds and keeps
+draining quietly in the background. Failures are appended to the sync message
+(`· Photos & voice notes: …`) and never turn a successful task sync into a
+failed one.
+
+The version other devices poll (`/api/version`) is now `max(snapshot
+updated_at, attachments updated_at)` — a photo added on the laptop changes
+the number the phone is watching. Deleting one bumps the snapshot's clock
+*without touching its payload*, because a delete can otherwise leave every
+timestamp unchanged and linger forever.
+
+### Honest limits
+
+- JSON/CSV backups do **not** include attachments (blobs are not JSON);
+  files live in IndexedDB plus — when sync is on — the attachment table.
+- With sync off, attachments are on this device only, and the panel says so.
+- The per-account caps are a safety rail on the free database, not a plan
+  tier; Settings → Account shows usage whenever there is any.
+
+## The 16 enhancements — what shipped, in five commits
+
+Each enhancement landed with tests, honest copy where the data runs out, and
+the same constraints as the rest of the planner: local-first, ₹0, no new
+colors, nothing leaves the device unless it already did (Microsoft Graph with
+your own connection).
+
+### Capture (`29cb72e`)
+
+- **Voice quick-add** — Web Speech API dictation feeds the existing
+  quick-add parser (dates, `#category`, `@client`, `!priority`). Unsupported
+  browsers and denied microphones get a specific sentence, not a silent dead
+  button (`src/lib/speech.ts`).
+- **Share-to-planner** — the PWA manifest declares a `share_target`; the
+  service worker parks the shared text in a cache entry (no localStorage in a
+  SW, no backend), redirects to the app, and Today's Quick add opens with it
+  as a draft, subject-first when a title exists (`shareInbox.ts`).
+- **Voice notes & photos** live with [attachments](#attachments--photos-and-voice-memos-that-sync-without-a-heavier-sync).
+
+### Prediction (`48005cd`)
+
+- **Monte Carlo deadline forecasts** — 1,000 deterministic on-device runs per
+  task: triangular duration spread (0.55–1.9×), duration model ordered
+  client-median → category-median → bias-corrected → estimate, a deferral
+  restart chance, and a calendar-aware walk that skips weekends, lunch and
+  nights (broken hours refuse politely). Output: `% on time`, median finish
+  date, p10–p90 band, and evidence reasons — in the task panel and on the
+  at-risk card (`forecast.ts`).
+- **Planning-fallacy calibration** — `learnDurations` measures per-category
+  estimate bias (avg actual ÷ avg estimate, ≥3 aligned pairs, ≥10% miss,
+  clamped 0.5–3). The factor only corrects plans that still rely on a raw
+  estimate; a learned median always wins. Visible as plan-foot
+  "estimates corrected ×1.4", per-block `learned` tags, forecast fine print,
+  and Reports' "Estimate bias, measured" table.
+- **Tomorrow rehearsal** — after `workdayEnd`, tomorrow is planned from
+  learned durations: capacity vs demand, deadlines that day with no slot, and
+  safe defer suggestions (least urgent first, never a same-day deadline).
+  Each Move counts as a real deferral; the card dismisses and never nags
+  (`rehearsal.ts`).
+- **Best time to follow-up** — the window is the middle 50% of when a
+  client's messages actually arrive, on demand from your Microsoft mail,
+  with a 3-message floor and an honest "not enough mail" state
+  (`replyWindow.ts`, `fetchClientMail`).
+
+### Schedule (`43014f8`)
+
+- **Energy-curve placement** — `buildInsights` derives the sharpest and
+  slowest hours from your own timer sessions (a "slowest" needs a real 2+
+  hour spread). The scheduler moves deep work ahead of unlocked admin for
+  the sharp hour and batches admin into the slump — deadlines always win,
+  every swap becomes a visible block reason, and `energyNote` explains the
+  curve in the plan card.
+- **Live day reflow** — when the task set changes, `diffDayPlans` compares
+  the two plans built at the same clock and the plan card shows
+  "N tasks re-flowed live" with `14:00 → 14:40` style shifts. Honest
+  autopilot: the queue still shows what didn't fit, and the banner dismisses
+  (`diffDayPlans`, render-adjust — no effects, no lint drift).
+- **Calendar truth** — `Calendars.Read` joins the Microsoft scopes; one local
+  day of `calendarView` becomes busy intervals the plan renders as fact
+  blocks, jumps and clamps around, merges on overlap, and never double-counts
+  lunch. A refused scope says exactly how to reconnect; an old connection
+  gets a readable 403 instead of a silently free day.
+
+### Relationship (`cfe077b`)
+
+- **Client radar** — `buildClientRadar` groups open tasks by the `client`
+  field into "Brief: Nova" cards: overdue/due-soon counts, next deadline,
+  priorities, minutes, and up to three newest cached mail mentions with
+  deep links, sorted by risk (`radar.ts`).
+- **Follow-up cadence** — two on-device rules with the working shown:
+  follow-up/email quiet 3 days → nudge, proposal silent 7 days → escalate —
+  suppressed when cached mail shows the client replied after the task last
+  moved. Every line quotes the rule and the dates (`cadence.ts`).
+
+### Interface (`29cb72e`, `48005cd`, `d655124`)
+
+- **Local assistant Q&A** — the command palette answers questions from your
+  data only: templated intents compute exact aggregates with citations
+  (overdue, due today, completed, tracked time, what's next with scheduler
+  reasons, named-task status/durations, client summaries); BM25 ranks task
+  documents for name-shaped questions. Confidence is always labelled
+  `exact` / `closest` / `none`, and "not found on this device" is a real
+  answer (`qa.ts`). No cloud AI — no network call exists in the path.
+- **.ics export** — the scheduled day as folded, CRLF-terminated VEVENTs
+  with floating local times, `VALUE=DATE` for date-only tasks, and completed
+  work marked `✓` + `STATUS:COMPLETED` (`ics.ts`).
+- **Privacy blur** — on by default: 60s idle or a hidden tab blurs client
+  names and task titles behind a wash until you move again
+  (`privacy.ts`, `usePrivacyBlur.ts`).
+- **Day replay** — a scrubber over the day's real timer sessions and
+  completions: spans clipped at midnight, running sessions skipped, play/pause
+  and a live readout of what was happening at each minute (`replay.ts`,
+  Reports page).
+
+### Honest limits of the batch
+
+- Reply and mention checks run against *cached* Graph highlights (unread
+  inbox + chat as last fetched) — a reply you've already read may be missed
+  until the next refresh; the cadence text says "cached mail" out loud.
+- Energy, forecasts and calibration are only as good as your tracked history;
+  with no sessions the plan says so instead of inventing a curve.
+- The calendar scope was added after the first release of this feature set:
+  connections made before it need one reconnect (the 403 message says so).
+- Radar mail mentions and reply windows use name matching, not thread
+  identity — good enough for a glance, never claimed to be a CRM.
+
+Batch gates: lint held at the 19-warning baseline with 0 errors, `tsc -b`
+clean, and the suite grew 353 → 432 tests across the five commits.

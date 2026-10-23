@@ -43,9 +43,39 @@ export interface DayPlan {
   capacityMinutes: number;
   plannedMinutes: number;
   remainingMinutes: number;
+  /** Minutes of the day covered by calendar meetings (clamped to the workday). */
+  busyMinutes: number;
+  /** Explainable energy-curve note, or null when no curve was applied. */
+  energyNote: string | null;
   blocks: ScheduleBlock[];
   queued: PlanQueueItem[];
   conflicts: ConflictWarning[];
+}
+
+/** A calendar commitment that blocks capacity, in minutes of day. */
+export interface BusyInterval {
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+}
+
+/** Reports-derived energy curve: sharpest and slowest hours from real sessions. */
+export interface EnergyCurve {
+  sharpestHour: number | null;
+  slumpHour: number | null;
+  sharpestMinutes?: number;
+  slumpMinutes?: number;
+}
+
+/** One task-level difference between two plans of the same day. */
+export interface PlanShift {
+  taskId: string;
+  title: string;
+  kind: 'moved' | 'queued' | 'scheduled';
+  /** Previous and new start as HH:MM (null when the side has no slot). */
+  from: string | null;
+  to: string | null;
 }
 
 export interface ConflictWarning {
@@ -58,6 +88,15 @@ export interface ConflictWarning {
 export interface LearnedDurations {
   byCategory: Partial<Record<Category, number>>;
   byClient: Record<string, number>;
+  /** Planning-fallacy correction: 1.4 means estimates in that category
+   * typically miss the real work by 40%. Applied only when no learned median
+   * exists yet — measured data always beats a correction factor. */
+  factors?: Partial<Record<Category, number>>;
+  /** How much evidence sits behind each number — for honest labels. */
+  samples?: {
+    byCategory: Partial<Record<Category, number>>;
+    byClient: Record<string, number>;
+  };
 }
 
 export interface ParsedDraft {
@@ -212,6 +251,15 @@ export function estimateForTask(task: Task, settings: Settings, learned: Learned
     const clientMedian = task.client ? learned.byClient[task.client] : undefined;
     if (typeof categoryMedian === 'number' && categoryMedian > 0) return Math.round(categoryMedian);
     if (typeof clientMedian === 'number' && clientMedian > 0) return Math.round(clientMedian);
+    // No median for this category/client yet — but if ≥3 timed tasks show
+    // estimates missing by a clear margin, plan with the correction instead
+    // of the wish. The label ("×1.4") travels with the forecast so the
+    // adjustment is never a silent fudge.
+    const factor = learned.factors?.[task.category];
+    if (typeof factor === 'number' && factor > 0 && factor !== 1) {
+      const base = Math.max(5, Math.round(task.estimatedMinutes || settings.defaultEstimateMinutes));
+      return Math.max(5, Math.round(base * factor));
+    }
   }
   return Math.max(5, Math.round(task.estimatedMinutes || settings.defaultEstimateMinutes));
 }
@@ -236,6 +284,10 @@ export function orderCandidates(
 export interface BuildPlanOptions {
   date?: Date;
   learned?: LearnedDurations | null;
+  /** Calendar meetings (minutes of day) that hard-block capacity. */
+  busy?: BusyInterval[];
+  /** Reports-derived energy curve; deep work anchored to the sharp hour. */
+  energy?: EnergyCurve | null;
 }
 
 export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new Date(), options: BuildPlanOptions = {}): DayPlan {
@@ -250,12 +302,34 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
   const capacityMinutes = isWorkingDay ? workingMinutes(settings) : 0;
   const nowMinutes = dateISO === toISODate(now) ? now.getHours() * 60 + now.getMinutes() : dayStart;
 
+  // Calendar truth: merge overlaps, clamp to the working day, and subtract the
+  // lunch overlap so a meeting across lunch never double-takes capacity.
+  const busy = mergeBusy(
+    (options.busy ?? [])
+      .filter((interval) => interval.end > interval.start)
+      .map((interval) => ({
+        ...interval,
+        start: Math.max(interval.start, dayStart),
+        end: Math.min(interval.end, dayEnd),
+      }))
+      .filter((interval) => interval.end > interval.start),
+  );
+  const busyMinutes = busy.reduce((sum, interval) => {
+    const lunchOverlap =
+      hasLunch && interval.start < lunchEnd && interval.end > lunchStart
+        ? Math.min(interval.end, lunchEnd) - Math.max(interval.start, lunchStart)
+        : 0;
+    return sum + (interval.end - interval.start) - lunchOverlap;
+  }, 0);
+  const busyAt = (from: number): BusyInterval | null =>
+    busy.find((interval) => from >= interval.start && from < interval.end) ?? null;
+
   const openTasks = tasks
     .filter((task) => task.status !== 'completed' && task.deletedAt === null)
     .map((task) => ({ ...task }));
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const scoredTasks = orderCandidates(openTasks, settings, now, options.learned ?? null);
-  const candidates = scoredTasks.filter((scored) => {
+  let candidates = scoredTasks.filter((scored) => {
     if (scored.task.blocked) return false;
     return isDependencyMet(scored.task, byId);
   });
@@ -290,6 +364,8 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
       capacityMinutes,
       plannedMinutes: 0,
       remainingMinutes: 0,
+      busyMinutes,
+      energyNote: null,
       blocks: [],
       queued,
       conflicts: detectConflicts(tasks, dateISO),
@@ -317,6 +393,8 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
       capacityMinutes,
       plannedMinutes: 0,
       remainingMinutes: capacityMinutes,
+      busyMinutes,
+      energyNote: null,
       blocks: [],
       queued,
       conflicts: detectConflicts(tasks, dateISO),
@@ -324,6 +402,31 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
   }
 
   const focusMinutes = clamp(settings.focusBlockMinutes || 50, 15, 180);
+
+  // Meetings are facts: render them, then start placing around them.
+  for (const interval of busy) {
+    blocks.push({
+      id: `mtg_${dateISO}_${interval.id}`,
+      taskId: null,
+      title: interval.title,
+      start: interval.start,
+      end: interval.end,
+      kind: 'meeting',
+      reason: 'From your calendar — blocks capacity',
+    });
+  }
+  let jump = busyAt(cursor);
+  while (jump) {
+    cursor = jump.end;
+    jump = busyAt(cursor);
+  }
+
+  // Energy curve: re-order only what energy can honestly claim — deadline work
+  // stays locked, and swaps are recorded as explainable reasons.
+  const energyResult = applyEnergyOrder(candidates, options.energy ?? null, cursor, dayEnd, dateISO);
+  candidates = energyResult.ordered;
+  const energyNote = energyResult.note;
+  const energyReasons = energyResult.reasonsByTask;
 
   for (const scored of candidates) {
     const task = scored.task;
@@ -345,9 +448,21 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
         continue;
       }
 
+      // A meeting can start under the cursor (e.g. right after a buffer).
+      const meetingNow = busyAt(cursor);
+      if (meetingNow) {
+        cursor = meetingNow.end;
+        continue;
+      }
+
       let latestEnd = cursor + Math.min(remaining, focusMinutes);
       if (!lunchInserted && cursor < lunchStart && latestEnd > lunchStart) {
         latestEnd = lunchStart;
+      }
+      // Never run a block into a meeting; the next iteration jumps past it.
+      const meetingWall = busy.find((interval) => interval.start > cursor && interval.start < latestEnd);
+      if (meetingWall) {
+        latestEnd = meetingWall.start;
       }
       if (latestEnd <= cursor) {
         break;
@@ -365,6 +480,7 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
           (options.learned?.byCategory[task.category] ?? 0) > 0 ||
             (task.client ? (options.learned?.byClient[task.client] ?? 0) > 0 : false),
         ),
+        reason: energyReasons.get(task.id),
       });
       blockCounter += 1;
       const chunk = latestEnd - cursor;
@@ -377,7 +493,10 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
         cursor = !lunchInserted && cursor < lunchStart && nextCursor > lunchStart ? lunchStart : nextCursor;
       } else if (buffer > 0 && cursor + buffer <= dayEnd) {
         const wouldCollideWithLunch = !lunchInserted && cursor < lunchEnd && cursor + buffer > lunchStart;
-        if (!wouldCollideWithLunch) {
+        const wouldCollideWithMeeting = busy.some(
+          (interval) => interval.start > cursor && interval.start < cursor + buffer,
+        );
+        if (!wouldCollideWithLunch && !wouldCollideWithMeeting) {
           blocks.push({
             id: `buf_${dateISO}_${blockCounter}`,
             taskId: null,
@@ -449,10 +568,163 @@ export function buildDayPlan(tasks: Task[], settings: Settings, now: Date = new 
     capacityMinutes,
     plannedMinutes,
     remainingMinutes: Math.max(0, capacityMinutes - plannedMinutes),
+    busyMinutes,
+    energyNote,
     blocks,
     queued,
     conflicts: detectConflicts(tasks, dateISO),
   };
+}
+
+/** Merge overlapping or touching busy intervals so capacity is never counted twice. */
+function mergeBusy(intervals: BusyInterval[]): BusyInterval[] {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const merged: BusyInterval[] = [];
+  for (const interval of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && interval.start <= last.end) {
+      last.end = Math.max(last.end, interval.end);
+      if (interval.end - interval.start > last.end - last.start) last.title = interval.title;
+    } else {
+      merged.push({ ...interval });
+    }
+  }
+  return merged;
+}
+
+const DEEP_CATEGORIES = new Set<Category>(['research', 'report', 'proposal']);
+const ADMIN_CATEGORIES = new Set<Category>(['admin', 'email', 'follow_up']);
+
+export interface EnergyOrderResult {
+  ordered: ScoredTask[];
+  /** One honest, human-readable note about what the curve did (or just is). */
+  note: string | null;
+  /** taskId → reason shown on the task's block. */
+  reasonsByTask: Map<string, string>;
+}
+
+/**
+ * Energy-curve placement (#8): anchor deep work to the sharpest hour from real
+ * session data and batch admin into the slowest hour — but only by re-ordering
+ * tasks energy can honestly claim: anything due today or overdue keeps its
+ * scored place (deadlines beat energy), and every swap carries a visible reason.
+ */
+export function applyEnergyOrder(
+  candidates: ScoredTask[],
+  energy: EnergyCurve | null,
+  cursor: number,
+  dayEnd: number,
+  dateISO: string,
+): EnergyOrderResult {
+  const ordered = [...candidates];
+  const reasonsByTask = new Map<string, string>();
+  if (!energy || (energy.sharpestHour === null && energy.slumpHour === null)) {
+    return { ordered, note: null, reasonsByTask };
+  }
+
+  const facts: string[] = [];
+  if (energy.sharpestHour !== null) {
+    const sharpLabel = `${String(energy.sharpestHour).padStart(2, '0')}:00`;
+    facts.push(
+      `sharpest ${sharpLabel}${energy.sharpestMinutes ? ` (${energy.sharpestMinutes}m tracked)` : ''}`,
+    );
+  }
+  if (energy.slumpHour !== null) {
+    const slumpLabel = `${String(energy.slumpHour).padStart(2, '0')}:00`;
+    facts.push(`slowest ${slumpLabel}${energy.slumpMinutes ? ` (${energy.slumpMinutes}m tracked)` : ''}`);
+  }
+
+  const deadlineLocked = (scored: ScoredTask) =>
+    scored.task.dueDate !== null && scored.task.dueDate <= dateISO;
+  const isDeep = (scored: ScoredTask) => DEEP_CATEGORIES.has(scored.task.category);
+  const isAdmin = (scored: ScoredTask) => ADMIN_CATEGORIES.has(scored.task.category);
+
+  const sharpMinutes = energy.sharpestHour !== null ? energy.sharpestHour * 60 : null;
+  const slumpMinutes = energy.slumpHour !== null ? energy.slumpHour * 60 : null;
+  const sharpActive = sharpMinutes !== null && sharpMinutes < dayEnd && cursor < sharpMinutes + 60;
+  const sharpPassed = sharpMinutes === null || cursor >= sharpMinutes + 60;
+  const slumpActive =
+    slumpMinutes !== null && slumpMinutes < dayEnd && cursor < slumpMinutes + 60 && sharpPassed;
+
+  const swaps: string[] = [];
+
+  if (sharpActive && sharpMinutes !== null) {
+    const deepIdx = ordered.findIndex((scored) => isDeep(scored) && !deadlineLocked(scored));
+    const adminIdx = ordered.findIndex((scored) => isAdmin(scored) && !deadlineLocked(scored));
+    if (deepIdx !== -1 && adminIdx !== -1 && adminIdx < deepIdx) {
+      const [item] = ordered.splice(deepIdx, 1);
+      ordered.splice(adminIdx, 0, item);
+      const label = `${String(energy.sharpestHour).padStart(2, '0')}:00`;
+      reasonsByTask.set(
+        item.task.id,
+        `Placed at your sharpest hour (${label}${energy.sharpestMinutes ? `, ${energy.sharpestMinutes}m tracked` : ''})`,
+      );
+      swaps.push(`“${item.task.title}” moved ahead of admin work — ${label} is your sharpest hour`);
+    }
+  }
+
+  if (slumpActive && slumpMinutes !== null) {
+    const deepIdx = ordered.findIndex((scored) => isDeep(scored) && !deadlineLocked(scored));
+    const adminIdx = ordered.findIndex((scored) => isAdmin(scored) && !deadlineLocked(scored));
+    if (deepIdx !== -1 && adminIdx !== -1 && adminIdx > deepIdx) {
+      const [item] = ordered.splice(adminIdx, 1);
+      ordered.splice(deepIdx, 0, item);
+      const label = `${String(energy.slumpHour).padStart(2, '0')}:00`;
+      reasonsByTask.set(
+        item.task.id,
+        `Batched into your slowest hour (${label}) — deep work keeps the sharp hours`,
+      );
+      swaps.push(`“${item.task.title}” moved up — ${label} is your slowest hour, admin fits it`);
+    }
+  }
+
+  const note =
+    facts.length > 0
+      ? `Energy curve from your sessions: ${facts.join(' · ')}${swaps.length > 0 ? `. ${swaps.join('. ')}` : ''}.`
+      : null;
+  return { ordered, note, reasonsByTask };
+}
+
+/**
+ * Compare two plans of the same day (built from different task states at the
+ * same clock) into the human-visible diff for live re-flow (#9).
+ */
+export function diffDayPlans(before: DayPlan, after: DayPlan, toleranceMinutes = 6): PlanShift[] {
+  const beforeBlocks = new Map(
+    before.blocks.filter((block) => block.taskId !== null).map((block) => [block.taskId as string, block]),
+  );
+  const afterBlocks = new Map(
+    after.blocks.filter((block) => block.taskId !== null).map((block) => [block.taskId as string, block]),
+  );
+  const shifts: PlanShift[] = [];
+
+  for (const [taskId, block] of afterBlocks) {
+    const previous = beforeBlocks.get(taskId);
+    if (!previous) {
+      // New to the plan (pulled from the queue or just created).
+      shifts.push({ taskId, title: block.title, kind: 'scheduled', from: null, to: minutesToTime(block.start) });
+      continue;
+    }
+    if (
+      Math.abs(previous.start - block.start) > toleranceMinutes ||
+      Math.abs(previous.end - block.end) > toleranceMinutes
+    ) {
+      shifts.push({
+        taskId,
+        title: block.title,
+        kind: 'moved',
+        from: minutesToTime(previous.start),
+        to: minutesToTime(block.start),
+      });
+    }
+  }
+
+  for (const [taskId, block] of beforeBlocks) {
+    if (afterBlocks.has(taskId)) continue;
+    shifts.push({ taskId, title: block.title, kind: 'queued', from: minutesToTime(block.start), to: null });
+  }
+
+  return shifts;
 }
 
 export function detectConflicts(tasks: Task[], dateISO?: string): ConflictWarning[] {

@@ -171,6 +171,30 @@ describe('buildInsights', () => {
     expect(insights.bias[0]?.direction).toBe('under');
     expect(insights.bias[0]?.differencePct).toBe(100);
     expect(insights.durations[0]?.medianActual).toBe(60);
+    // One hour with data only: sharpest exists, but a "slump" would be the
+    // same number — refuse to invent a spread.
+    expect(insights.slumpHour).toBeNull();
+  });
+
+  it('derives a slowest hour once a second hour has data', () => {
+    const tasks = [
+      makeTask({ id: 'a', estimatedMinutes: 30, completedAt: NOW.toISOString() }),
+      makeTask({ id: 'b', estimatedMinutes: 30, completedAt: NOW.toISOString() }),
+    ];
+    const sessions = [
+      makeSession({ id: 's1', taskId: 'a' }), // 10:00, 60m
+      makeSession({
+        id: 's2',
+        taskId: 'b',
+        startedAt: new Date(2026, 9, 21, 14, 0, 0).toISOString(),
+        endedAt: new Date(2026, 9, 21, 14, 15, 0).toISOString(),
+        durationMs: 15 * 60 * 1000,
+      }),
+    ];
+    const insights = buildInsights(tasks, sessions);
+    expect(insights.sharpestHour?.hour).toBe(10);
+    expect(insights.slumpHour?.hour).toBe(14);
+    expect(insights.slumpHour?.minutes).toBe(15);
   });
 
   it('does not claim bias with fewer than three samples', () => {
