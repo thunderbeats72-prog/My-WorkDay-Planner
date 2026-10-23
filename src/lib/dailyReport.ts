@@ -255,6 +255,76 @@ export function renderDailyReport(
   return blocks.join('\n\n');
 }
 
+/** Escape the user's own words before they become markup. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * The same report as HTML — the flavour Teams and Outlook actually read.
+ *
+ * They do not understand `~tildes~`: pasted there, the tildes show up as
+ * characters. A clipboard can hold two flavours at once, so this one carries a
+ * real `<s>` around the completed title while the plain-text flavour keeps the
+ * tildes WhatsApp understands. The strike still wraps the title only; the note
+ * is outside it, exactly as in the text version.
+ */
+export function renderDailyReportHtml(
+  model: DailyReportModel,
+  options: RenderOptions = {},
+): string {
+  const heading = (options.heading ?? '').trim();
+  const blocks: string[] = [];
+  if (heading) blocks.push(escapeHtml(heading));
+
+  const bulletFor = (title: string) => Boolean(options.bullets ?? true) && title !== PRIORITY_SECTION;
+
+  for (const section of model.sections) {
+    const bulleted = bulletFor(section.title);
+    const indent = bulleted ? '  ' : '   ';
+    const lines = section.lines.map((line) => {
+      const bare = `${escapeHtml(line.task.title)}${line.detail ? ` - ${escapeHtml(line.detail)}` : ''}`;
+      const title = line.completed ? `<s>${bare}</s>` : bare;
+      const note = line.note
+        ? ` - ${line.note
+            .split('\n')
+            .map((part, index) => `${index === 0 ? '' : '&nbsp;'.repeat(indent.length)}${escapeHtml(part)}`)
+            .join('<br>')}`
+        : '';
+      return `${bulleted ? '- ' : ''}${title}${note}`;
+    });
+    blocks.push(
+      lines.length > 0
+        ? `${escapeHtml(section.title)} -<br><br>${lines.join('<br>')}`
+        : `${escapeHtml(section.title)} -`,
+    );
+  }
+
+  if (blocks.length === 0) return options.emptyText ? `<div>${escapeHtml(options.emptyText)}</div>` : '';
+  return `<div>${blocks.join('<br><br>')}</div>`;
+}
+
+/**
+ * The preview text as HTML, for a report the user has edited by hand.
+ *
+ * Once the text is edited it no longer matches the model, so the markers the
+ * text already carries are what get converted: `~title~` (WhatsApp) or
+ * `~~title~~` (Markdown) become a real `<s>`. The plain-text format is
+ * deliberately marker-free, so there is nothing honest to convert and it
+ * returns '' — the caller then copies plain text only rather than guessing
+ * where a title ends and its note begins.
+ */
+export function reportTextToHtml(text: string, format: ReportFormat): string {
+  if (!text.trim() || format === 'plain') return '';
+  const pattern = format === 'markdown' ? /~~([^~\n]+)~~/g : /~([^~\n]+)~/g;
+  const html = escapeHtml(text).replace(pattern, '<s>$1</s>');
+  return `<div>${html.replace(/\n/g, '<br>')}</div>`;
+}
+
 /** Convenience: build and render in one call. */
 export function dailyReportText(
   tasks: Task[],

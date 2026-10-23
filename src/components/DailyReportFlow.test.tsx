@@ -304,6 +304,57 @@ describe('the daily update', () => {
     expect(writeText.mock.calls[0][0]).toContain('Task one');
   }, 30000);
 
+  it('copies rich text too, so Teams pastes a real strikethrough', async () => {
+    await seed([
+      task({
+        id: 't1',
+        title: 'Connect with Abhiyantri Enterprises.',
+        status: 'completed',
+        completedAt: `${TODAY_ISO}T10:00:00.000Z`,
+        completionNote: 'No response',
+      }),
+      task({ id: 't2', title: 'Follow up with TR Chadha regarding the proposal.', notes: 'No response' }),
+    ]);
+    const user = userEvent.setup();
+
+    /* A browser with the async clipboard: write() takes a ClipboardItem that
+       carries both flavours. jsdom has neither, so both are stubbed. */
+    const written: Array<Record<string, Blob>> = [];
+    class FakeClipboardItem {
+      readonly items: Record<string, Blob>;
+      constructor(items: Record<string, Blob>) {
+        this.items = items;
+        written.push(items);
+      }
+    }
+    vi.stubGlobal('ClipboardItem', FakeClipboardItem);
+    const write = vi.fn(async (_items: unknown[]) => undefined);
+    Object.defineProperty(navigator.clipboard, 'write', { configurable: true, value: write });
+
+    await openApp('#/daily');
+    const preview = (await screen.findByLabelText('Report text')) as HTMLTextAreaElement;
+    await waitFor(() => expect(preview.value).toContain('Connect with Abhiyantri Enterprises.'));
+
+    await user.click(screen.getByRole('button', { name: 'Copy update' }));
+    await waitFor(() => expect(written).toHaveLength(1));
+
+    const [flavours] = written;
+    expect(Object.keys(flavours).sort()).toEqual(['text/html', 'text/plain']);
+
+    // WhatsApp reads this one: tildes, notes after the title.
+    const plain = await flavours['text/plain'].text();
+    expect(plain).toContain('~Connect with Abhiyantri Enterprises.~ - No response');
+    expect(plain).toContain('Follow up with TR Chadha regarding the proposal. - No response');
+
+    // Teams and Outlook read this one: a real strikethrough, no tildes anywhere.
+    const html = await flavours['text/html'].text();
+    expect(html).toContain('<s>Connect with Abhiyantri Enterprises.</s> - No response');
+    expect(html).not.toContain('~');
+    // Pending work is left alone in both flavours.
+    expect(html).toContain('Follow up with TR Chadha regarding the proposal. - No response');
+    expect(html).not.toMatch(/<s>[^<]*TR Chadha/);
+  }, 30000);
+
   it('asks before a day change throws away a hand-edited preview', async () => {
     await seed([task({ id: 't1', title: 'Task one' })]);
     const user = userEvent.setup();

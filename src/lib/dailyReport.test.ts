@@ -3,7 +3,9 @@ import {
   buildDailyReport,
   dailyReportText,
   renderDailyReport,
+  renderDailyReportHtml,
   reportNoteOf,
+  reportTextToHtml,
   reportReasons,
   REPORT_FORMATS,
   strikethrough,
@@ -275,6 +277,89 @@ describe('formats offered to the user', () => {
     const tasks = [completed('a', 'One'), task({ id: 'b', title: 'Two' })];
     expect(dailyReportText(tasks, DAY, 'markdown')).toBe(
       renderDailyReport(buildDailyReport(tasks, DAY), 'markdown'),
+    );
+  });
+});
+
+describe('the rich-text flavour Teams reads', () => {
+  it('wraps the completed title in a real <s> and leaves the note outside it', () => {
+    const html = renderDailyReportHtml(
+      buildDailyReport(
+        [
+          completed('a', 'Connect with Abhiyantri Enterprises.', DAY, { completionNote: 'No response' }),
+          task({ id: 'b', title: 'Update CRM.' }),
+        ],
+        DAY,
+      ),
+    );
+
+    expect(html).toContain('<s>Connect with Abhiyantri Enterprises.</s> - No response');
+    // The note is never inside the strike.
+    expect(html).not.toMatch(/<s>[^<]*No response/);
+    expect(html).toContain('Update CRM.');
+    expect(html).not.toContain('~');
+  });
+
+  it('keeps the heading, the blank line under it and the section bullets', () => {
+    const html = renderDailyReportHtml(
+      buildDailyReport(
+        [
+          task({ id: 'p', title: 'Check LinkedIn.' }),
+          task({ id: 's', title: 'Align a demo.', section: 'BizConnect Leads Follow-ups' }),
+        ],
+        DAY,
+      ),
+    );
+
+    expect(html).toContain('Priorities -<br><br>Check LinkedIn.');
+    expect(html).toContain('BizConnect Leads Follow-ups -<br><br>- Align a demo.');
+  });
+
+  it('escapes the user’s own angle brackets instead of letting them become tags', () => {
+    const html = renderDailyReportHtml(
+      buildDailyReport([task({ id: 'x', title: 'Follow up <script> on the proposal' })], DAY),
+    );
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('converts the markers already in a hand-edited preview', () => {
+    expect(reportTextToHtml('~Done.~ - note', 'whatsapp')).toBe('<div><s>Done.</s> - note</div>');
+    expect(reportTextToHtml('~~Done.~~', 'markdown')).toBe('<div><s>Done.</s></div>');
+    expect(reportTextToHtml('line one\nline two', 'whatsapp')).toBe('<div>line one<br>line two</div>');
+    // The plain format is deliberately marker-free: no guessing where a title ends.
+    expect(reportTextToHtml('[COMPLETED] Done. - note', 'plain')).toBe('');
+  });
+});
+
+describe('notes sit right after their own line', () => {
+  it('appends a note as “Title. - note”, exactly as typed', () => {
+    const report = buildDailyReport(
+      [
+        task({
+          id: 'tr',
+          title: 'Follow up with TR Chadha regarding the proposal.',
+          notes: 'No response',
+          notesUpdatedAt: `${DAY}T17:00:00.000Z`,
+        }),
+      ],
+      DAY,
+    );
+    expect(renderDailyReport(report, 'whatsapp')).toContain(
+      'Follow up with TR Chadha regarding the proposal. - No response',
+    );
+  });
+
+  it('strikes the title of a completed task and still appends the note after it', () => {
+    const report = buildDailyReport(
+      [completed('c', 'Connect with Abhiyantri Enterprises.', DAY, { completionNote: 'No response' })],
+      DAY,
+    );
+    expect(renderDailyReport(report, 'whatsapp')).toContain(
+      '~Connect with Abhiyantri Enterprises.~ - No response',
+    );
+    expect(renderDailyReport(report, 'markdown')).toContain(
+      '~~Connect with Abhiyantri Enterprises.~~ - No response',
     );
   });
 });

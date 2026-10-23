@@ -19,7 +19,9 @@ import { formatDateLong, formatDateShort, relativeDayLabel, todayISO } from '../
 import {
   buildDailyReport,
   renderDailyReport,
+  renderDailyReportHtml,
   reportNoteOf,
+  reportTextToHtml,
   REPORT_FORMATS,
 } from '../lib/dailyReport';
 import { deleteReport, listReports, saveReport } from '../lib/db';
@@ -123,8 +125,18 @@ export function DailyReportView({
     requestDate(todayISO(base));
   };
 
-  const copy = async (value: string, label: string) => {
-    const success = await writeClipboard(value);
+  /**
+   * The HTML flavour for whatever is currently on screen.
+   *
+   * Un-edited, the model is the truth, so the markup is exact. Edited, the
+   * model no longer matches the box, and the markers already in the text are
+   * converted instead — a paste must never quietly drop the user's wording.
+   */
+  const htmlFor = (value: string): string =>
+    edited ? reportTextToHtml(value, format) : renderDailyReportHtml(model, { emptyText: '' });
+
+  const copy = async (value: string, label: string, html?: string) => {
+    const success = await writeClipboard(value, html);
     window.clearTimeout(copyTimer.current);
     setCopyState(success ? 'copied' : 'failed');
     copyTimer.current = window.setTimeout(() => setCopyState('idle'), 2600);
@@ -196,7 +208,7 @@ export function DailyReportView({
           <Button
             variant="primary"
             icon={Copy}
-            onClick={() => void copy(text, 'Daily update')}
+            onClick={() => void copy(text, 'Daily update', htmlFor(text))}
             disabled={!hasTasks && !edited}
           >
             Copy update
@@ -264,7 +276,10 @@ export function DailyReportView({
       <section className="card daily-format" aria-label="Output format">
         <div className="daily-format-head">
           <h2>Format</h2>
-          <span className="fine-print">Strikethrough marks completed titles only — notes stay readable in every format.</span>
+          <span className="fine-print">
+            Strikethrough marks completed titles only — notes stay readable in every format. Copy carries both versions:
+            teams and Outlook paste a real strikethrough, WhatsApp keeps the tildes.
+          </span>
         </div>
         <div className="daily-format-options" role="group" aria-label="Copy format">
           {REPORT_FORMATS.map((option) => (
@@ -285,7 +300,11 @@ export function DailyReportView({
           ))}
         </div>
         <div className="daily-copy-row">
-          <Button variant="primary" icon={copyState === 'copied' ? ClipboardCheck : Copy} onClick={() => void copy(text, 'Daily update')}>
+          <Button
+            variant="primary"
+            icon={copyState === 'copied' ? ClipboardCheck : Copy}
+            onClick={() => void copy(text, 'Daily update', htmlFor(text))}
+          >
             {copyState === 'copied' ? 'Copied' : 'Copy'}
           </Button>
           <Button variant="secondary" icon={Copy} onClick={() => void copy(text.replace(/~([^~\n]+)~/g, '~~$1~~'), 'Markdown version')}>
@@ -593,7 +612,25 @@ function DailyTaskRow({
  * is told to select the text instead of leaving a button that appears to have
  * done nothing.
  */
-async function writeClipboard(value: string): Promise<boolean> {
+async function writeClipboard(value: string, html?: string): Promise<boolean> {
+  /* Rich first. One paste carries both flavours: Teams and Outlook read the
+     HTML and draw a real strikethrough, WhatsApp reads the plain text and uses
+     its own `~tildes~`. Writing text only would leave Teams showing tildes. */
+  if (html) {
+    try {
+      if (typeof ClipboardItem !== 'undefined' && typeof navigator.clipboard?.write === 'function') {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([value], { type: 'text/plain' }),
+            'text/html': new Blob([html], { type: 'text/html' }),
+          }),
+        ]);
+        return true;
+      }
+    } catch {
+      // Safari and some WebViews refuse mixed flavours — the text path is next.
+    }
+  }
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(value);
@@ -610,8 +647,19 @@ async function writeClipboard(value: string): Promise<boolean> {
     area.style.top = '-1000px';
     area.style.opacity = '0';
     document.body.appendChild(area);
+    /* The copy event still fires here, and it can carry both flavours even
+       where the async clipboard cannot — this is the path that keeps the
+       strikethrough on an older desktop browser. */
+    const onCopy = (event: ClipboardEvent) => {
+      if (!html || !event.clipboardData) return;
+      event.clipboardData.setData('text/plain', value);
+      event.clipboardData.setData('text/html', html);
+      event.preventDefault();
+    };
+    if (html) document.addEventListener('copy', onCopy);
     area.select();
     const ok = document.execCommand?.('copy') ?? false;
+    if (html) document.removeEventListener('copy', onCopy);
     area.remove();
     return ok;
   } catch {
