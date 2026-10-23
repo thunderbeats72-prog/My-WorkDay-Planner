@@ -99,6 +99,8 @@ import type { QuickAddDraft } from './lib/quickAdd';
 import { sharedToQuickText, takeSharedPayload } from './lib/shareInbox';
 import { buildFoldedIcs } from './lib/ics';
 import { learnDurations } from './lib/ml';
+import { answerQuestion } from './lib/qa';
+import type { QaAnswer } from './lib/qa';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
@@ -1422,6 +1424,13 @@ export default function App() {
     [finishTimer, pauseTimer, requestDelete, rescheduleTask, resumeTask, snoozeTask, startTask, toggleBlocked, toggleComplete],
   );
 
+  /** Local assistant Q&A (#13) — pure function over local planner data. */
+  const handleAsk = useCallback(
+    (question: string): QaAnswer =>
+      answerQuestion({ question, tasks, settings, sessions: timer.sessions, now }),
+    [tasks, settings, timer.sessions, now],
+  );
+
   /** On-demand per-client mail for reply-window stats (#7) — never throws. */
   const handleFetchClientMail = useCallback(
     async (client: string): Promise<ClientMailResult> => {
@@ -1683,6 +1692,7 @@ export default function App() {
         onOpenTask={(id) => setPanelId(id)}
         onCheckGraph={graphConnected ? () => void checkGraph() : null}
         onShowShortcuts={() => setShortcutsOpen(true)}
+        onAsk={handleAsk}
       />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <Modal

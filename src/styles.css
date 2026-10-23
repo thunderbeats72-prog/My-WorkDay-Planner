@@ -19979,3 +19979,44 @@ body[data-private='true'] .att-photo-open img {
   margin: 0;
   font-size: 12.5px;
 }
+
+/* ---------- Local assistant in the palette (#13) ---------- */
+
+.palette-ask {
+  margin-bottom: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.palette-ask-text {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.palette-ask-cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.palette-cite {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+button.palette-cite {
+  cursor: pointer;
+}
+
+button.palette-cite:hover {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
