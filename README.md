@@ -641,3 +641,112 @@ timestamp unchanged and linger forever.
 - With sync off, attachments are on this device only, and the panel says so.
 - The per-account caps are a safety rail on the free database, not a plan
   tier; Settings → Account shows usage whenever there is any.
+
+## The 16 enhancements — what shipped, in five commits
+
+Each enhancement landed with tests, honest copy where the data runs out, and
+the same constraints as the rest of the planner: local-first, ₹0, no new
+colors, nothing leaves the device unless it already did (Microsoft Graph with
+your own connection).
+
+### Capture (`29cb72e`)
+
+- **Voice quick-add** — Web Speech API dictation feeds the existing
+  quick-add parser (dates, `#category`, `@client`, `!priority`). Unsupported
+  browsers and denied microphones get a specific sentence, not a silent dead
+  button (`src/lib/speech.ts`).
+- **Share-to-planner** — the PWA manifest declares a `share_target`; the
+  service worker parks the shared text in a cache entry (no localStorage in a
+  SW, no backend), redirects to the app, and Today's Quick add opens with it
+  as a draft, subject-first when a title exists (`shareInbox.ts`).
+- **Voice notes & photos** live with [attachments](#attachments--photos-and-voice-memos-that-sync-without-a-heavier-sync).
+
+### Prediction (`48005cd`)
+
+- **Monte Carlo deadline forecasts** — 1,000 deterministic on-device runs per
+  task: triangular duration spread (0.55–1.9×), duration model ordered
+  client-median → category-median → bias-corrected → estimate, a deferral
+  restart chance, and a calendar-aware walk that skips weekends, lunch and
+  nights (broken hours refuse politely). Output: `% on time`, median finish
+  date, p10–p90 band, and evidence reasons — in the task panel and on the
+  at-risk card (`forecast.ts`).
+- **Planning-fallacy calibration** — `learnDurations` measures per-category
+  estimate bias (avg actual ÷ avg estimate, ≥3 aligned pairs, ≥10% miss,
+  clamped 0.5–3). The factor only corrects plans that still rely on a raw
+  estimate; a learned median always wins. Visible as plan-foot
+  "estimates corrected ×1.4", per-block `learned` tags, forecast fine print,
+  and Reports' "Estimate bias, measured" table.
+- **Tomorrow rehearsal** — after `workdayEnd`, tomorrow is planned from
+  learned durations: capacity vs demand, deadlines that day with no slot, and
+  safe defer suggestions (least urgent first, never a same-day deadline).
+  Each Move counts as a real deferral; the card dismisses and never nags
+  (`rehearsal.ts`).
+- **Best time to follow-up** — the window is the middle 50% of when a
+  client's messages actually arrive, on demand from your Microsoft mail,
+  with a 3-message floor and an honest "not enough mail" state
+  (`replyWindow.ts`, `fetchClientMail`).
+
+### Schedule (`43014f8`)
+
+- **Energy-curve placement** — `buildInsights` derives the sharpest and
+  slowest hours from your own timer sessions (a "slowest" needs a real 2+
+  hour spread). The scheduler moves deep work ahead of unlocked admin for
+  the sharp hour and batches admin into the slump — deadlines always win,
+  every swap becomes a visible block reason, and `energyNote` explains the
+  curve in the plan card.
+- **Live day reflow** — when the task set changes, `diffDayPlans` compares
+  the two plans built at the same clock and the plan card shows
+  "N tasks re-flowed live" with `14:00 → 14:40` style shifts. Honest
+  autopilot: the queue still shows what didn't fit, and the banner dismisses
+  (`diffDayPlans`, render-adjust — no effects, no lint drift).
+- **Calendar truth** — `Calendars.Read` joins the Microsoft scopes; one local
+  day of `calendarView` becomes busy intervals the plan renders as fact
+  blocks, jumps and clamps around, merges on overlap, and never double-counts
+  lunch. A refused scope says exactly how to reconnect; an old connection
+  gets a readable 403 instead of a silently free day.
+
+### Relationship (`cfe077b`)
+
+- **Client radar** — `buildClientRadar` groups open tasks by the `client`
+  field into "Brief: Nova" cards: overdue/due-soon counts, next deadline,
+  priorities, minutes, and up to three newest cached mail mentions with
+  deep links, sorted by risk (`radar.ts`).
+- **Follow-up cadence** — two on-device rules with the working shown:
+  follow-up/email quiet 3 days → nudge, proposal silent 7 days → escalate —
+  suppressed when cached mail shows the client replied after the task last
+  moved. Every line quotes the rule and the dates (`cadence.ts`).
+
+### Interface (`29cb72e`, `48005cd`, `d655124`)
+
+- **Local assistant Q&A** — the command palette answers questions from your
+  data only: templated intents compute exact aggregates with citations
+  (overdue, due today, completed, tracked time, what's next with scheduler
+  reasons, named-task status/durations, client summaries); BM25 ranks task
+  documents for name-shaped questions. Confidence is always labelled
+  `exact` / `closest` / `none`, and "not found on this device" is a real
+  answer (`qa.ts`). No cloud AI — no network call exists in the path.
+- **.ics export** — the scheduled day as folded, CRLF-terminated VEVENTs
+  with floating local times, `VALUE=DATE` for date-only tasks, and completed
+  work marked `✓` + `STATUS:COMPLETED` (`ics.ts`).
+- **Privacy blur** — on by default: 60s idle or a hidden tab blurs client
+  names and task titles behind a wash until you move again
+  (`privacy.ts`, `usePrivacyBlur.ts`).
+- **Day replay** — a scrubber over the day's real timer sessions and
+  completions: spans clipped at midnight, running sessions skipped, play/pause
+  and a live readout of what was happening at each minute (`replay.ts`,
+  Reports page).
+
+### Honest limits of the batch
+
+- Reply and mention checks run against *cached* Graph highlights (unread
+  inbox + chat as last fetched) — a reply you've already read may be missed
+  until the next refresh; the cadence text says "cached mail" out loud.
+- Energy, forecasts and calibration are only as good as your tracked history;
+  with no sessions the plan says so instead of inventing a curve.
+- The calendar scope was added after the first release of this feature set:
+  connections made before it need one reconnect (the 403 message says so).
+- Radar mail mentions and reply windows use name matching, not thread
+  identity — good enough for a glance, never claimed to be a CRM.
+
+Batch gates: lint held at the 19-warning baseline with 0 errors, `tsc -b`
+clean, and the suite grew 353 → 432 tests across the five commits.
