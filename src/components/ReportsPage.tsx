@@ -1,13 +1,22 @@
-import { ChartColumn as ChartIcon, Clock, Download, Target, TrendingUp } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChartColumn as ChartIcon, Clock, Download, Play, Target, TrendingUp } from 'lucide-react';
 import { CATEGORIES } from '../lib/types';
-import { formatDuration, humanDateRange, percent } from '../lib/dates';
+import { formatClock, formatDateShort, formatDuration, humanDateRange, percent, todayISO } from '../lib/dates';
 import { buildWeeklyReport } from '../lib/reports';
 import { buildInsights, learnDurations } from '../lib/ml';
+import { buildDayReplay, replayAt, replayableDates } from '../lib/replay';
 import type { CommonPageProps } from './pageProps';
 import { Badge, Button, EmptyState, ProgressBar, StatCard } from './ui';
 import { PageHeader } from './Shell';
 
-export function ReportsPage({ tasks, now, timer, addToast, onExportCsv }: CommonPageProps & { onExportCsv: () => void }) {
+export function ReportsPage({
+  tasks,
+  settings,
+  now,
+  timer,
+  addToast,
+  onExportCsv,
+}: CommonPageProps & { onExportCsv: () => void }) {
   const report = buildWeeklyReport(tasks, timer.sessions, now);
   const insights = buildInsights(tasks, timer.sessions);
   const learning = learnDurations(tasks, timer.sessions);
@@ -17,6 +26,36 @@ export function ReportsPage({ tasks, now, timer, addToast, onExportCsv }: Common
     report.estimatedMinutes > 0 && report.actualMinutes > 0
       ? Math.round((report.estimatedMinutes / report.actualMinutes) * 100)
       : null;
+
+  // Day replay: scrub through one day of timer sessions and completions.
+  const replayDates = replayableDates(timer.sessions);
+  const [replayDate, setReplayDate] = useState<string>(() => replayDates[0] ?? todayISO(now));
+  const [replayPos, setReplayPos] = useState<number | null>(null);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const activeReplayDate = replayDates.includes(replayDate) ? replayDate : (replayDates[0] ?? replayDate);
+  const replay = useMemo(
+    () => buildDayReplay(activeReplayDate, tasks, timer.sessions, settings),
+    [activeReplayDate, tasks, timer.sessions, settings],
+  );
+  const playhead = replayPos ?? replay.startMs;
+  const replaySpan = Math.max(1, replay.endMs - replay.startMs);
+
+  useEffect(() => {
+    if (!replayPlaying) return undefined;
+    const step = Math.max(60_000, replaySpan / 180);
+    const id = window.setInterval(() => {
+      const next = Math.min(replay.endMs, (replayPos ?? replay.startMs) + step);
+      setReplayPos(next);
+      // Timer callback (not the effect body) owns the stop, so playback ends
+      // on the same tick that reaches the end of the day.
+      if (next >= replay.endMs) setReplayPlaying(false);
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [replayPlaying, replayPos, replay.startMs, replay.endMs, replaySpan]);
+
+  const replayHasData = replay.spans.length > 0 || replay.marks.length > 0;
+  const replayPercent = (atMs: number) => Math.min(100, Math.max(0, ((atMs - replay.startMs) / replaySpan) * 100));
+  const nowAt = replayAt(replay, playhead);
 
   return (
     <div className="page">
@@ -235,6 +274,29 @@ export function ReportsPage({ tasks, now, timer, addToast, onExportCsv }: Common
                 ))}
               </ul>
             )}
+            {learning.learned.factors && Object.keys(learning.learned.factors).length > 0 ? (
+              <div className="bias-notes">
+                <h4>Estimate bias, measured</h4>
+                <ul className="learning-list">
+                  {Object.entries(learning.learned.factors).map(([category, factor]) => {
+                    const samples =
+                      learning.learned.samples?.byCategory[category as keyof typeof CATEGORIES] ?? 0;
+                    return (
+                      <li key={category}>
+                        <span>{CATEGORIES[category as keyof typeof CATEGORIES].label}</span>
+                        <span>
+                          ×{factor} ({samples} samples) · plans use it
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="fine-print">
+                  Your estimates for these categories have run long or short by this much. Where a learned median
+                  exists, the median wins; the factor only corrects plans that still rely on your estimate.
+                </p>
+              </div>
+            ) : null}
             <ProgressBar
               value={Math.min(100, learning.totalSamples * 10)}
               label="Learning sample progress"
@@ -275,6 +337,98 @@ export function ReportsPage({ tasks, now, timer, addToast, onExportCsv }: Common
             <strong>{formatDuration(report.actualMinutes)}</strong>
           </div>
         </div>
+      </section>
+
+      <section className="card replay-card" aria-label="Day replay">
+        <div className="section-head">
+          <h2>
+            <Clock size={16} /> Day replay
+          </h2>
+          <select
+            className="replay-date"
+            aria-label="Day to replay"
+            value={activeReplayDate}
+            onChange={(event) => {
+              setReplayDate(event.target.value);
+              setReplayPos(null);
+              setReplayPlaying(false);
+            }}
+          >
+            {replayDates.length === 0 ? <option value={activeReplayDate}>{formatDateShort(activeReplayDate)}</option> : null}
+            {replayDates.map((date) => (
+              <option key={date} value={date}>
+                {formatDateShort(date)}
+              </option>
+            ))}
+          </select>
+        </div>
+        {!replayHasData ? (
+          <EmptyState
+            icon={Clock}
+            title="Nothing to replay"
+            message="No timer sessions were recorded on this day. Run a timer and the day will show up here as a timeline you can scrub."
+          />
+        ) : (
+          <>
+            <div className="replay-track" aria-hidden="true">
+              {replay.spans.map((span) => (
+                <span
+                  key={`${span.taskId}-${span.startMs}`}
+                  className="replay-span"
+                  style={{
+                    left: `${replayPercent(span.startMs)}%`,
+                    width: `${Math.max(0.6, replayPercent(span.endMs) - replayPercent(span.startMs))}%`,
+                  }}
+                  title={`${span.title} · ${formatDuration(span.minutes)}`}
+                />
+              ))}
+              {replay.marks.map((mark) => (
+                <span
+                  key={`mark-${mark.atMs}`}
+                  className="replay-mark"
+                  style={{ left: `${replayPercent(mark.atMs)}%` }}
+                  title={`${mark.title} — completed`}
+                />
+              ))}
+              <span className="replay-head" style={{ left: `${replayPercent(playhead)}%` }} />
+            </div>
+            <input
+              className="replay-slider"
+              type="range"
+              min={replay.startMs}
+              max={replay.endMs}
+              step={60_000}
+              value={playhead}
+              aria-label={`Scrub ${formatDateShort(replay.date)}`}
+              onChange={(event) => {
+                setReplayPos(Number(event.target.value));
+                setReplayPlaying(false);
+              }}
+            />
+            <div className="replay-readout">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Play}
+                onClick={() => {
+                  if (playhead >= replay.endMs) setReplayPos(replay.startMs);
+                  setReplayPlaying((current) => !current);
+                }}
+              >
+                {replayPlaying ? 'Pause' : 'Play'}
+              </Button>
+              <span className="replay-now">
+                <Clock size={13} aria-hidden="true" /> {formatClock(new Date(playhead))} ·{' '}
+                {nowAt ? nowAt.title : 'free time'}
+              </span>
+              <span className="muted">{formatDuration(replay.workMinutes)} tracked this day</span>
+            </div>
+            <p className="fine-print">
+              Built from timer sessions saved on this device — spans are work sessions, ticks are completions. Snapshots
+              don’t count.
+            </p>
+          </>
+        )}
       </section>
     </div>
   );

@@ -50,6 +50,7 @@ export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSa
   const actuals = collectActualMinutes(tasks, sessions);
   const categoryValues = new Map<Category, number[]>();
   const clientValues = new Map<string, number[]>();
+  const categoryEstimates = new Map<Category, number[]>();
 
   for (const task of tasks) {
     if (task.deletedAt !== null) continue;
@@ -57,6 +58,8 @@ export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSa
     if (actual < 1) continue;
     if (!categoryValues.has(task.category)) categoryValues.set(task.category, []);
     categoryValues.get(task.category)!.push(actual);
+    if (!categoryEstimates.has(task.category)) categoryEstimates.set(task.category, []);
+    categoryEstimates.get(task.category)!.push(task.estimatedMinutes);
     if (task.client.trim()) {
       const key = task.client.trim();
       if (!clientValues.has(key)) clientValues.set(key, []);
@@ -66,6 +69,7 @@ export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSa
 
   const byCategory: Partial<Record<Category, number>> = {};
   const categorySamples: Partial<Record<Category, number>> = {};
+  const factors: Partial<Record<Category, number>> = {};
   let totalSamples = 0;
   for (const category of CATEGORY_ORDER) {
     const values = categoryValues.get(category) ?? [];
@@ -73,6 +77,20 @@ export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSa
     if (values.length >= minimumSamples) {
       byCategory[category] = median(values);
       totalSamples += values.length;
+    }
+    // Planning-fallacy correction: average actual ÷ average estimate, kept
+    // only when it is a clear miss (≥10%) and clamped so one strange month
+    // cannot rewrite the planner. Measured medians (above) still win when
+    // they exist; this catches the categories that only have estimate-vs-
+    // actual history so far.
+    const estimates = categoryEstimates.get(category) ?? [];
+    if (estimates.length >= minimumSamples && estimates.length === values.length) {
+      const averageEstimate = estimates.reduce((sum, value) => sum + value, 0) / estimates.length;
+      const averageActual = values.reduce((sum, value) => sum + value, 0) / values.length;
+      if (averageEstimate > 0) {
+        const factor = clampFactor(averageActual / averageEstimate);
+        if (Math.abs(factor - 1) >= 0.1) factors[category] = factor;
+      }
     }
   }
 
@@ -86,7 +104,23 @@ export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSa
     }
   }
 
-  return { learned: { byCategory, byClient }, categorySamples, clientSamples, totalSamples };
+  return {
+    learned: {
+      byCategory,
+      byClient,
+      factors: Object.keys(factors).length > 0 ? factors : undefined,
+      samples: { byCategory: categorySamples, byClient: clientSamples },
+    },
+    categorySamples,
+    clientSamples,
+    totalSamples,
+  };
+}
+
+/** Keep a correction honest: halved at most, tripled at most, 2 decimals. */
+export function clampFactor(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  return Math.min(3, Math.max(0.5, Math.round(raw * 100) / 100));
 }
 
 export interface TaskSuggestion {

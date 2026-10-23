@@ -58,6 +58,15 @@ export interface ConflictWarning {
 export interface LearnedDurations {
   byCategory: Partial<Record<Category, number>>;
   byClient: Record<string, number>;
+  /** Planning-fallacy correction: 1.4 means estimates in that category
+   * typically miss the real work by 40%. Applied only when no learned median
+   * exists yet — measured data always beats a correction factor. */
+  factors?: Partial<Record<Category, number>>;
+  /** How much evidence sits behind each number — for honest labels. */
+  samples?: {
+    byCategory: Partial<Record<Category, number>>;
+    byClient: Record<string, number>;
+  };
 }
 
 export interface ParsedDraft {
@@ -212,6 +221,15 @@ export function estimateForTask(task: Task, settings: Settings, learned: Learned
     const clientMedian = task.client ? learned.byClient[task.client] : undefined;
     if (typeof categoryMedian === 'number' && categoryMedian > 0) return Math.round(categoryMedian);
     if (typeof clientMedian === 'number' && clientMedian > 0) return Math.round(clientMedian);
+    // No median for this category/client yet — but if ≥3 timed tasks show
+    // estimates missing by a clear margin, plan with the correction instead
+    // of the wish. The label ("×1.4") travels with the forecast so the
+    // adjustment is never a silent fudge.
+    const factor = learned.factors?.[task.category];
+    if (typeof factor === 'number' && factor > 0 && factor !== 1) {
+      const base = Math.max(5, Math.round(task.estimatedMinutes || settings.defaultEstimateMinutes));
+      return Math.max(5, Math.round(base * factor));
+    }
   }
   return Math.max(5, Math.round(task.estimatedMinutes || settings.defaultEstimateMinutes));
 }

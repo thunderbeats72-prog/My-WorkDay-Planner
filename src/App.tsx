@@ -45,7 +45,7 @@ import {
   wasDelivered,
 } from './lib/notifications';
 import type { AppNotification } from './lib/notifications';
-import type { DayPlan, ParsedDraft, ReminderItem } from './lib/engine';
+import type { DayPlan, LearnedDurations, ParsedDraft, ReminderItem } from './lib/engine';
 import {
   beginGraphSignIn,
   cleanGraphRedirectUrl,
@@ -95,6 +95,7 @@ import { haptic } from './lib/haptics';
 import type { QuickAddDraft } from './lib/quickAdd';
 import { sharedToQuickText, takeSharedPayload } from './lib/shareInbox';
 import { buildFoldedIcs } from './lib/ics';
+import { learnDurations } from './lib/ml';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
@@ -1308,6 +1309,11 @@ export default function App() {
 
   const panelTask = panelId ? tasks.find((task) => task.id === panelId) ?? null : null;
 
+  const learned: LearnedDurations = useMemo(
+    () => learnDurations(tasks, timer.sessions).learned,
+    [tasks, timer.sessions],
+  );
+
   const counts: NavCounts = useMemo(() => {
     const open = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
     const today = todayISO(now);
@@ -1659,6 +1665,7 @@ export default function App() {
         elapsedMs={panelTask ? timer.elapsedMsFor(panelTask.id) : 0}
         isRunning={panelTask ? timer.isRunning(panelTask.id) : false}
         isPaused={panelTask ? timer.hasPausedSession(panelTask.id) : false}
+        learned={learned}
         onClose={() => setPanelId(null)}
         onEdit={() => {
           if (!panelTask) return;

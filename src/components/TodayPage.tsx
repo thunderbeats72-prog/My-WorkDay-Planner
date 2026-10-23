@@ -26,8 +26,10 @@ import {
   countdownLabel,
   daysFromNow,
   formatDateLong,
+  formatDateShort,
   formatDuration,
   formatWeekday,
+  fromISODate,
   isTaskOverdue,
   formatDayNumber,
   greetingForHour,
@@ -40,6 +42,8 @@ import {
 import { buildDayPlan } from '../lib/engine';
 import type { ReminderItem } from '../lib/engine';
 import { deadlineRisk, learnDurations } from '../lib/ml';
+import { forecastTask } from '../lib/forecast';
+import { nextWorkingISO, rehearsalFor } from '../lib/rehearsal';
 import { suggestFocus } from '../lib/focus';
 import { parseQuickAdd } from '../lib/quickAdd';
 import { dictationErrorText, dictationSupported, startDictation, type Dictation } from '../lib/speech';
@@ -94,6 +98,7 @@ export function TodayPage({
   const quickBaseRef = useRef('');
   const quickInputRef = useRef<HTMLInputElement | null>(null);
   const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
+  const [rehearsalDismissed, setRehearsalDismissed] = useState(false);
   const [focusSkip, setFocusSkip] = useState(0);
   const today = todayISO(now);
   const openTasks = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
@@ -175,6 +180,11 @@ export function TodayPage({
   const focusRunning = Boolean(focus && timer.isRunning(focus.task.id));
   const focusPaused = Boolean(focus && timer.hasPausedSession(focus.task.id));
   const showWrapUp = workdayOver && dueToday.length > 0 && !wrapUpDismissed;
+  const rehearsal = workdayOver && workingToday && !rehearsalDismissed
+    ? rehearsalFor(tasks, settings, now, learned)
+    : null;
+  const rehearsalNeedsAttention =
+    rehearsal !== null && (rehearsal.overflowMinutes > 0 || rehearsal.atRisk.length > 0);
 
   const submitQuickAdd = () => {
     if (!quickTitle.trim()) return;
@@ -447,6 +457,76 @@ export function TodayPage({
         </section>
       ) : null}
 
+      {rehearsalNeedsAttention && rehearsal ? (
+        <section className="card rehearsal-card" aria-label="Tomorrow rehearsal">
+          <div className="section-head">
+            <h2>
+              <MoonStar size={16} /> Tomorrow rehearsal · {formatDateShort(rehearsal.date)}
+            </h2>
+            <Button size="sm" variant="ghost" onClick={() => setRehearsalDismissed(true)}>
+              Noted
+            </Button>
+          </div>
+          <p className={`rehearsal-status ${rehearsal.overflowMinutes > 0 ? 'is-over' : ''}`}>
+            {rehearsal.overflowMinutes > 0 ? (
+              <>
+                Over capacity by <strong>{formatDuration(rehearsal.overflowMinutes)}</strong> —{' '}
+                {formatDuration(rehearsal.demandMinutes)} of dated work in a{' '}
+                {formatDuration(rehearsal.capacityMinutes)} day (learned durations applied).
+              </>
+            ) : (
+              <>
+                Fits with room: {formatDuration(rehearsal.demandMinutes)} of dated work in a{' '}
+                {formatDuration(rehearsal.capacityMinutes)} day — but deadlines below have no slot yet.
+              </>
+            )}
+          </p>
+          {rehearsal.atRisk.length > 0 ? (
+            <div className="rehearsal-block">
+              <h3 className="rehearsal-subhead">Due {formatDateShort(rehearsal.date)} with no slot</h3>
+              <ul className="rehearsal-list">
+                {rehearsal.atRisk.map(({ task }) => (
+                  <li key={task.id}>
+                    <button type="button" className="risk-title" onClick={() => taskHandlers(task).onOpen()}>
+                      {task.title}
+                    </button>
+                    <Badge tone="danger">deadline</Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {rehearsal.suggestedDefers.length > 0 ? (
+            <div className="rehearsal-block">
+              <h3 className="rehearsal-subhead">
+                Move tonight to make it fit — each counts as an honest deferral
+              </h3>
+              <ul className="rehearsal-list">
+                {rehearsal.suggestedDefers.map((item) => (
+                  <li key={item.task.id}>
+                    <button type="button" className="risk-title" onClick={() => taskHandlers(item.task).onOpen()}>
+                      {item.task.title}
+                    </button>
+                    <span className="muted">{formatDuration(item.estimateMinutes)}</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        taskHandlers(item.task).onReschedule(
+                          nextWorkingISO(settings, fromISODate(rehearsal.date)),
+                        )
+                      }
+                    >
+                      Move
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {focus ? (
         <section className={`card focus-card focus-${focus.kind}`} aria-label="Suggested next task">
           <div className="focus-top">
@@ -600,10 +680,17 @@ export function TodayPage({
                       label={`Risk score for ${task.title}`}
                     />
                     <p className="fine-print">
-                      {risk.factors
-                        .filter((factor) => factor.points > 0)
-                        .map((factor) => factor.label)
-                        .join(' · ') || 'No risk factors recorded.'}
+                      {(() => {
+                        const fc = forecastTask({ task, tasks, settings, learned, now, runs: 400 });
+                        const line = risk.factors
+                          .filter((factor) => factor.points > 0)
+                          .map((factor) => factor.label)
+                          .join(' · ');
+                        if (!fc || fc.pOnTime === null) return line || 'No risk factors recorded.';
+                        return `${fc.pOnTime}% on time · median ${formatDateShort(
+                          fc.medianDate,
+                        )} — 400 sims. ${line}`;
+                      })()}
                     </p>
                   </li>
                 ))}
@@ -765,6 +852,9 @@ export function TodayPage({
             <ProgressBar value={percent(planned, capacity)} label="Planned capacity" />
             <p className="fine-print">
               {formatDuration(planned)} planned · {formatDuration(freeMinutes)} free · {plan.queued.length} queued
+              {learned.factors && Object.keys(learned.factors).length > 0
+                ? ` · estimates corrected ×${Object.values(learned.factors).join(', ×')}`
+                : ''}
             </p>
             <ul className="mini-timeline">
               {plan.blocks.slice(0, 8).map((block) => {
@@ -774,7 +864,14 @@ export function TodayPage({
                     <span>
                       {String(Math.floor(block.start / 60)).padStart(2, '0')}:{String(block.start % 60).padStart(2, '0')}
                     </span>
-                    <p>{block.title}</p>
+                    <p>
+                      {block.title}
+                      {block.learned ? (
+                        <em className="mini-learned" title="Length comes from your completed work, not the estimate">
+                          learned
+                        </em>
+                      ) : null}
+                    </p>
                     {live ? <em className="mini-now">now</em> : null}
                   </li>
                 );

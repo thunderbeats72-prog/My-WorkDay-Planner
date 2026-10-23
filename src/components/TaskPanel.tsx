@@ -15,6 +15,7 @@ import {
   Square,
   Target,
   Trash2,
+  TrendingUp,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -24,11 +25,14 @@ import {
   dueLabel,
   dueTone,
   formatDateLong,
+  formatDateShort,
   formatDuration,
   formatSecondsLabel,
   formatTimeAgo,
 } from '../lib/dates';
 import { deadlineRisk, suggestForTask } from '../lib/ml';
+import { forecastTask } from '../lib/forecast';
+import type { LearnedDurations } from '../lib/engine';
 import { listEvents } from '../lib/db';
 import {
   ATTACHMENT_LIMITS,
@@ -66,6 +70,7 @@ export function TaskPanel({
   onApplySuggestion,
   onOpenTask,
   onAttachmentsChange,
+  learned,
 }: {
   task: Task | null;
   tasks: Task[];
@@ -74,6 +79,7 @@ export function TaskPanel({
   elapsedMs: number;
   isRunning: boolean;
   isPaused: boolean;
+  learned: LearnedDurations | null;
   onClose: () => void;
   onEdit: () => void;
   onStart: () => void;
@@ -157,6 +163,10 @@ export function TaskPanel({
   const suggestion = useMemo(
     () => (task ? suggestForTask(task.title, tasks, settings) : null),
     [task, tasks, settings],
+  );
+  const forecast = useMemo(
+    () => (task && task.dueDate ? forecastTask({ task, tasks, settings, learned, now }) : null),
+    [task, tasks, settings, learned, now],
   );
   const risk = useMemo(
     () => (task ? deadlineRisk(task, tasks, settings, now) : null),
@@ -439,6 +449,43 @@ export function TaskPanel({
                   </li>
                 ))}
               </ul>
+            </section>
+          ) : null}
+
+          {forecast ? (
+            <section className="panel-section" aria-label="Deadline forecast">
+              <div className="section-title-row">
+                <h3>
+                  <TrendingUp size={15} /> Deadline forecast
+                </h3>
+                <Badge tone={forecast.pOnTime === null ? 'neutral' : forecast.pOnTime >= 80 ? 'success' : forecast.pOnTime >= 50 ? 'warning' : 'danger'}>
+                  {forecast.pOnTime === null ? 'undated' : `${forecast.pOnTime}% on time`}
+                </Badge>
+              </div>
+              <p>
+                Median finish <strong>{formatDateShort(forecast.medianDate)}</strong>
+                {forecast.pOnTime === null ? null : (
+                  <>
+                    {' '}
+                    ·{' '}
+                    {(new Date(forecast.bandEnd).getTime() - new Date(forecast.bandStart).getTime()) / 86_400_000 < 1.5
+                      ? 'same-week spread'
+                      : 'range'}{' '}
+                    {formatDateShort(forecast.bandStart)}–{formatDateShort(forecast.bandEnd)}
+                  </>
+                )}
+              </p>
+              <ul className="reason-list">
+                {forecast.reasons.slice(0, 5).map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+              <p className="fine-print">
+                {forecast.runs.toLocaleString()} on-device simulations using your saved durations.
+                {forecast.model.source === 'corrected' && forecast.model.factor
+                  ? ` Plans already apply ×${forecast.model.factor} to your estimate.`
+                  : ' With no history yet, your estimate is the only input — treat the band as a guess.'}
+              </p>
             </section>
           ) : null}
 
