@@ -13,6 +13,7 @@ import {
 import type { Category, Priority } from '../lib/types';
 import { CATEGORIES, CATEGORY_ORDER, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import { findDuplicate, parseScreenshotText } from '../lib/engine';
+import { todayISO } from '../lib/dates';
 import type { ParsedDraft } from '../lib/engine';
 import { formatDuration } from '../lib/dates';
 import type { CommonPageProps } from './pageProps';
@@ -44,7 +45,12 @@ export function ImportPage({
   tasks,
   addToast,
   onImportDrafts,
-}: CommonPageProps & { onImportDrafts: (drafts: ParsedDraft[]) => void }) {
+}: CommonPageProps & {
+  onImportDrafts: (
+    drafts: ParsedDraft[],
+    meta: { createdAt: string; completedAt: string; completedIds: string[]; dateISO: string },
+  ) => void;
+}) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
@@ -57,6 +63,15 @@ export function ImportPage({
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  /**
+   * The day these priorities belong to. It becomes the `createdAt` of every
+   * imported task, the fallback deadline for items with no date of their own,
+   * and the completion date of anything the user confirms was already done —
+   * which is what keeps a screenshot of yesterday out of today's report.
+   */
+  const [reportDate, setReportDate] = useState(() => todayISO(new Date()));
+  /** Per-draft: “this was already done” — only ever set by a human. */
+  const [doneHints, setDoneHints] = useState<boolean[]>([]);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const urlRef = useRef<string | null>(null);
 
@@ -82,6 +97,9 @@ export function ImportPage({
     const parsed = parseScreenshotText(text, new Date());
     setDrafts(parsed);
     setIncluded(parsed.map(() => true));
+    /* A struck-through line is evidence, not proof: the box starts unticked
+       and the review step asks. Nothing is completed without that tick. */
+    setDoneHints(parsed.map(() => false));
     setReviewError('');
     if (parsed.length === 0) {
       setReviewError('No task-like lines were found. Edit the text and try again.');
@@ -154,14 +172,40 @@ export function ImportPage({
   };
 
   const save = () => {
-    const chosen = drafts.filter((_, index) => included[index]);
+    const chosen = drafts
+      .map((draft, index) => ({ draft, index, done: doneHints[index] ?? false }))
+      .filter((entry) => included[entry.index]);
     if (chosen.length === 0) return;
-    onImportDrafts(chosen);
-    addToast(`${chosen.length} task${chosen.length === 1 ? '' : 's'} imported after review.`, 'success');
+    const at = `${reportDate}T09:00:00`;
+    const stamped = new Date(at).toISOString();
+    onImportDrafts(
+      chosen.map(({ draft }) => ({
+        ...draft,
+        /* Undated priorities land on the reporting date — that is the day they
+           were set, and the day the report will look for them. */
+        dueDate: draft.dueDate ?? reportDate,
+      })),
+      {
+        createdAt: stamped,
+        completedAt: stamped,
+        completedIds: chosen.filter((entry) => entry.done).map(({ draft }) => draft.title),
+        dateISO: reportDate,
+      },
+    );
+    const doneCount = chosen.filter((entry) => entry.done).length;
+    addToast(
+      `${chosen.length} task${chosen.length === 1 ? '' : 's'} imported${doneCount > 0 ? `, ${doneCount} marked done` : ''}.`,
+      'success',
+    );
     reset();
   };
 
-  const chosenDrafts = drafts.filter((_, index) => included[index]);
+  /** Selected drafts with their original index, so the per-draft flags line up. */
+  const chosenEntries = drafts
+    .map((draft, index) => ({ draft, index }))
+    .filter((entry) => included[entry.index]);
+  const chosenDrafts = chosenEntries.map((entry) => entry.draft);
+  const doneCount = chosenEntries.filter((entry) => doneHints[entry.index] ?? false).length;
   const duplicateCount = chosenDrafts.filter((draft) => findDuplicate(draft, tasks)).length;
   const warningCount = chosenDrafts.reduce((sum, draft) => sum + draft.warnings.length, 0);
   const missingDates = chosenDrafts.filter((draft) => !draft.dueDate).length;
@@ -317,6 +361,23 @@ export function ImportPage({
             <Badge tone="warning">{drafts.length} drafts</Badge>
           </div>
 
+          <div className="card review-date-card">
+            <label className="field-label" htmlFor="import-report-date">
+              Reporting date
+            </label>
+            <input
+              id="import-report-date"
+              className="input"
+              type="date"
+              value={reportDate}
+              onChange={(event) => event.target.value && setReportDate(event.target.value)}
+            />
+            <p className="field-hint">
+              These priorities are dated to this day. Undated items get it as their deadline, and it is the day the
+              daily update will read them from.
+            </p>
+          </div>
+
           {drafts.length === 0 ? (
             <div className="card">
               <EmptyState
@@ -343,12 +404,50 @@ export function ImportPage({
                       <span>Include this task</span>
                     </label>
                     <div className="draft-meta">
+                      {draft.section ? <Badge tone="info">{draft.section}</Badge> : null}
                       <Badge tone={draft.confidence >= 70 ? 'success' : draft.confidence >= 45 ? 'warning' : 'danger'}>
                         {draft.confidence}% confidence
                       </Badge>
                       {duplicate ? <Badge tone="warning">Possible duplicate of “{duplicate.title}”</Badge> : null}
+                      {draft.completedHint ? <Badge tone="neutral">struck through</Badge> : null}
                     </div>
                   </header>
+
+                  {duplicate ? (
+                    <p className="draft-duplicate">
+                      <TriangleAlert size={13} aria-hidden="true" />
+                      “{duplicate.title}” is already open. Saving this adds a second copy — untick Include to skip it, or
+                      keep it if this is a genuinely new round of the same follow-up.
+                    </p>
+                  ) : null}
+
+                  <div className="draft-flags">
+                    <label className="draft-include draft-done">
+                      <input
+                        type="checkbox"
+                        checked={doneHints[index] ?? false}
+                        onChange={(event) =>
+                          setDoneHints((current) =>
+                            current.map((value, position) => (position === index ? event.target.checked : value)),
+                          )
+                        }
+                      />
+                      <span>
+                        Already done
+                        {draft.completedHint ? ' — this line was struck through in the screenshot' : ''}
+                      </span>
+                    </label>
+                    <label className="draft-section-field">
+                      <span className="field-label">Heading</span>
+                      <input
+                        className="input"
+                        value={draft.section}
+                        placeholder="Priorities"
+                        aria-label={`Heading for ${draft.title}`}
+                        onChange={(event) => updateDraft(index, { section: event.target.value })}
+                      />
+                    </label>
+                  </div>
 
                   <div className="form-grid">
                     <Field label="Title" htmlFor={`draft-title-${index}`} className="span-2">
@@ -500,14 +599,22 @@ export function ImportPage({
               <dd>{duplicateCount}</dd>
             </div>
             <div>
+              <dt>Already done</dt>
+              <dd>{doneCount}</dd>
+            </div>
+            <div>
               <dt>Total estimated effort</dt>
               <dd>{formatDuration(chosenDrafts.reduce((sum, draft) => sum + draft.estimatedMinutes, 0))}</dd>
             </div>
           </dl>
           <ul className="confirm-list">
-            {chosenDrafts.map((draft, index) => (
+            {chosenEntries.map(({ draft, index }) => (
               <li key={index}>
-                <span>{draft.title}</span>
+                <span>
+                  {draft.section ? <span className="draft-section-tag">{draft.section}</span> : null}
+                  {draft.title}
+                  {doneHints[index] ? <span className="draft-done-tag">done</span> : null}
+                </span>
                 <span className="muted">
                   {draft.dueDate ?? 'No deadline'} · {draft.priority} · {formatDuration(draft.estimatedMinutes)}
                 </span>

@@ -20,7 +20,7 @@ export type ReminderStatus = 'queued' | 'done' | 'dismissed';
 
 export type Theme = 'light' | 'dark' | 'system';
 
-export type PageId = 'today' | 'tasks' | 'completed' | 'reports' | 'settings';
+export type PageId = 'today' | 'tasks' | 'completed' | 'daily' | 'reports' | 'settings';
 
 export interface GraphRef {
   kind: 'mail' | 'chat';
@@ -52,6 +52,33 @@ export interface Task {
   deletedAt: string | null;
   source: TaskSource;
   graphRef: GraphRef | null;
+  /**
+   * Optional note captured at the moment the task was completed — “Meeting
+   * could not be aligned today. Follow up tomorrow.” Optional, not `string`:
+   * tasks saved before completion notes shipped do not have it, and a synced
+   * snapshot written by an older build must still be readable here.
+   */
+  completionNote?: string;
+  /** When {completionNote} was last written, for dating it in a report. */
+  completionNoteAt?: string | null;
+  /**
+   * Heading the task was imported under (“BizConnect Leads Follow-ups”). The
+   * daily report groups by it, which is how the original section breaks
+   * survive from the screenshot the priorities came from.
+   */
+  section?: string;
+  /** When {notes} was last written — a note belongs to the day it was edited. */
+  notesUpdatedAt?: string | null;
+}
+
+/** The completion note, or an empty string for tasks that never had one. */
+export function completionNoteOf(task: Task): string {
+  return (task.completionNote ?? '').trim();
+}
+
+/** The task's free-text note, trimmed. */
+export function noteOf(task: Task): string {
+  return (task.notes ?? '').trim();
 }
 
 export interface TimeSession {
@@ -123,6 +150,27 @@ export interface Settings {
   onboardingComplete: boolean;
   lastBackupAt: string;
 }
+
+/**
+ * A daily update saved by the user.
+ *
+ * Reports are generated live from tasks and notes, so a saved report is only
+ * ever needed for two things: keeping the text exactly as it was sent, and
+ * letting an earlier day be read back after its tasks moved on. One row per
+ * reporting date — generating tomorrow's report cannot overwrite today's.
+ */
+export interface SavedReport {
+  id: string;
+  dateISO: string;
+  /** The text as the user left it; may differ from a fresh regeneration. */
+  text: string;
+  format: ReportFormat;
+  updatedAt: string;
+  completedCount: number;
+  pendingCount: number;
+}
+
+export type ReportFormat = 'whatsapp' | 'markdown' | 'plain';
 
 export interface ScheduleBlock {
   id: string;

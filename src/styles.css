@@ -13395,15 +13395,26 @@ kbd {
 
   .bottom-nav {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    /* Five destinations, five columns: four would wrap Reports onto a second
+       row, which pushed the bar over the bottom of every page. */
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   }
 
   .bottom-nav-item {
     gap: 3px;
-    padding: 6px 2px;
+    min-width: 0;
+    padding: 6px 1px;
     font-size: 9.5px;
     letter-spacing: 0.01em;
+  }
+
+  .bottom-nav-item span {
+    display: block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .bottom-nav-item svg {
@@ -20101,4 +20112,677 @@ button.palette-cite:hover {
 .quick-note.is-error,
 .field-hint.is-error {
   color: var(--danger);
+}
+
+/* ============================================================
+   Daily update — the end-of-day report
+   ============================================================ */
+
+/*
+ * Everything here is sized from the same spacing scale as the rest of the
+ * app and holds up at 320px: the date bar wraps instead of overflowing, the
+ * format cards become one column, and the preview is a normal textarea that
+ * the on-screen keyboard can scroll to.
+ */
+
+.daily-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------- Date bar ---------- */
+
+.daily-date-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+}
+
+.daily-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-date-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.daily-date-field .input {
+  min-height: 38px;
+  width: 158px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-date-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.daily-date-meta strong {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.daily-date-meta .muted {
+  font-size: 11.5px;
+}
+
+.daily-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.daily-jump .input {
+  min-height: 38px;
+  max-width: 190px;
+}
+
+/* ---------- Counts ---------- */
+
+.daily-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.daily-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Format picker ---------- */
+
+.daily-format {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.daily-format-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daily-format-head h2 {
+  font-size: 14px;
+}
+
+.daily-format-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.daily-format-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-soft);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.daily-format-option:hover {
+  border-color: var(--border-strong);
+}
+
+.daily-format-option.is-active {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.daily-format-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.daily-format-sample {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.daily-format-hint {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.daily-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Preview ---------- */
+
+.daily-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daily-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daily-preview-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.daily-preview-flags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.daily-preview-text {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  /* Text typed by hand must be selectable and readable on a phone. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+
+.daily-edit-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.daily-copy-fallback {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ---------- Task list on the day ---------- */
+
+.daily-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.daily-task-list,
+.daily-task-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.daily-task-section + .daily-task-section {
+  margin-top: 10px;
+}
+
+.daily-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 2px;
+}
+
+.daily-task {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.daily-task.is-done {
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.daily-task-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.daily-task-title {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.daily-task.is-done .daily-task-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  color: var(--muted);
+}
+
+.daily-task-detail {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.daily-note-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.daily-note {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.daily-note.is-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.daily-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.daily-note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.daily-note-edit .input {
+  font-size: 16px; /* iOS zooms a focused field under 16px. */
+  min-height: 64px;
+}
+
+.daily-note-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ---------- Saved history ---------- */
+
+.daily-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.daily-history-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.daily-history-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.daily-history-open:hover {
+  border-color: var(--border-strong);
+}
+
+/* ---------- Completion dialog ---------- */
+
+.complete-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.complete-task-title {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.complete-existing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.complete-existing em {
+  color: var(--text);
+  font-style: normal;
+}
+
+.complete-note {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  font-size: 16px; /* keeps iOS from zooming the sheet */
+  line-height: 1.55;
+  padding: 10px 12px;
+}
+
+.complete-help {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.complete-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  flex: none;
+}
+
+.complete-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.optional-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/*
+ * The footer stacks on a phone: the three actions are all one tap apart, and
+ * “Complete Without Note” must never be so close to “Complete Task” that a
+ * thumb hits the wrong one.
+ */
+.complete-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.complete-actions-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Notes in the task panel ---------- */
+
+.task-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.task-notes-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-notes-input {
+  width: 100%;
+  resize: vertical;
+  font-size: 16px; /* iOS: no zoom on focus */
+  line-height: 1.5;
+  padding: 9px 11px;
+  min-height: 72px;
+}
+
+.task-notes-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.task-notes-saved {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+@media (max-width: 620px) {
+  .daily-format-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .daily-format-hint {
+    display: none;
+  }
+
+  .daily-jump {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .daily-jump .input {
+    flex: 1;
+    max-width: none;
+  }
+
+  .daily-date-field .input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .daily-date-field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .daily-date-meta {
+    order: -1;
+    width: 100%;
+  }
+}
+
+/* ---------- Import review: reporting date, headings, done flags ---------- */
+
+.review-date-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+}
+
+.review-date-card .input {
+  width: 170px;
+  min-height: 38px;
+}
+
+.review-date-card .field-hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+}
+
+.draft-duplicate {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.draft-flags {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.draft-done {
+  flex: 1 1 220px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.draft-section-field {
+  flex: 1 1 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.draft-section-field .input {
+  min-height: 38px;
+}
+
+.draft-section-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.draft-done-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+@media (max-width: 620px) {
+  .review-date-card .input,
+  .draft-section-field {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .draft-done {
+    flex-basis: 100%;
+  }
 }

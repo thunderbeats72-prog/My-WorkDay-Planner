@@ -111,6 +111,17 @@ export interface ParsedDraft {
   confidence: number;
   warnings: string[];
   rawText: string;
+  /**
+   * The heading this item sat under in the screenshot (“BizConnect Leads
+   * Follow-ups”). Empty when it was in the ungrouped list at the top.
+   */
+  section: string;
+  /**
+   * The line was struck through in the screenshot, which usually means the
+   * person already did it. This is a *hint*: the review step asks, and nothing
+   * is saved as completed unless that box is ticked.
+   */
+  completedHint: boolean;
 }
 
 const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -865,6 +876,80 @@ function stripBullets(line: string): string {
     .trim();
 }
 
+const SECTION_SUFFIXES = /^(priorities?|tasks?|to[- ]?dos?|follow[- ]?ups?)$/i;
+
+/**
+ * Is this line a heading rather than a task?
+ *
+ * Headings in a pasted priority list look like “Priorities -”, “BizConnect
+ * Leads Follow-ups -” or “Today:”. They are short, end with a dash or colon,
+ * and are not themselves sentences. A task called “Update CRM.” ends with a
+ * full stop and stays a task.
+ */
+export function sectionHeadingOf(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (/^\s*[-*•·]\s+/.test(trimmed)) return null;
+  if (/^(client|customer|account|company|priority|due|deadline|estimate)\s*[:-]/i.test(trimmed)) return null;
+  const match = /^(.{2,64}?)\s*[-–—:]\s*$/.exec(trimmed);
+  const candidate = (match ? (match[1] ?? '') : trimmed).replace(/^#+\s*/, '').trim();
+  if (!candidate || candidate.length > 64) return null;
+  if (/[.!?]$/.test(candidate)) return null;
+  if (/\d{1,2}[:.]\d{2}/.test(candidate)) return null;
+  if (candidate.split(/\s+/).length > 8) return null;
+  if (!match && !SECTION_SUFFIXES.test(candidate)) return null;
+  return candidate;
+}
+
+/** Strip the strikethrough a screenshot renders around a finished task. */
+export function stripStrikethrough(line: string): { text: string; struck: boolean } {
+  const trimmed = line.trim();
+  const wrapped = /^~~(.+)~~$/.exec(trimmed) ?? /^~(.+)~$/.exec(trimmed);
+  if (wrapped) return { text: wrapped[1].trim(), struck: true };
+  /* Some OCR runs turn the strike into a leading marker instead. */
+  const marked = /^\[(x|X|✓|✔)\]\s*(.+)$/.exec(trimmed);
+  if (marked) return { text: marked[2].trim(), struck: true };
+  return { text: trimmed, struck: false };
+}
+
+/**
+ * Split pasted text into blocks, carrying the heading each block sits under.
+ *
+ * Two shapes arrive here. A list copied out of a chat has blank lines between
+ * groups and looks like paragraphs; a list copied out of a notes app has one
+ * task per line and no blank lines at all. Both are handled: paragraphs when
+ * there are any, otherwise one block per sentence-shaped line.
+ */
+export function splitSectionedBlocks(raw: string): Array<{ text: string; section: string }> {
+  const normalised = raw.replace(/\r\n/g, '\n').trim();
+  if (!normalised) return [];
+
+  const out: Array<{ text: string; section: string }> = [];
+  let section = '';
+  let buffer: string[] = [];
+  const flush = () => {
+    if (buffer.length > 0) out.push({ text: buffer.join('\n'), section });
+    buffer = [];
+  };
+
+  for (const line of normalised.split('\n')) {
+    const heading = sectionHeadingOf(line);
+    if (heading) {
+      flush();
+      section = heading;
+      continue;
+    }
+    buffer.push(line);
+  }
+  flush();
+
+  /* Each run may hold several blocks; split them with the same rules the
+     paragraph parser used, so nothing about the old behaviour changes. */
+  return out.flatMap(({ text, section: owner }) =>
+    splitDraftBlocks(text).map((block) => ({ text: block, section: owner })),
+  );
+}
+
 function splitDraftBlocks(raw: string): string[] {
   const normalised = raw.replace(/\r\n/g, '\n').trim();
   if (!normalised) return [];
@@ -875,6 +960,19 @@ function splitDraftBlocks(raw: string): string[] {
   if (byParagraph.length > 1) return byParagraph;
 
   const lines = normalised.split('\n').map((line) => line.trim()).filter(Boolean);
+
+  /* One-task-per-line, no blank lines: the shape a priority list is pasted in.
+     A line that closed a sentence starts the next task, so each priority keeps
+     its own card instead of all of them collapsing into one. */
+  const sentenceTask = (line: string) => {
+    if (/^\s*([-*•·]|\d+[.)])\s+/.test(line)) return true;
+    const { text, struck } = stripStrikethrough(line);
+    if (struck) return true;
+    return /[.!?]$/.test(text) && text.split(/\s+/).length >= 3;
+  };
+  if (lines.length > 1 && lines.every(sentenceTask)) {
+    return lines.map((line) => stripStrikethrough(line).text);
+  }
   const blocks: string[] = [];
   let current: string[] = [];
   for (const line of lines) {
@@ -1076,22 +1174,30 @@ function parseClient(text: string): string {
 }
 
 export function parseScreenshotText(rawText: string, now: Date = new Date()): ParsedDraft[] {
-  const blocks = splitDraftBlocks(rawText);
+  const blocks = splitSectionedBlocks(rawText);
   const drafts: ParsedDraft[] = [];
 
-  for (const block of blocks) {
+  for (const entry of blocks) {
+    const block = entry.text;
     const lines = block
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
     if (lines.length === 0) continue;
 
-    const first = stripBullets(lines[0]);
+    const firstLine = lines[0];
+    const struckTitle = stripStrikethrough(stripBullets(firstLine));
+    const first = stripBullets(firstLine);
     const titleSource = /^(client|customer|account|company|priority|due|deadline)\s*[:-]/i.test(first)
-      ? stripBullets(lines[1] ?? first)
-      : first;
+      ? stripStrikethrough(stripBullets(lines[1] ?? first)).text
+      : struckTitle.text;
     const title = titleSource.replace(/\s+/g, ' ').slice(0, 160).trim();
     if (!title) continue;
+    /* A struck-through title is a hint that the work is done — surfaced in the
+       review step, never applied on its own. */
+    const completedHint = /^(client|customer|account|company|priority|due|deadline)\s*[:-]/i.test(first)
+      ? stripStrikethrough(stripBullets(lines[1] ?? first)).struck
+      : struckTitle.struck;
 
     const notes = lines
       .slice(1)
@@ -1137,6 +1243,8 @@ export function parseScreenshotText(rawText: string, now: Date = new Date()): Pa
       confidence: clamp(confidence, 10, 95),
       warnings,
       rawText: block,
+      section: entry.section,
+      completedHint,
     });
   }
 
@@ -1192,6 +1300,7 @@ export function draftToTask(draft: ParsedDraft, settings: Settings, now: Date = 
     deletedAt: null,
     source: 'ocr',
     graphRef: null,
+    section: draft.section || undefined,
   };
 }
 

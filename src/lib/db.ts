@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { ReminderRecord, Settings, Task, TaskEvent, TimeSession } from './types';
+import type { ReminderRecord, SavedReport, Settings, Task, TaskEvent, TimeSession } from './types';
 import type { AttachmentRecord } from './attachments';
 import { DEFAULT_SETTINGS } from './types';
 
@@ -12,6 +12,7 @@ export class PlannerDB extends Dexie {
   taskEvents!: Table<TaskEvent, string>;
   settings!: Table<Settings, string>;
   attachments!: Table<AttachmentRecord, string>;
+  reports!: Table<SavedReport, string>;
 
   constructor() {
     super(DB_NAME);
@@ -27,6 +28,12 @@ export class PlannerDB extends Dexie {
     // has taken before.
     this.version(2).stores({
       attachments: 'id, taskId, createdAt, deletedAt',
+    });
+    // v3 is one more table, again additive only: tasks, sessions, reminders and
+    // attachments are not touched by the upgrade, so an existing planner opens
+    // exactly as it was with a new, empty shelf for saved daily reports.
+    this.version(3).stores({
+      reports: 'id, dateISO, updatedAt',
     });
   }
 }
@@ -141,18 +148,49 @@ export async function saveReminders(records: ReminderRecord[]): Promise<void> {
   await db.reminderRecords.bulkPut(records);
 }
 
+/**
+ * One saved report per day.
+ *
+ * `dateISO` is the key: saving today's update can never overwrite yesterday's,
+ * because yesterday's row is a different date. Re-saving the same day replaces
+ * that day's text on purpose — a day has one official update.
+ */
+export async function saveReport(report: SavedReport): Promise<void> {
+  const existing = await db.reports.where('dateISO').equals(report.dateISO).first();
+  if (existing) {
+    await db.reports.put({ ...report, id: existing.id });
+    return;
+  }
+  await db.reports.put(report);
+}
+
+export async function getReport(dateISO: string): Promise<SavedReport | null> {
+  const row = await db.reports.where('dateISO').equals(dateISO).first();
+  return row ?? null;
+}
+
+export async function listReports(): Promise<SavedReport[]> {
+  const rows = await db.reports.toArray();
+  return rows.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+}
+
+export async function deleteReport(dateISO: string): Promise<void> {
+  await db.reports.where('dateISO').equals(dateISO).delete();
+}
+
 export async function clearAllData(): Promise<void> {
   // The array form of Dexie's transaction: seven tables is one past what the
   // flat (mode, table, table, …) signature accepts.
   await db.transaction(
     'rw',
-    [db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, db.settings, db.attachments],
+    [db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, db.settings, db.attachments, db.reports],
     async () => {
       await db.tasks.clear();
       await db.timeSessions.clear();
       await db.reminderRecords.clear();
       await db.taskEvents.clear();
       await db.settings.clear();
+      await db.reports.clear();
       // Local reset, local semantics: rows go without tombstones, exactly as
       // tasks do — if a sync account is connected, the next pull restores what
       // the server still holds, for records and for files alike.
@@ -170,6 +208,8 @@ export interface BackupFile {
   timeSessions: TimeSession[];
   reminderRecords: ReminderRecord[];
   taskEvents: TaskEvent[];
+  /** Optional: files written before daily updates existed simply lack it. */
+  reports?: SavedReport[];
 }
 
 export function createBackupPayload(
@@ -178,6 +218,7 @@ export function createBackupPayload(
   timeSessions: TimeSession[],
   reminderRecords: ReminderRecord[],
   taskEvents: TaskEvent[],
+  reports: SavedReport[] = [],
 ): BackupFile {
   return {
     app: 'my-workday-planner',
@@ -188,6 +229,7 @@ export function createBackupPayload(
     timeSessions,
     reminderRecords,
     taskEvents,
+    reports,
   };
 }
 
@@ -212,6 +254,13 @@ export function validateBackup(input: unknown): { ok: true; data: BackupFile } |
       timeSessions: Array.isArray(raw.timeSessions) ? raw.timeSessions : [],
       reminderRecords: Array.isArray(raw.reminderRecords) ? raw.reminderRecords : [],
       taskEvents: Array.isArray(raw.taskEvents) ? raw.taskEvents : [],
+      // Saved daily updates are text a person wrote by hand, so they are worth
+      // keeping. A malformed row is dropped rather than failing the whole file.
+      reports: Array.isArray(raw.reports)
+        ? (raw.reports as SavedReport[]).filter(
+            (report) => typeof report?.dateISO === 'string' && typeof report?.text === 'string',
+          )
+        : [],
     },
   };
 }
@@ -219,22 +268,28 @@ export function validateBackup(input: unknown): { ok: true; data: BackupFile } |
 export async function restoreBackup(data: BackupFile, mode: 'merge' | 'replace'): Promise<void> {
   await db.transaction(
     'rw',
-    db.tasks,
-    db.timeSessions,
-    db.reminderRecords,
-    db.taskEvents,
-    db.settings,
+    // Array form: six tables is past what the flat (mode, table, …) signature takes.
+    [db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, db.settings, db.reports],
     async () => {
       if (mode === 'replace') {
         await db.tasks.clear();
         await db.timeSessions.clear();
         await db.reminderRecords.clear();
         await db.taskEvents.clear();
+        await db.reports.clear();
       }
       await db.tasks.bulkPut(data.tasks);
       if (data.timeSessions.length > 0) await db.timeSessions.bulkPut(data.timeSessions);
       if (data.reminderRecords.length > 0) await db.reminderRecords.bulkPut(data.reminderRecords);
       if (data.taskEvents.length > 0) await db.taskEvents.bulkPut(data.taskEvents);
+      if (data.reports && data.reports.length > 0) {
+        // A day owns one update, so a restored row takes the existing id for its
+        // date instead of adding a second row the day would never show.
+        const byDate = new Map([...await db.reports.toArray()].map((row) => [row.dateISO, row]));
+        await db.reports.bulkPut(
+          data.reports.map((report) => ({ ...report, id: byDate.get(report.dateISO)?.id ?? report.id })),
+        );
+      }
       await db.settings.put({ ...DEFAULT_SETTINGS, ...data.settings, id: 'app' });
     },
   );

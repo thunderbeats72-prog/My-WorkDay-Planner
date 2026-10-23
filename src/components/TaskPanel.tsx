@@ -67,6 +67,8 @@ export function TaskPanel({
   onResume,
   onFinish,
   onToggleComplete,
+  onSaveNote,
+  onSaveCompletionNote,
   onApplySuggestion,
   onOpenTask,
   onAttachmentsChange,
@@ -87,6 +89,10 @@ export function TaskPanel({
   onResume: () => void;
   onFinish: () => void;
   onToggleComplete: () => void;
+  /** Writes the task's own note, dating it for the daily report. */
+  onSaveNote: (note: string) => void;
+  /** Writes (or clears) the note captured when the task was completed. */
+  onSaveCompletionNote: (note: string) => void;
   onApplySuggestion: (input: { category: Task['category']; priority: Task['priority']; estimatedMinutes: number }) => void;
   onOpenTask: (id: string) => void;
   /** Fire after any attachment change so the app queues a sync push. */
@@ -373,7 +379,11 @@ export function TaskPanel({
                 </dd>
               </div>
             </dl>
-            {task.notes ? <p className="panel-notes">{task.notes}</p> : null}
+            <TaskNotes
+              task={task}
+              onSaveNote={onSaveNote}
+              onSaveCompletionNote={onSaveCompletionNote}
+            />
             {task.graphRef ? (
               <a className="panel-source" href={task.graphRef.webUrl} target="_blank" rel="noreferrer">
                 Open original in {task.graphRef.kind === 'mail' ? 'Outlook' : 'Teams'} <ExternalLink size={12} />
@@ -707,6 +717,132 @@ export function TaskPanel({
           </section>
         </div>
       </aside>
+    </div>
+  );
+}
+
+/**
+ * Notes, written where they belong — on the task.
+ *
+ * Two fields, because two different things get written down:
+ *
+ *   · The task note is planning: what this is, who it is for, what “done”
+ *     means. Editable at any time.
+ *   · The completion note is the outcome: “Could not connect today.” It is
+ *     only offered once the task is complete, and it is the note the daily
+ *     report leads with.
+ *
+ * Both save to the task immediately, so the report has nothing to sync. Both
+ * write through the App (`onSaveNote` / `onSaveCompletionNote`), which owns
+ * the record and its timestamps; this component only holds the draft.
+ */
+function TaskNotes({
+  task,
+  onSaveNote,
+  onSaveCompletionNote,
+}: {
+  task: Task;
+  onSaveNote: (note: string) => void;
+  onSaveCompletionNote: (note: string) => void;
+}) {
+  const [draft, setDraft] = useState(task.notes ?? '');
+  const [completion, setCompletion] = useState(task.completionNote ?? '');
+  const [saved, setSaved] = useState<'note' | 'completion' | null>(null);
+  /**
+   * Follow the record when the panel opens a different task, or when a note is
+   * changed elsewhere (the daily report page edits the same fields).
+   *
+   * Render adjustment, not an effect: the draft is replaced during render the
+   * moment the saved note actually changes, so there is no frame where the
+   * panel shows a stale note — and typing in this field never fights the sync,
+   * because the draft only resets when the *record* changed.
+   */
+  /* Two sources, not one: saving the completion note must not reset a task
+     note that was typed but not yet saved (and the other way round). */
+  const [noteSource, setNoteSource] = useState({ id: task.id, notes: task.notes ?? '' });
+  if (noteSource.id !== task.id || noteSource.notes !== (task.notes ?? '')) {
+    setNoteSource({ id: task.id, notes: task.notes ?? '' });
+    setDraft(task.notes ?? '');
+  }
+
+  const [completionSource, setCompletionSource] = useState({ id: task.id, note: task.completionNote ?? '' });
+  if (completionSource.id !== task.id || completionSource.note !== (task.completionNote ?? '')) {
+    setCompletionSource({ id: task.id, note: task.completionNote ?? '' });
+    setCompletion(task.completionNote ?? '');
+  }
+
+  useEffect(() => {
+    if (!saved) return;
+    const timer = window.setTimeout(() => setSaved(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
+
+  const noteDirty = draft.trim() !== (task.notes ?? '').trim();
+  const completionDirty = completion.trim() !== (task.completionNote ?? '').trim();
+
+  return (
+    <div className="task-notes">
+      <div className="task-notes-block">
+        <label className="field-label" htmlFor={`task-notes-${task.id}`}>
+          Task note
+          <span className="optional-tag">optional</span>
+        </label>
+        <textarea
+          id={`task-notes-${task.id}`}
+          className="input task-notes-input"
+          rows={3}
+          maxLength={2000}
+          placeholder="Context, next step, who is waiting — anything the daily update should say."
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <div className="task-notes-actions">
+          {saved === 'note' ? <span className="task-notes-saved">Saved</span> : null}
+          <Button
+            size="sm"
+            variant={noteDirty ? 'primary' : 'ghost'}
+            disabled={!noteDirty}
+            onClick={() => {
+              onSaveNote(draft);
+              setSaved('note');
+            }}
+          >
+            Save note
+          </Button>
+        </div>
+      </div>
+
+      {task.status === 'completed' ? (
+        <div className="task-notes-block">
+          <label className="field-label" htmlFor={`task-completion-${task.id}`}>
+            Completion note
+            <span className="optional-tag">optional</span>
+          </label>
+          <textarea
+            id={`task-completion-${task.id}`}
+            className="input task-notes-input"
+            rows={3}
+            maxLength={2000}
+            placeholder="What actually happened — outcome, or why the objective is still open."
+            value={completion}
+            onChange={(event) => setCompletion(event.target.value)}
+          />
+          <div className="task-notes-actions">
+            {saved === 'completion' ? <span className="task-notes-saved">Saved</span> : null}
+            <Button
+              size="sm"
+              variant={completionDirty ? 'primary' : 'ghost'}
+              disabled={!completionDirty}
+              onClick={() => {
+                onSaveCompletionNote(completion);
+                setSaved('completion');
+              }}
+            >
+              Save completion note
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
