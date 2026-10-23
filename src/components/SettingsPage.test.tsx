@@ -77,6 +77,7 @@ function renderSettings(overrides: { theme?: 'light' | 'dark' | 'system' } = {})
       onExportBackup={vi.fn()}
       onImportBackup={vi.fn()}
       onExportCsv={vi.fn()}
+      onExportIcs={vi.fn()}
       onResetData={vi.fn()}
       graph={{
         connected: false,

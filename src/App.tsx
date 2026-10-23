@@ -61,6 +61,7 @@ import type { GraphAccount, GraphHighlight, GraphToken } from './lib/graph';
 import { tasksToCsv } from './lib/reports';
 import { useTimer } from './hooks/useTimer';
 import { useAmbientEffects } from './hooks/useAmbientEffects';
+import { usePrivacyBlur } from './hooks/usePrivacyBlur';
 import {
   useMediaQuery,
   useNotificationPermission,
@@ -92,6 +93,8 @@ import { loadShelf, recordSticker, saveShelf, stickerCaption, stickerFor, streak
 import { markNudged, nudgeFor, wasNudged } from './lib/assistant';
 import { haptic } from './lib/haptics';
 import type { QuickAddDraft } from './lib/quickAdd';
+import { sharedToQuickText, takeSharedPayload } from './lib/shareInbox';
+import { buildFoldedIcs } from './lib/ics';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
@@ -168,6 +171,9 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
+  // A line shared from another app (PWA share sheet) waits here until Today's
+  // Quick add has taken it — consumed exactly once, see shareInbox.ts.
+  const [quickSeed, setQuickSeed] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [confettiKey, setConfettiKey] = useState(0);
   const [stickerMoment, setStickerMoment] = useState<StickerMoment | null>(null);
@@ -184,6 +190,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
 
   useAmbientEffects(!loading);
+  usePrivacyBlur(settings.privacyBlur);
 
   const online = useOnline();
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
@@ -354,6 +361,24 @@ export default function App() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // The share sheet parked a line at /share (service worker); take it once
+  // and land on Today with Quick add already holding it.
+  useEffect(() => {
+    let cancelled = false;
+    void takeSharedPayload().then((payload) => {
+      if (cancelled) return;
+      const text = payload ? sharedToQuickText(payload) : '';
+      if (!text) return;
+      setQuickSeed(text);
+      setPage('today');
+      window.setTimeout(() => window.scrollTo({ top: 0 }), 60);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const consumeQuickSeed = useCallback(() => setQuickSeed(null), []);
 
   useEffect(() => {
     if (window.location.hash !== `#/${page}`) {
@@ -879,6 +904,15 @@ export default function App() {
   const handleExportCsv = useCallback(() => {
     downloadFile(`workday-tasks-${todayISO()}.csv`, tasksToCsv(tasksRef.current), 'text/csv');
     addToast('Task CSV downloaded.', 'success');
+  }, [addToast]);
+
+  const handleExportIcs = useCallback(() => {
+    downloadFile(
+      `workday-plan-${todayISO()}.ics`,
+      buildFoldedIcs(tasksRef.current, { now: new Date() }),
+      'text/calendar',
+    );
+    addToast('Calendar file downloaded — import or subscribe to it in any calendar app.', 'success');
   }, [addToast]);
 
   const handleImportBackup = useCallback(
@@ -1441,6 +1475,8 @@ export default function App() {
             onResumeTask={(taskId) => void resumeTask(taskId)}
             onCompleteReminder={(taskId) => void toggleComplete(taskId)}
             onDeferTodayToTomorrow={() => void deferTodayToTomorrow()}
+            draftSeed={quickSeed}
+            onDraftSeedConsumed={consumeQuickSeed}
           />
         );
       case 'tasks':
@@ -1464,6 +1500,7 @@ export default function App() {
             onExportBackup={() => void handleExportBackup()}
             onImportBackup={(file) => void handleImportBackup(file)}
             onExportCsv={handleExportCsv}
+            onExportIcs={handleExportIcs}
             onResetData={handleResetData}
             graph={{
               connected: graphConnected,

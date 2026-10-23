@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlarmClock,
   Bell,
@@ -9,6 +9,7 @@ import {
   Clock,
   Flame,
   Inbox,
+  Mic,
   MoonStar,
   PieChart,
   Play,
@@ -41,6 +42,7 @@ import type { ReminderItem } from '../lib/engine';
 import { deadlineRisk, learnDurations } from '../lib/ml';
 import { suggestFocus } from '../lib/focus';
 import { parseQuickAdd } from '../lib/quickAdd';
+import { dictationErrorText, dictationSupported, startDictation, type Dictation } from '../lib/speech';
 import { dayVibe } from '../lib/vibe';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
@@ -67,6 +69,8 @@ export function TodayPage({
   onResumeTask,
   onCompleteReminder,
   onDeferTodayToTomorrow,
+  draftSeed,
+  onDraftSeedConsumed,
 }: CommonPageProps & {
   graphCard: ReactNode;
   reminders: ReminderItem[];
@@ -78,9 +82,17 @@ export function TodayPage({
   onResumeTask: (taskId: string) => void;
   onCompleteReminder: (taskId: string) => void;
   onDeferTodayToTomorrow: () => void;
+  /** A line shared from another app, waiting to land in Quick add. */
+  draftSeed: string | null;
+  onDraftSeedConsumed: () => void;
 }) {
   const [quickTitle, setQuickTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState<Priority>(settings.defaultPriority);
+  const [dictating, setDictating] = useState(false);
+  const [dictationNote, setDictationNote] = useState<string | null>(null);
+  const dictationRef = useRef<Dictation | null>(null);
+  const quickBaseRef = useRef('');
+  const quickInputRef = useRef<HTMLInputElement | null>(null);
   const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
   const [focusSkip, setFocusSkip] = useState(0);
   const today = todayISO(now);
@@ -168,6 +180,63 @@ export function TodayPage({
     if (!quickTitle.trim()) return;
     onQuickAdd(quickPreview.draft);
     setQuickTitle('');
+  };
+
+  // A share from another app (the PWA share sheet) lands as a seed line.
+  // The value is adopted during render (React's adjust-state-on-prop-change
+  // pattern — no effect writes state here); the effect only reports it
+  // consumed, and a separate one only moves focus.
+  const [seedSeen, setSeedSeen] = useState<string | null>(draftSeed);
+  if (draftSeed !== seedSeen) {
+    setSeedSeen(draftSeed);
+    if (draftSeed && draftSeed.trim()) setQuickTitle(draftSeed);
+  }
+  useEffect(() => {
+    if (draftSeed) onDraftSeedConsumed();
+  }, [draftSeed, onDraftSeedConsumed]);
+  useEffect(() => {
+    if (!seedSeen || !seedSeen.trim()) return;
+    const timer = window.setTimeout(() => quickInputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timer);
+  }, [seedSeen]);
+
+  const toggleDictation = () => {
+    if (dictating) {
+      dictationRef.current?.stop();
+      return;
+    }
+    if (!dictationSupported()) {
+      setDictationNote('This browser cannot dictate — type the line instead.');
+      return;
+    }
+    const base = quickTitle.trim();
+    quickBaseRef.current = quickTitle;
+    setDictationNote('Listening…');
+    setDictating(true);
+    const compose = (heard: string) => {
+      const prefix = base ? `${base} ` : '';
+      setQuickTitle(`${prefix}${heard}`.replace(/\s+/g, ' ').trimStart());
+    };
+    try {
+      dictationRef.current = startDictation({
+        onPartial: compose,
+        onFinal: (text) => {
+          compose(text);
+          setDictationNote('Heard — check the chips, then press Enter.');
+        },
+        onError: (kind) => {
+          setDictationNote(dictationErrorText(kind));
+        },
+        onEnd: () => {
+          setDictating(false);
+          dictationRef.current = null;
+          quickInputRef.current?.focus();
+        },
+      });
+    } catch {
+      setDictating(false);
+      setDictationNote(dictationErrorText('unknown'));
+    }
   };
 
   return (
@@ -275,8 +344,9 @@ export function TodayPage({
         <Plus size={18} aria-hidden="true" />
         <input
           id="quick-add-input"
+          ref={quickInputRef}
           className="quick-add-input"
-          placeholder="Add a task — press Enter"
+          placeholder={dictating ? 'Listening…' : 'Add a task — press Enter'}
           autoComplete="off"
           value={quickTitle}
           aria-describedby="quick-add-help"
@@ -290,6 +360,19 @@ export function TodayPage({
             }
           }}
         />
+        {dictationSupported() ? (
+          <button
+            type="button"
+            className={`quick-dictate ${dictating ? 'is-listening' : ''}`.trim()}
+            aria-label={dictating ? 'Stop dictating' : 'Dictate a task'}
+            aria-pressed={dictating}
+            title={dictating ? 'Stop listening' : 'Speak the task — the parser reads dates, times and #tags as you talk'}
+            onClick={toggleDictation}
+          >
+            <Mic size={16} aria-hidden="true" />
+            {dictating ? <span className="quick-dictate-live" aria-hidden="true" /> : null}
+          </button>
+        ) : null}
         <select
           className="input quick-add-priority"
           aria-label="Priority for quick add"
@@ -324,6 +407,12 @@ export function TodayPage({
                 Saves for {quickPreview.draft.dueDate ? relativeDayLabel(quickPreview.draft.dueDate, now) : 'no date'}
               </span>
             </>
+          ) : null}
+          {dictationNote && !quickPreview.tokens.length ? (
+            <p className={`quick-note ${dictating ? 'is-listening' : ''}`.trim()} role={dictating ? 'status' : undefined}>
+              <Mic size={11} aria-hidden="true" />
+              {dictationNote}
+            </p>
           ) : (
             <p className="quick-tip">
               <CornerDownLeft size={12} aria-hidden="true" />

@@ -35,6 +35,7 @@ export function SettingsPage({
   onExportBackup,
   onImportBackup,
   onExportCsv,
+  onExportIcs,
   onResetData,
   graph,
   notificationsPermission,
@@ -48,6 +49,7 @@ export function SettingsPage({
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
   onExportCsv: () => void;
+  onExportIcs: () => void;
   onResetData: () => void;
   graph: {
     connected: boolean;
@@ -471,6 +473,19 @@ export function SettingsPage({
             ) : (
               <p className="field-hint">This device cannot buzz. iPhones do not let a web page use haptics.</p>
             )}
+            <Switch
+              checked={draft.privacyBlur}
+              onChange={(enabled) => {
+                // Applied at once, like the theme: the whole point is that it
+                // is already on before you leave the desk. Saved against the
+                // settings the app holds, not the half-edited draft.
+                setDraft((current) => ({ ...current, privacyBlur: enabled }));
+                void onSaveSettings({ ...settings, privacyBlur: enabled });
+                haptic('tap');
+              }}
+              label="Privacy blur"
+              description="Softens task titles, client names and attached photos when the tab is hidden or nobody has touched the page for a minute. Move or type to bring them back."
+            />
           </section>
 
           <section className="card settings-section">
@@ -571,6 +586,9 @@ export function SettingsPage({
               </Button>
               <Button variant="secondary" icon={Download} onClick={onExportCsv}>
                 Export tasks CSV
+              </Button>
+              <Button variant="secondary" icon={Download} onClick={onExportIcs}>
+                Export calendar (.ics)
               </Button>
               <Button variant="secondary" icon={Upload} onClick={() => backupInput.current?.click()}>
                 Import JSON backup

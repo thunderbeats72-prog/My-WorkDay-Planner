@@ -112,6 +112,8 @@ export interface Settings {
   quietEnd: string;
   notificationsEnabled: boolean;
   theme: Theme;
+  /** Blur client names and titles when the tab hides or nobody is typing. */
+  privacyBlur: boolean;
   graphClientId: string;
   onboardingComplete: boolean;
   lastBackupAt: string;
@@ -192,6 +194,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quietEnd: '08:00',
   notificationsEnabled: false,
   theme: 'light',
+  privacyBlur: true,
   graphClientId: '',
   onboardingComplete: false,
   lastBackupAt: '',

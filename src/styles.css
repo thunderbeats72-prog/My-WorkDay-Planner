@@ -19532,3 +19532,91 @@ select,
     grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   }
 }
+
+/* ------------------------------------------------- voice + share + privacy */
+
+.quick-dictate {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 34px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.quick-dictate:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.quick-dictate.is-listening {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.quick-dictate-live {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quick-dictate-live {
+    animation: att-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+.quick-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.quick-note.is-listening {
+  color: var(--danger);
+}
+
+/* Privacy blur: one wash over every surface that names a client or a task.
+   The transition lives on the same rules so the un-blur fades back too, and
+   the global reduced-motion opt-out collapses it like every other fade. */
+.task-title,
+.task-client,
+.panel-heading h2,
+.panel-sub,
+.quick-add-input,
+.att-photo-open img {
+  transition: filter 0.3s ease;
+}
+
+body[data-private='true'] .task-title,
+body[data-private='true'] .task-client,
+body[data-private='true'] .panel-heading h2,
+body[data-private='true'] .panel-sub,
+body[data-private='true'] .quick-add-input,
+body[data-private='true'] .att-photo-open img {
+  filter: blur(7px);
+  user-select: none;
+}
+
+@media (max-width: 560px) {
+  .quick-add {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .quick-dictate {
+    width: 40px;
+    height: 40px;
+  }
+}
