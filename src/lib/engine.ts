@@ -17,7 +17,7 @@ import type {
   Settings,
   Task,
 } from './types';
-import { CATEGORIES, PRIORITIES } from './types';
+import { categoryLabel, PRIORITIES } from './types';
 
 export interface ScoredTask {
   task: Task;
@@ -852,16 +852,127 @@ export interface ReminderItem {
   overdue: boolean;
 }
 
+/** The time a task with a date but no time is treated as due. */
+export const DEFAULT_DUE_TIME = '17:00';
+
 export function buildReminders(tasks: Task[], settings: Settings, now: Date = new Date()): ReminderItem[] {
   return tasks
     .filter((task) => task.status !== 'completed' && task.deletedAt === null && task.dueDate !== null)
     .map((task) => {
-      const dueAt = combineDateTime(task.dueDate as string, task.dueTime || '17:00');
+      const dueAt = combineDateTime(task.dueDate as string, task.dueTime || DEFAULT_DUE_TIME);
       const minutesUntil = (dueAt.getTime() - now.getTime()) / 60000;
       return { task, dueAt, leadMinutes: settings.reminderLeadMinutes, overdue: minutesUntil < 0 };
     })
     .filter((item) => (item.dueAt.getTime() - now.getTime()) / 60000 <= settings.reminderLeadMinutes)
     .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
+}
+
+/**
+ * One alert that is due now.
+ *
+ * `slot` is what makes a repeat a *new* alert rather than the same one again:
+ * 0 is the deadline alert (deadline minus the lead time), 1 is the first
+ * repeat, and so on. The caller turns the slot into its de-duplication key, so
+ * the same nudge can never be delivered twice by two ticks of the clock.
+ */
+export interface ReminderDue {
+  task: Task;
+  dueAt: Date;
+  leadMinutes: number;
+  overdue: boolean;
+  /** 0 = the first alert of this window; 1.. are the repeats. */
+  slot: number;
+  /** When this slot began — the moment the alert became due. Unique per nudge. */
+  nudgeAt: Date;
+  repeatMinutes: number;
+}
+
+/**
+ * Every alert that is due at `now`, including the repeats.
+ *
+ * The rule is time-based, not count-based: a task is nudged when its deadline
+ * comes within the lead window, and then again every `reminderRepeatMinutes`
+ * for as long as it is still open. A task with no deadline at all is not
+ * silenced — it belongs to the daily summary, which is the one place that can
+ * list everything pending without inventing a deadline for it.
+ */
+export function buildReminderDue(
+  tasks: Task[],
+  settings: Settings,
+  now: Date = new Date(),
+): ReminderDue[] {
+  const leadMinutes = Math.max(0, settings.reminderLeadMinutes ?? 0);
+  const repeatMinutes = Math.max(0, settings.reminderRepeatMinutes ?? 0);
+  /* Anything faster than five minutes is a notification storm, not a nudge. */
+  const repeatMs = Math.max(repeatMinutes, repeatMinutes > 0 ? 5 : 0) * 60_000;
+  const dayStart = startOfDay(now).getTime();
+  const due: ReminderDue[] = [];
+
+  for (const task of tasks) {
+    if (task.status === 'completed' || task.deletedAt !== null || !task.dueDate) continue;
+    const dueAt = combineDateTime(task.dueDate, task.dueTime || DEFAULT_DUE_TIME);
+    const firstAlertAt = new Date(dueAt.getTime() - leadMinutes * 60_000);
+    if (now.getTime() < firstAlertAt.getTime()) continue;
+
+    /* The window restarts every morning.
+     *
+     * Measured from the deadline alone, a task that has been open for a week
+     * would arrive here on a slot number in the hundreds and either be skipped
+     * for looking "too late" or nudged from a stale key. Measuring from the
+     * later of “the alert became due” and “today began” gives every day a clean
+     * cadence: the first nudge of the day, then one every repeat interval. The
+     * next day starts again — and the daily summary covers what was missed. */
+    const windowStart = Math.max(firstAlertAt.getTime(), dayStart);
+    const slot = repeatMs > 0 ? Math.floor((now.getTime() - windowStart) / repeatMs) : 0;
+
+    due.push({
+      task,
+      dueAt,
+      leadMinutes,
+      overdue: dueAt.getTime() < now.getTime(),
+      slot,
+      nudgeAt: new Date(windowStart + slot * repeatMs),
+      repeatMinutes,
+    });
+  }
+
+  return due.sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime() || a.task.createdAt.localeCompare(b.task.createdAt));
+}
+
+/** The daily “here is everything still open” summary. */
+export interface DailyDigest {
+  dateISO: string;
+  dueToday: Task[];
+  overdue: Task[];
+  /** Open tasks with no deadline — the ones a deadline-only reminder misses. */
+  undated: Task[];
+  total: number;
+}
+
+/**
+ * The once-a-day pending summary, or null when it is not due yet.
+ *
+ * This is what makes “every task is notified” true for work that has no
+ * deadline to hang a reminder on: once a day the app lists what is still open,
+ * so an undated follow-up cannot sit in the list silently forever.
+ */
+export function buildDailyDigest(
+  tasks: Task[],
+  settings: Settings,
+  now: Date = new Date(),
+): DailyDigest | null {
+  if (!settings.dailyDigestEnabled) return null;
+  const today = toISODate(now);
+  const at = combineDateTime(today, settings.digestTime || '09:30');
+  if (now.getTime() < at.getTime()) return null;
+
+  const open = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
+  const dueToday = open.filter((task) => task.dueDate === today);
+  const overdue = open.filter((task) => task.dueDate !== null && task.dueDate < today);
+  const undated = open.filter((task) => task.dueDate === null);
+  const total = dueToday.length + overdue.length + undated.length;
+  if (total === 0) return null;
+  return { dateISO: today, dueToday, overdue, undated, total };
 }
 
 export function canNotifyNow(settings: Settings, now: Date = new Date()): boolean {
@@ -1305,7 +1416,7 @@ export function draftToTask(draft: ParsedDraft, settings: Settings, now: Date = 
 }
 
 export function describeCategory(category: Category): string {
-  return CATEGORIES[category].label;
+  return categoryLabel(category);
 }
 
 export function countOpenTasks(tasks: Task[]): number {

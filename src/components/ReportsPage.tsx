@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChartColumn as ChartIcon, Clock, Download, Play, Target, TrendingUp } from 'lucide-react';
-import { CATEGORIES } from '../lib/types';
+import { categoryLabel, CATEGORIES } from '../lib/types';
 import { formatClock, formatDateShort, formatDuration, humanDateRange, percent, todayISO } from '../lib/dates';
 import { buildWeeklyReport } from '../lib/reports';
 import { buildInsights, learnDurations } from '../lib/ml';
@@ -236,7 +236,7 @@ export function ReportsPage(props: ReportsPageProps) {
                         <li key={entry.category}>
                           <span className={`bias-dot ${entry.direction}`} aria-hidden="true" />
                           <div>
-                            <strong>{CATEGORIES[entry.category].label}</strong>
+                            <strong>{categoryLabel(entry.category)}</strong>
                             <p className="muted">
                               {entry.direction === 'under'
                                 ? `Takes ${Math.abs(entry.differencePct)}% longer than you estimate`
@@ -275,7 +275,7 @@ export function ReportsPage(props: ReportsPageProps) {
                   <tbody>
                     {insights.durations.map((entry) => (
                       <tr key={entry.category}>
-                        <td>{CATEGORIES[entry.category].label}</td>
+                        <td>{categoryLabel(entry.category)}</td>
                         <td>{entry.samples}</td>
                         <td>{formatDuration(entry.medianEstimate)}</td>
                         <td>{formatDuration(entry.medianActual)}</td>
@@ -292,7 +292,7 @@ export function ReportsPage(props: ReportsPageProps) {
                   <ul className="learning-list">
                     {Object.entries(learning.learned.byCategory).map(([category, minutes]) => (
                       <li key={category}>
-                        <span>{CATEGORIES[category as keyof typeof CATEGORIES].label}</span>
+                        <span>{categoryLabel(category)}</span>
                         <span>{formatDuration(minutes ?? 0)} learned</span>
                       </li>
                     ))}
@@ -313,7 +313,7 @@ export function ReportsPage(props: ReportsPageProps) {
                           learning.learned.samples?.byCategory[category as keyof typeof CATEGORIES] ?? 0;
                         return (
                           <li key={category}>
-                            <span>{CATEGORIES[category as keyof typeof CATEGORIES].label}</span>
+                            <span>{categoryLabel(category)}</span>
                             <span>
                               ×{factor} ({samples} samples) · plans use it
                             </span>

@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link2, Mic, TriangleAlert } from 'lucide-react';
 import type { Category, Priority, Settings, Task } from '../lib/types';
-import { CATEGORIES, CATEGORY_ORDER, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
+import {
+  categoryChoices,
+  categoryLabel,
+  normaliseCustomCategory,
+  PRIORITIES,
+  PRIORITY_ORDER,
+} from '../lib/types';
 import { findDependencyCycle } from '../lib/engine';
 import { useDictation } from '../hooks/useDictation';
 import { Button, Field, Modal, Switch } from './ui';
+
+/** The select value that opens the "name a category" input. */
+const NEW_CATEGORY = '__new_category__';
 
 export interface TaskDraft {
   title: string;
@@ -58,6 +67,7 @@ export function TaskForm({
   initialDraft,
   onClose,
   onSubmit,
+  onAddCategory,
 }: {
   open: boolean;
   task: Task | null;
@@ -67,12 +77,20 @@ export function TaskForm({
   initialDraft?: TaskDraft | null;
   onClose: () => void;
   onSubmit: (draft: TaskDraft) => void;
+  /** Adds a category the user typed, so it exists for every future task. */
+  onAddCategory?: (name: string) => void;
 }) {
   const [draft, setDraft] = useState<TaskDraft>(() =>
     task ? draftFromTask(task) : initialDraft ?? emptyDraft(settings, defaultDueDate ?? null),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dependencyQuery, setDependencyQuery] = useState('');
+  /* "＋ New category" is an option in the same select, not a second screen:
+     picking it swaps the select for a one-line input until the name is
+     accepted or abandoned. */
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [categoryError, setCategoryError] = useState('');
   /* The same microphone as quick add: speak the title here instead of typing
      it. Dates, estimates and clients stay the form's job — a title is a title. */
   const dictation = useDictation({
@@ -87,12 +105,46 @@ export function TaskForm({
     if (!open) dictation.stop();
   }, [open, dictation.stop]);
 
+  /**
+   * What the sheet was opened for.
+   *
+   * The draft is rebuilt when the sheet opens (or switches task), and only
+   * then. `settings` is in the dependency list so the defaults are current, but
+   * a settings change while the sheet is open — adding a category is exactly
+   * that — must not throw away a half-typed task.
+   */
+  const openedFor = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      openedFor.current = null;
+      return;
+    }
+    const key = task?.id ?? '__new__';
+    if (openedFor.current === key) return;
+    openedFor.current = key;
     setDraft(task ? draftFromTask(task) : initialDraft ?? emptyDraft(settings, defaultDueDate ?? null));
     setErrors({});
     setDependencyQuery('');
+    setAddingCategory(false);
+    setNewCategory('');
+    setCategoryError('');
   }, [open, task, settings, defaultDueDate, initialDraft]);
+
+  const categoryOptions = useMemo(() => categoryChoices(settings), [settings]);
+
+  const addCategory = () => {
+    const result = normaliseCustomCategory(newCategory, settings.customCategories ?? []);
+    if (!result.ok) {
+      setCategoryError(result.error);
+      return;
+    }
+    onAddCategory?.(result.value);
+    setDraft((current) => ({ ...current, category: result.value }));
+    setAddingCategory(false);
+    setNewCategory('');
+    setCategoryError('');
+  };
 
   const dependencyOptions = useMemo(() => {
     const query = dependencyQuery.trim().toLowerCase();
@@ -190,18 +242,68 @@ export function TaskForm({
         </Field>
 
         <Field label="Category" htmlFor="task-category">
-          <select
-            id="task-category"
-            className="input"
-            value={draft.category}
-            onChange={(event) => setDraft({ ...draft, category: event.target.value as Category })}
-          >
-            {CATEGORY_ORDER.map((category) => (
-              <option key={category} value={category}>
-                {CATEGORIES[category].label}
-              </option>
-            ))}
-          </select>
+          {addingCategory ? (
+            <div className="category-add">
+              <input
+                id="task-category"
+                className={`input ${categoryError ? 'invalid' : ''}`.trim()}
+                value={newCategory}
+                placeholder="e.g. Licensing"
+                aria-label="New category name"
+                maxLength={40}
+                onChange={(event) => {
+                  setNewCategory(event.target.value);
+                  setCategoryError('');
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addCategory();
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setAddingCategory(false);
+                    setCategoryError('');
+                  }
+                }}
+              />
+              <Button size="sm" variant="primary" onClick={addCategory}>
+                Add
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setAddingCategory(false); setCategoryError(''); }}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <select
+              id="task-category"
+              className="input"
+              value={draft.category}
+              onChange={(event) => {
+                if (event.target.value === NEW_CATEGORY) {
+                  setAddingCategory(true);
+                  setNewCategory('');
+                  setCategoryError('');
+                  return;
+                }
+                setDraft({ ...draft, category: event.target.value as Category });
+              }}
+            >
+              {!categoryOptions.includes(draft.category) ? (
+                <option value={draft.category}>{categoryLabel(draft.category)}</option>
+              ) : null}
+              {categoryOptions.map((category) => (
+                <option key={category} value={category}>
+                  {categoryLabel(category)}
+                </option>
+              ))}
+              <option value={NEW_CATEGORY}>＋ New category…</option>
+            </select>
+          )}
+          {categoryError ? <span className="field-error">{categoryError}</span> : null}
+          {!addingCategory && (settings.customCategories ?? []).length === 0 ? (
+            <span className="field-hint">Need your own? Choose “＋ New category…” to add one.</span>
+          ) : null}
         </Field>
 
         <Field label="Priority" htmlFor="task-priority">

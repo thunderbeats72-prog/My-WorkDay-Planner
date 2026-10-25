@@ -131,6 +131,12 @@ export function SettingsPage({
     if (candidate.reminderLeadMinutes < 0 || candidate.reminderLeadMinutes > 1440) {
       next.reminderLeadMinutes = 'Reminder lead must be 0–1440 minutes.';
     }
+    if (candidate.reminderRepeatMinutes < 0 || candidate.reminderRepeatMinutes > 480) {
+      next.reminderRepeatMinutes = 'Repeats must be 0–480 minutes (0 turns them off).';
+    }
+    if (!/^\d{1,2}:\d{2}$/.test(candidate.digestTime ?? '')) {
+      next.digestTime = 'Use a time such as 09:30.';
+    }
     return next;
   };
 
@@ -403,7 +409,49 @@ export function SettingsPage({
                   onChange={(event) => setDraft({ ...draft, reminderLeadMinutes: Number(event.target.value) })}
                 />
               </Field>
+              <Field
+                label="Nudge me again every (minutes)"
+                htmlFor="settings-repeat"
+                error={errors.reminderRepeatMinutes}
+                hint="A task that is still open keeps reminding you at this interval. 0 means alert once."
+              >
+                <input
+                  id="settings-repeat"
+                  className={`input ${errors.reminderRepeatMinutes ? 'invalid' : ''}`.trim()}
+                  type="number"
+                  min={0}
+                  max={480}
+                  step={5}
+                  value={draft.reminderRepeatMinutes}
+                  onChange={(event) => setDraft({ ...draft, reminderRepeatMinutes: Number(event.target.value) })}
+                />
+              </Field>
             </div>
+
+            <Switch
+              checked={draft.dailyDigestEnabled}
+              onChange={(dailyDigestEnabled) => setDraft({ ...draft, dailyDigestEnabled })}
+              label="One pending summary a day"
+              description="Every open task in one alert — including the ones with no deadline, which a deadline reminder can never catch."
+            />
+            {draft.dailyDigestEnabled ? (
+              <div className="form-grid compact-grid">
+                <Field label="Send the summary at" htmlFor="settings-digest-time" error={errors.digestTime}>
+                  <input
+                    id="settings-digest-time"
+                    className={`input ${errors.digestTime ? 'invalid' : ''}`.trim()}
+                    type="time"
+                    value={draft.digestTime}
+                    onChange={(event) => setDraft({ ...draft, digestTime: event.target.value })}
+                  />
+                </Field>
+              </div>
+            ) : null}
+            <p className="field-hint">
+              Alerts are computed on this device while the app is open, plus a best-effort background check on Android.
+              Nothing is sent to a server, so there is no push when the browser is fully closed — the in-app list keeps
+              every reminder either way.
+            </p>
             <Switch
               checked={draft.quietHoursEnabled}
               onChange={(quietHoursEnabled) => setDraft({ ...draft, quietHoursEnabled })}

@@ -46,6 +46,19 @@ export function collectActualMinutes(tasks: Task[], sessions: TimeSession[]): Ma
   return totals;
 }
 
+/**
+ * Every category worth computing — the built-ins, then any the user added.
+ *
+ * The loops below used to walk `CATEGORY_ORDER` alone, which quietly ignored a
+ * custom category's history: the estimate would never learn from it even
+ * though the tasks were right there.
+ */
+function allCategories(tasks: Task[]): Category[] {
+  const seen = new Set<Category>(CATEGORY_ORDER);
+  for (const task of tasks) if (task.deletedAt === null) seen.add(task.category);
+  return [...seen];
+}
+
 export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSamples = 3): DurationLearning {
   const actuals = collectActualMinutes(tasks, sessions);
   const categoryValues = new Map<Category, number[]>();
@@ -71,7 +84,9 @@ export function learnDurations(tasks: Task[], sessions: TimeSession[], minimumSa
   const categorySamples: Partial<Record<Category, number>> = {};
   const factors: Partial<Record<Category, number>> = {};
   let totalSamples = 0;
-  for (const category of CATEGORY_ORDER) {
+  /* A category the user named themselves is still a category: include every
+     one that appears in the history, not only the eight built-ins. */
+  for (const category of allCategories(tasks)) {
     const values = categoryValues.get(category) ?? [];
     categorySamples[category] = values.length;
     if (values.length >= minimumSamples) {
@@ -181,7 +196,11 @@ function predictCategory(model: NaiveBayesModel, tokens: string[]): { category: 
   const vocabularySize = Math.max(1, model.vocabulary.size);
   const scores: Array<{ category: Category; score: number }> = [];
 
-  for (const category of CATEGORY_ORDER) {
+  /* Walk every category the history actually contains — the built-ins first,
+     then any the user named — so a habit like “Licensing” can be learned too. */
+  const candidates = [...CATEGORY_ORDER, ...[...model.categoryCounts.keys()].filter((key) => !CATEGORY_ORDER.includes(key))];
+
+  for (const category of candidates) {
     const priorCount = model.categoryCounts.get(category) ?? 0;
     if (priorCount === 0) continue;
     const prior = priorCount / model.totalTasks;
@@ -415,7 +434,7 @@ export function buildInsights(tasks: Task[], sessions: TimeSession[]): ReportIns
   const bias: EstimateBias[] = [];
   const durations: DurationInsight[] = [];
 
-  for (const category of CATEGORY_ORDER) {
+  for (const category of allCategories(tasks)) {
     const estimates = categoryEstimates.get(category) ?? [];
     const actualList = categoryActuals.get(category) ?? [];
     if (estimates.length < 3) continue;

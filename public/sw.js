@@ -5,7 +5,7 @@
  * — on Android, for an installed app — during a periodic background check.
  */
 
-const CACHE = 'workday-shell-v7';
+const CACHE = 'workday-shell-v8';
 const SHELL = [
   '/',
   '/index.html',
@@ -285,38 +285,82 @@ async function checkReminders() {
     return;
   }
   const tasks = await readAll(db, 'tasks');
+  const reminderRows = await readAll(db, 'reminderRecords');
   db.close();
 
-  const lead = Number(settings.reminderLeadMinutes ?? 60);
-  const due = tasks
-    .filter((task) => task.status !== 'completed' && !task.deletedAt && task.dueDate)
-    .map((task) => {
-      const at = new Date(`${task.dueDate}T${task.dueTime || '17:00'}:00`);
-      return { task, at };
-    })
-    .filter((item) => !Number.isNaN(item.at.getTime()))
-    .filter((item) => (item.at.getTime() - now.getTime()) / 60000 <= lead)
-    .sort((a, b) => a.at.getTime() - b.at.getTime())
-    .slice(0, 3);
-
+  const due = computeDue(tasks, settings, now, { fired: await firedKeys(), reminders: reminderRows });
   if (due.length === 0) return;
-  const fired = await firedKeys();
 
-  for (const { task, at } of due) {
-    const key = `${task.id}|${at.toISOString()}`;
-    if (fired.has(key)) continue;
+  for (const { task, at, key, slot } of due) {
     await rememberFired(key);
     const overdue = at.getTime() < now.getTime();
     await showNotification(task.title || 'Task due', {
-      body: overdue
-        ? `Overdue · ${task.client || 'No client'} · ${Math.round((now.getTime() - at.getTime()) / 60000)} min ago`
-        : `Due at ${task.dueTime || '17:00'} · ${task.client || 'No client'}`,
+      body: slot > 0
+        ? `Still open · ${task.client || 'No client'} · due ${task.dueTime || '17:00'}`
+        : overdue
+          ? `Overdue · ${task.client || 'No client'} · ${Math.round((now.getTime() - at.getTime()) / 60000)} min ago`
+          : `Due at ${task.dueTime || '17:00'} · ${task.client || 'No client'}`,
+      /* One tag per nudge, so a repeat is a new banner (and a new buzz) rather
+         than a silent replacement of the previous one. */
       tag: key,
       data: { url: '/#tasks', taskId: task.id },
       vibrate: [90, 40, 90],
     });
   }
 }
+
+/**
+ * Which alerts are due right now — the same rule the page uses.
+ *
+ * A task enters its lead window once and then keeps nudging every
+ * `reminderRepeatMinutes` for as long as it is open. The day boundary restarts
+ * the cadence, and `slot` (the step within today's window) is part of the key,
+ * so a repeat is never mistaken for one already shown. Kept pure so the rule
+ * can be tested without a browser.
+ */
+function computeDue(tasks, settings, now, options = {}) {
+  const fired = options.fired ?? new Set();
+  const reminders = options.reminders ?? [];
+  const lead = Number(settings.reminderLeadMinutes ?? 60);
+  const repeatMinutes = Number(settings.reminderRepeatMinutes ?? 30);
+  const repeatMs = repeatMinutes > 0 ? Math.max(repeatMinutes, 5) * 60000 : 0;
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  /* Dismissed and snoozed tasks stay quiet until something changes — the same
+     promise the in-app list makes, so closing the app does not undo it. */
+  const silenced = new Set();
+  for (const record of reminders) {
+    const snoozed = record.snoozedUntil && new Date(record.snoozedUntil).getTime() > now.getTime();
+    if (record.status === 'dismissed' || record.status === 'done' || snoozed) {
+      silenced.add(`${record.taskId}|${record.dueAt}`);
+    }
+  }
+
+  return tasks
+    .filter((task) => task.status !== 'completed' && !task.deletedAt && task.dueDate)
+    .map((task) => {
+      const at = new Date(`${task.dueDate}T${task.dueTime || '17:00'}:00`);
+      if (Number.isNaN(at.getTime())) return null;
+      const firstAlertAt = at.getTime() - lead * 60000;
+      if (now.getTime() < firstAlertAt) return null;
+      const windowStart = Math.max(firstAlertAt, dayStart);
+      const slot = repeatMs > 0 ? Math.floor((now.getTime() - windowStart) / repeatMs) : 0;
+      const nudgeAt = new Date(windowStart + slot * repeatMs);
+      const key = slot === 0
+        ? `${task.id}|${at.toISOString()}`
+        : `${task.id}|${at.toISOString()}|${nudgeAt.toISOString()}`;
+      return { task, at, slot, key, overdue: at.getTime() < now.getTime() };
+    })
+    .filter((entry) => entry !== null)
+    .filter((entry) => !silenced.has(`${entry.task.id}|${entry.at.toISOString()}`))
+    .filter((entry) => !fired.has(entry.key))
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+    .slice(0, 3);
+}
+
+/* Exposed for the unit test that runs this file in Node; a worker has no other
+   way to make its own logic reachable. */
+self.__workdayInternals = { computeDue, isQuiet };
 
 self.addEventListener('periodicsync', (event) => {
   if (event.tag === 'workday-reminders') event.waitUntil(checkReminders());

@@ -20870,3 +20870,37 @@ button.palette-cite:hover {
     justify-content: center;
   }
 }
+
+/* ---------- Custom category, named in the task form ---------- */
+
+/* The select becomes a one-line input plus two buttons. On a phone those three
+   controls must fit 320px without pushing the row wider, so the input takes the
+   whole width and the buttons sit under it. */
+.category-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.category-add .input {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .category-add .input {
+    flex-basis: 100%;
+  }
+
+  .category-add .btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+}
+
+/* A category chip the user owns reads like the built-ins, including in dark
+   mode, because it borrows the same `category-cN` tones. */
+.category-badge {
+  text-transform: none;
+}

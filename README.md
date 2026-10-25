@@ -19,7 +19,7 @@ npx -y pnpm@10 lint
 - Screenshot Import: drag/drop or upload, Tesseract.js OCR with progress, editable raw text, deterministic parsing, confidence + ambiguous-date warnings, duplicate detection, **mandatory review before saving**, plus a sample-text mode
 - Scheduling: explainable scoring (priority + deadline + deferrals), daily timeline, lunch/buffers, capacity & remaining time, conflict warnings, unscheduled queue (never silently discarded), manual override
 - Time tracking: Start/Pause/Resume/Complete, one active session, timestamp-based elapsed time persisted in IndexedDB so it recovers after refresh
-- Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per deadline, and clickable straight into the task
+- Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per nudge, repeated until the task is done, and clickable straight into the task
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
 - Daily update, as a tab inside Reports: an optional note when completing a task, and a one-tap "Generate Daily Report" for any date — completed struck through, pending plain, notes after their task, WhatsApp/Markdown/plain text, one saved update per day
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
@@ -233,7 +233,8 @@ Supporting behaviour:
   *System alerts on*, *Blocked by browser*, *Not supported*.
 - `periodicSync` is registered when the browser supports it (installed
   Android PWA), so reminders can fire from the background: the worker reads
-  IndexedDB, applies lead time and quiet hours, and fires once per deadline.
+  IndexedDB and applies **the same rule as the page** — lead time, repeat
+  cadence, quiet hours, and a dismissed or snoozed task stays quiet.
 - Nothing leaves the device. There is no push server, and the copy says so.
 
 ## Design v6 — one logo, proven, and a tick that sits still
@@ -938,3 +939,113 @@ assertions for the empty-state centring).
 - A day change with a hand-edited preview asks first; there is no background
   draft autosave, so "Save this update" remains the only way to keep wording
   past the day you are looking at.
+
+## Design v8 — reminders that keep reminding
+
+The complaint was short: *notifications are not there*. Three separate causes,
+all of which had to go.
+
+### It alerted once, then went silent
+
+`buildReminders` answered "what is due within the lead window" — a single
+crossing point. Once that moment passed and the alert had been delivered, the
+key `${taskId}|${dueAt}` was in the 14-day de-duplication ledger and the task
+was never mentioned again. A deadline in the morning produced one buzz at
+09:00 and nothing all day.
+
+The rule is now **deadline-anchored with repeats** (`buildReminderDue` in
+`engine.ts`):
+
+| Moment | What happens |
+| --- | --- |
+| `dueDate + dueTime − reminderLeadMinutes` | first alert (slot 0) |
+| every `reminderRepeatMinutes` (default 30) after that | a nudge, while the task is still open |
+| midnight | the cadence restarts, and the overdue task keeps nudging |
+| snooze (+15 min) | moves only the *next* nudge; the cadence resumes |
+| dismissed or done | silence until the deadline changes |
+| no deadline at all | the daily summary, below |
+
+The slot number is what makes a repeat a *new* alert rather than a duplicate,
+and the key carries the moment the nudge became due
+(`${taskId}|${dueAt}|${nudgeAt}`) because a bare slot number would collide
+across days. Slot 0 keeps the pre-repeat key, so an alert already sitting in
+someone's bell is not re-delivered by the update. There is **no cap**: an early
+version capped repeats at 24 slots measured from the first alert, which meant a
+task overdue by more than twelve hours fell outside its own window and stopped
+notifying entirely — the exact bug the feature existed to fix.
+
+### A task with no deadline could not be reminded about
+
+Half the planner's tasks were created with no date, and a date-less task has
+nothing for a deadline reminder to hang on. Two changes:
+
+- **New tasks land on today.** The form and quick-add now agree; a date can
+  still be cleared or changed, but the default is a day that can be reminded
+  about.
+- **One pending summary a day** (`buildDailyDigest`), at `digestTime`
+  (09:30 by default), which counts what is still open: overdue / due today /
+  no date. It is keyed by the date, so it cannot repeat.
+
+### The background worker still fired once per deadline
+
+Even with all of the above, an installed app with the page closed was handled
+by `public/sw.js`, which had its own copy of the old rule: lead time, one
+notification per `(task, deadline)`, no repeats and no knowledge of the
+snooze/dismiss records the page writes. On a phone that is the *only* path
+that matters.
+
+`computeDue()` in the worker now mirrors the engine exactly — same window, same
+slot maths, same key shape — and skips a task that has a `dismissed`, `done` or
+still-snoozed `reminderRecords` row. The worker's shell cache moved to
+`workday-shell-v8` so the new file is actually fetched.
+`serviceWorkerReminders.test.ts` loads the real `sw.js` in Node and drives
+`computeDue` directly, including the "30 minutes later, still open" case, the
+snooze window, and the table names it reads — a renamed Dexie store would
+otherwise fail silently by returning an empty list.
+
+### And the switch could be off with no way to tell
+
+The browser permission and the planner's own `notificationsEnabled` are
+separate. If the browser was already allowing banners while the app's switch
+was off, the panel showed nothing at all. It now shows *System alerts are off*
+with the same one-tap fix.
+
+### Two categories the app had never heard of
+
+`Category` was a closed union of eight, and `CATEGORIES[category].label` was
+read straight through — so any name the user invented would have rendered as
+`undefined`. The domain type is now `string` with a small set of helpers
+(`categoryLabel`, `categoryMeta`, `categoryChoices`), and every display site,
+report breakdown, CSV cell and duration model goes through them.
+
+- **Adding one** happens where the confusion happens: in the category picker
+  on the task form, `＋ New category…` opens a one-line input. Validation is
+  case-insensitive, rejects a duplicate of a built-in, caps the name at 24
+  characters and the list at 20.
+- **It is remembered** in `settings.customCategories`, offered in the picker
+  and the import review table afterwards, usable as a `#token` in quick-add
+  (`#fieldwork` finds *Field Work*), filterable in reports, and learnable by
+  the on-device suggestions.
+
+### Dictation stopped repeating itself
+
+`appendSpoken()` plus a high-water mark on the processed result index. Finials
+only ever advance it, so a browser that replays the whole `results` array —
+which some Android builds do after a restart — emits nothing new, while a
+legitimately new phrase still lands. The regression test fails if the
+high-water mark is removed.
+
+Batch gates: `tsc -b` clean, lint at the 21-warning baseline with 0 errors,
+`npm run build` clean, and the suite grew 513 → **551 tests** across 50 files
+(`serviceWorkerReminders.test.ts` drives the real worker, `ReminderFlow.test.tsx`
+covers repeats, the digest and custom categories end to end through the app).
+
+### Honest limits of this batch
+
+- A desktop browser with the tab closed cannot be woken; there is no push
+  server by design. Repeats run while the app is open, and on Android from the
+  background check.
+- The daily summary is delivered by the app when it is open (or at the set time
+  if it is already open). It is not queued by the system for later.
+- Custom categories can be added from the task form but not yet renamed or
+  deleted; removing one would have to decide what its tasks become.

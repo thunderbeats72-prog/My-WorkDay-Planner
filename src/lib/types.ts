@@ -1,14 +1,27 @@
 export type Priority = 'critical' | 'high' | 'medium' | 'low';
 
-export type Category =
-  | 'follow_up'
-  | 'proposal'
-  | 'meeting'
-  | 'email'
-  | 'report'
-  | 'research'
-  | 'admin'
-  | 'other';
+/**
+ * A task's category.
+ *
+ * The eight built-ins below cover most of a sales day, but they are a starting
+ * point, not a fence: a person can add their own ("Licensing", "Recruitment")
+ * and the value is stored on the task as the name they typed. Widening this to
+ * `string` is deliberate — a custom category is only useful if it travels with
+ * the task into filters, reports, backups and the daily update, and a closed
+ * union would have forced every one of those to special-case it.
+ */
+export type Category = string;
+
+export const BUILT_IN_CATEGORIES = [
+  'follow_up',
+  'proposal',
+  'meeting',
+  'email',
+  'report',
+  'research',
+  'admin',
+  'other',
+] as const;
 
 export type TaskStatus = 'inbox' | 'todo' | 'in_progress' | 'completed';
 
@@ -134,6 +147,17 @@ export interface Settings {
   defaultPriority: Priority;
   defaultEstimateMinutes: number;
   reminderLeadMinutes: number;
+  /**
+   * How often a still-pending task is nudged again after its first alert.
+   * 0 turns the repeats off and leaves the single deadline alert.
+   */
+  reminderRepeatMinutes: number;
+  /** One summary of everything still pending, once a day. */
+  dailyDigestEnabled: boolean;
+  /** When that summary is due, “HH:MM”. */
+  digestTime: string;
+  /** Categories the user added themselves, in the order they added them. */
+  customCategories?: string[];
   quietHoursEnabled: boolean;
   quietStart: string;
   quietEnd: string;
@@ -215,16 +239,80 @@ export const CATEGORIES: Record<Category, CategoryMeta> = {
   other: { label: 'Other', tone: 'c8' },
 };
 
-export const CATEGORY_ORDER: Category[] = [
-  'follow_up',
-  'proposal',
-  'meeting',
-  'email',
-  'report',
-  'research',
-  'admin',
-  'other',
-];
+export const CATEGORY_ORDER: Category[] = [...BUILT_IN_CATEGORIES];
+
+/**
+ * The look of a custom category.
+ *
+ * Tones cycle through the same eight the built-ins use, chosen from a hash of
+ * the name so a given word always keeps the same colour — a category that
+ * changed colour between renders would read as a different category.
+ */
+const CUSTOM_TONES = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'];
+
+function toneForCategory(name: string): string {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1) hash = (hash * 31 + name.charCodeAt(index)) % 997;
+  return CUSTOM_TONES[hash % CUSTOM_TONES.length];
+}
+
+/** “licensing” → “Licensing”; keeps the user's own capitalisation if given. */
+export function prettyCategoryName(name: string): string {
+  const trimmed = name.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return 'Other';
+  return trimmed === trimmed.toLowerCase()
+    ? trimmed.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase())
+    : trimmed;
+}
+
+/** Everything needed to render one category, built-in or not. */
+export function categoryMeta(category: Category): CategoryMeta {
+  const known = CATEGORIES[category];
+  if (known) return known;
+  return { label: prettyCategoryName(category), tone: toneForCategory(category) };
+}
+
+/** The label to show for a category, with a readable fallback for custom ones. */
+export function categoryLabel(category: Category): string {
+  return categoryMeta(category).label;
+}
+
+/** The categories offered in a picker: the built-ins, then the user's own. */
+export function categoryChoices(settings: Pick<Settings, 'customCategories'> | undefined): Category[] {
+  const custom = (settings?.customCategories ?? []).filter((name) => name.trim().length > 0);
+  return [...CATEGORY_ORDER, ...custom];
+}
+
+export const MAX_CUSTOM_CATEGORY_LENGTH = 24;
+export const MAX_CUSTOM_CATEGORIES = 20;
+
+/**
+ * Clean up a name the user typed, or explain why it cannot be used.
+ *
+ * Case and spacing are normalised so “Licensing”, “licensing” and “ licensing ”
+ * are one category rather than three chips that look identical.
+ */
+export function normaliseCustomCategory(
+  raw: string,
+  existing: string[],
+): { ok: true; value: string } | { ok: false; error: string } {
+  const value = prettyCategoryName(raw);
+  if (!value.trim()) return { ok: false, error: 'Give the category a name.' };
+  if (value.length > MAX_CUSTOM_CATEGORY_LENGTH) {
+    return { ok: false, error: `Keep it under ${MAX_CUSTOM_CATEGORY_LENGTH} characters.` };
+  }
+  if (!/[\p{L}\p{N}]/u.test(value)) return { ok: false, error: 'Use at least one letter or number.' };
+  if (existing.length >= MAX_CUSTOM_CATEGORIES) {
+    return { ok: false, error: `That is the limit — ${MAX_CUSTOM_CATEGORIES} custom categories.` };
+  }
+  const clash =
+    existing.some((name) => name.toLowerCase() === value.toLowerCase()) ||
+    CATEGORY_ORDER.some(
+      (key) => key === value.toLowerCase() || CATEGORIES[key].label.toLowerCase() === value.toLowerCase(),
+    );
+  if (clash) return { ok: false, error: 'That category already exists.' };
+  return { ok: true, value };
+}
 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -244,6 +332,10 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultPriority: 'medium',
   defaultEstimateMinutes: 30,
   reminderLeadMinutes: 60,
+  reminderRepeatMinutes: 30,
+  dailyDigestEnabled: true,
+  digestTime: '09:30',
+  customCategories: [],
   quietHoursEnabled: true,
   quietStart: '20:00',
   quietEnd: '08:00',

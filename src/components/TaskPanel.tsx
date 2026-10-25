@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Task, TaskEvent, Settings } from '../lib/types';
-import { CATEGORIES, PRIORITIES } from '../lib/types';
+import { categoryLabel, PRIORITIES } from '../lib/types';
 import {
   dueLabel,
   dueTone,
@@ -356,7 +356,7 @@ export function TaskPanel({
               </div>
               <div>
                 <dt>Category</dt>
-                <dd>{CATEGORIES[task.category].label}</dd>
+                <dd>{categoryLabel(task.category)}</dd>
               </div>
               <div>
                 <dt>Due</dt>
@@ -404,7 +404,7 @@ export function TaskPanel({
               <div className="suggestion-values">
                 <span>
                   <small>Category</small>
-                  {CATEGORIES[suggestion.category].label}
+                  {categoryLabel(suggestion.category)}
                 </span>
                 <span>
                   <small>Priority</small>

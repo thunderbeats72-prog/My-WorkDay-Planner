@@ -3,7 +3,7 @@ import { useLayoutEffect, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, X } from 'lucide-react';
 import type { Category, Priority } from '../lib/types';
-import { CATEGORIES, PRIORITIES } from '../lib/types';
+import { categoryMeta, PRIORITIES } from '../lib/types';
 import { percent } from '../lib/dates';
 
 export type IconComponent = ComponentType<{ size?: number | string; className?: string; strokeWidth?: number }>;
@@ -277,7 +277,9 @@ export function PriorityBadge({ priority, compact = false }: { priority: Priorit
 }
 
 export function CategoryBadge({ category }: { category: Category }) {
-  const meta = CATEGORIES[category];
+  /* `categoryMeta` covers the user's own categories with a stable tone; a
+     bare lookup would render undefined for a word they added themselves. */
+  const meta = categoryMeta(category);
   return <span className={`category-badge category-${meta.tone}`}>{meta.label}</span>;
 }
 

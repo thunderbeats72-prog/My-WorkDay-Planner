@@ -94,3 +94,31 @@ describe('parseQuickAdd', () => {
     expect(result.draft.dueDate).toBeNull();
   });
 });
+
+describe('a category the user added', () => {
+  it('understands its own name behind the hash', () => {
+    const parsed = parseQuickAdd('renew apollo licence #licensing', {
+      now: new Date(2026, 9, 21, 9, 0, 0),
+      customCategories: ['Licensing'],
+    });
+    expect(parsed.draft.category).toBe('Licensing');
+    expect(parsed.draft.title).not.toMatch(/#/);
+  });
+
+  it('matches a two-word category written as one word', () => {
+    const parsed = parseQuickAdd('visit the plant #fieldwork', {
+      now: new Date(2026, 9, 21, 9, 0, 0),
+      customCategories: ['Field Work'],
+    });
+    expect(parsed.draft.category).toBe('Field Work');
+  });
+
+  it('leaves an unknown hash in the title rather than guessing', () => {
+    const parsed = parseQuickAdd('renew apollo licence #nonsense', {
+      now: new Date(2026, 9, 21, 9, 0, 0),
+      customCategories: ['Licensing'],
+    });
+    expect(parsed.draft.category).toBe('other');
+    expect(parsed.draft.title).toMatch(/#nonsense/);
+  });
+});

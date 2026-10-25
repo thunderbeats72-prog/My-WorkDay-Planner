@@ -1,7 +1,7 @@
 import { addDays, startOfDay } from 'date-fns';
 import { formatDateShort, toISODate } from './dates';
 import type { Category, Task, TimeSession } from './types';
-import { CATEGORIES, CATEGORY_ORDER } from './types';
+import { categoryLabel, CATEGORY_ORDER } from './types';
 import { collectActualMinutes } from './ml';
 
 export interface CategoryBreakdown {
@@ -69,13 +69,19 @@ export function buildWeeklyReport(tasks: Task[], sessions: TimeSession[], now: D
     windowSessions.reduce((sum, session) => sum + Math.max(0, session.durationMs), 0) / 60000,
   );
 
-  const byCategory: CategoryBreakdown[] = CATEGORY_ORDER.map((category) => {
+  /* The built-ins first, then any category the user added that has completed
+     work this week — otherwise a custom category would silently vanish from
+     the very report that is supposed to account for it. */
+  const categoriesInWindow = [...new Set(completedInWindow.map((task) => task.category))];
+  const categories = [...CATEGORY_ORDER, ...categoriesInWindow.filter((c) => !CATEGORY_ORDER.includes(c))];
+
+  const byCategory: CategoryBreakdown[] = categories.map((category) => {
     const categoryTasks = completedInWindow.filter((task) => task.category === category);
     const estimated = categoryTasks.reduce((sum, task) => sum + task.estimatedMinutes, 0);
     const actual = categoryTasks.reduce((sum, task) => sum + (actuals.get(task.id) ?? 0), 0);
     return {
       category,
-      label: CATEGORIES[category].label,
+      label: categoryLabel(category),
       completed: categoryTasks.length,
       estimatedMinutes: Math.round(estimated),
       actualMinutes: Math.round(actual),
@@ -147,7 +153,7 @@ export function tasksToCsv(tasks: Task[]): string {
     .map((task) => [
       csvCell(task.title),
       csvCell(task.client),
-      csvCell(CATEGORIES[task.category].label),
+      csvCell(categoryLabel(task.category)),
       csvCell(task.priority),
       csvCell(task.status),
       csvCell(task.estimatedMinutes),

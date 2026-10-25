@@ -24,6 +24,7 @@ const CONSEQUENCE: Record<AppNotificationKind, string> = {
 export function NotificationCenter({
   notifications,
   permission,
+  alertsEnabled,
   onOpenTask,
   onSnooze,
   onDismiss,
@@ -35,6 +36,8 @@ export function NotificationCenter({
 }: {
   notifications: AppNotification[];
   permission: NativePermission;
+  /** The in-app switch in Settings — separate from the browser's permission. */
+  alertsEnabled: boolean;
   onOpenTask: (taskId: string) => void;
   onSnooze: (taskId: string) => void;
   onDismiss: (notification: AppNotification) => void;
@@ -97,7 +100,7 @@ export function NotificationCenter({
             </div>
           </header>
 
-          {permission !== 'granted' ? (
+          {permission !== 'granted' || !alertsEnabled ? (
             <div className={`notify-permission is-${permission}`}>
               {permission === 'unsupported' ? (
                 <>
@@ -111,6 +114,22 @@ export function NotificationCenter({
                     System alerts are blocked for this site. Allow notifications in your browser’s site settings,
                     then reload.
                   </p>
+                </>
+              ) : permission === 'granted' ? (
+                /* The browser already allows banners but the planner's own
+                   switch is off — without this the app would look silent while
+                   insisting everything was fine. */
+                <>
+                  <BellOff size={16} />
+                  <div>
+                    <p>
+                      <strong>System alerts are off</strong>
+                      <span>This device allows notifications, but the planner is not sending them. Turn them on here.</span>
+                    </p>
+                  </div>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={onRequestPermission}>
+                    Turn on
+                  </button>
                 </>
               ) : (
                 <>

@@ -267,3 +267,21 @@ describe('CSV export', () => {
     expect(csv.split('\n')).toHaveLength(1);
   });
 });
+
+describe('learning from a category the user named', () => {
+  it('can suggest their own category back to them', () => {
+    /* Enough “Licensing” history that the habit, not the built-in list, is
+       what the suggestion should reflect. */
+    const history = Array.from({ length: 8 }, (_, index) =>
+      makeTask({
+        id: `lic-${index}`,
+        title: 'renew apollo licence paperwork',
+        category: 'Licensing',
+        status: 'completed',
+        completedAt: new Date(2026, 9, 10 + index, 15, 0, 0).toISOString(),
+      }),
+    );
+    const suggestion = suggestForTask('renew the apollo licence', history, settings);
+    expect(suggestion.category).toBe('Licensing');
+  });
+});
