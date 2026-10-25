@@ -11,7 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { Category, Priority } from '../lib/types';
-import { CATEGORIES, CATEGORY_ORDER, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
+import { categoryChoices, categoryLabel, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
 import { findDuplicate, parseScreenshotText } from '../lib/engine';
 import { todayISO } from '../lib/dates';
 import type { ParsedDraft } from '../lib/engine';
@@ -43,6 +43,7 @@ const STEPS = [
 
 export function ImportPage({
   tasks,
+  settings,
   addToast,
   onImportDrafts,
 }: CommonPageProps & {
@@ -473,9 +474,9 @@ export function ImportPage({
                         value={draft.category}
                         onChange={(event) => updateDraft(index, { category: event.target.value as Category })}
                       >
-                        {CATEGORY_ORDER.map((category) => (
+                        {categoryChoices(settings).map((category) => (
                           <option key={category} value={category}>
-                            {CATEGORIES[category].label}
+                            {categoryLabel(category)}
                           </option>
                         ))}
                       </select>

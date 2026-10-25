@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Settings, Task } from './types';
 import { DEFAULT_SETTINGS } from './types';
 import {
+  buildDailyDigest,
   buildDayPlan,
+  buildReminderDue,
   buildWeekSummary,
   diffDayPlans,
   findDependencyCycle,
@@ -465,5 +467,98 @@ describe('diffDayPlans (#9)', () => {
     const first = buildDayPlan(tasks, settings, WEDNESDAY);
     const second = buildDayPlan(tasks, settings, WEDNESDAY);
     expect(diffDayPlans(first, second)).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Reminders: the deadline alert, then the repeats                     */
+/* ------------------------------------------------------------------ */
+
+describe('a pending task keeps reminding until it is done', () => {
+  const reminderSettings: Settings = { ...settings, reminderLeadMinutes: 60, reminderRepeatMinutes: 30 };
+  const day = '2026-10-21';
+  const at = (hour: number, minute = 0) => new Date(2026, 9, 21, hour, minute, 0, 0);
+  const dueAt3 = makeTask({ id: 'r1', title: 'Follow up with Oraglife', dueDate: day, dueTime: '15:00' });
+
+  it('says nothing before the lead window opens', () => {
+    expect(buildReminderDue([dueAt3], reminderSettings, at(13, 0))).toHaveLength(0);
+  });
+
+  it('fires the first alert exactly at the lead time', () => {
+    const [alert] = buildReminderDue([dueAt3], reminderSettings, at(14, 0));
+    expect(alert.slot).toBe(0);
+    expect(alert.task.id).toBe('r1');
+    expect(alert.overdue).toBe(false);
+  });
+
+  it('repeats every interval instead of alerting once', () => {
+    /* The bug this exists for: one alert fired and then silence, so a task
+       added in the morning was never mentioned again. */
+    const slots = [14, 15, 16, 17].map((hour) => buildReminderDue([dueAt3], reminderSettings, at(hour))[0]);
+    expect(slots.map((entry) => entry.slot)).toEqual([0, 2, 4, 6]);
+    // Each slot keys a different nudge, so none of them is a duplicate.
+    expect(new Set(slots.map((entry) => entry.nudgeAt.toISOString())).size).toBe(4);
+  });
+
+  it('keeps nudging an overdue task, and restarts the cadence each morning', () => {
+    const yesterdayDue = makeTask({ id: 'r2', title: 'Chase the invoice', dueDate: '2026-10-20', dueTime: '11:00' });
+    const morning = buildReminderDue([yesterdayDue], reminderSettings, at(9, 20))[0];
+    const later = buildReminderDue([yesterdayDue], reminderSettings, at(9, 50))[0];
+    expect(morning.overdue).toBe(true);
+    expect(morning.slot).toBe(18); // 9h20m after midnight, every 30 minutes
+    expect(later.slot).toBe(19);
+    // The next day starts a fresh cadence rather than counting from the deadline.
+    const tomorrow = buildReminderDue([yesterdayDue], reminderSettings, new Date(2026, 9, 22, 9, 0))[0];
+    expect(tomorrow.slot).toBe(18);
+    expect(tomorrow.nudgeAt.toISOString()).not.toBe(morning.nudgeAt.toISOString());
+  });
+
+  it('alerts once when the repeats are switched off', () => {
+    const once = { ...reminderSettings, reminderRepeatMinutes: 0 };
+    expect(buildReminderDue([dueAt3], once, at(14))[0].slot).toBe(0);
+    expect(buildReminderDue([dueAt3], once, at(17))[0].slot).toBe(0);
+  });
+
+  it('never reminds for work that is done or deleted', () => {
+    const done = makeTask({ id: 'd', dueDate: day, status: 'completed' });
+    const gone = makeTask({ id: 'g', dueDate: day, deletedAt: WEDNESDAY.toISOString() });
+    expect(buildReminderDue([done, gone], reminderSettings, at(16))).toHaveLength(0);
+  });
+
+  it('treats a date with no time as due at the end of the day', () => {
+    const dateOnly = makeTask({ id: 'x', dueDate: day, dueTime: '' });
+    expect(buildReminderDue([dateOnly], reminderSettings, at(15, 30))).toHaveLength(0);
+    expect(buildReminderDue([dateOnly], reminderSettings, at(16, 5))[0].slot).toBe(0);
+  });
+});
+
+describe('the daily pending summary', () => {
+  const digestSettings: Settings = { ...settings, dailyDigestEnabled: true, digestTime: '09:30' };
+  const at = (hour: number, minute = 0) => new Date(2026, 9, 21, hour, minute, 0, 0);
+
+  const tasks = [
+    makeTask({ id: 'a', title: 'Due today', dueDate: '2026-10-21' }),
+    makeTask({ id: 'b', title: 'Overdue', dueDate: '2026-10-19' }),
+    makeTask({ id: 'c', title: 'No date at all', dueDate: null }),
+    makeTask({ id: 'd', title: 'Done', dueDate: '2026-10-21', status: 'completed' }),
+  ];
+
+  it('waits for its time of day', () => {
+    expect(buildDailyDigest(tasks, digestSettings, at(8))).toBeNull();
+  });
+
+  it('counts everything still open, including work with no deadline', () => {
+    const digest = buildDailyDigest(tasks, digestSettings, at(10));
+    expect(digest).not.toBeNull();
+    expect(digest!.dueToday.map((task) => task.id)).toEqual(['a']);
+    expect(digest!.overdue.map((task) => task.id)).toEqual(['b']);
+    // The whole point: a task with no deadline is not silently dropped.
+    expect(digest!.undated.map((task) => task.id)).toEqual(['c']);
+    expect(digest!.total).toBe(3);
+  });
+
+  it('stays quiet when there is nothing pending, and when switched off', () => {
+    expect(buildDailyDigest([], digestSettings, at(10))).toBeNull();
+    expect(buildDailyDigest(tasks, { ...digestSettings, dailyDigestEnabled: false }, at(10))).toBeNull();
   });
 });

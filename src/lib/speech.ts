@@ -254,6 +254,27 @@ export function normaliseTranscript(source: string): string {
 }
 
 /**
+ * Add what was heard without ever adding it twice.
+ *
+ * The Web Speech API is supposed to hand each phrase over exactly once, and on
+ * some Android builds it does not: after a restart, or when `resultIndex` stays
+ * at 0, the same words arrive again. Appending blindly is what turned one
+ * sentence into two, three and four copies of itself in the field. This keeps
+ * the transcript honest — the new phrase is added unless it is already the end
+ * of what we have.
+ */
+export function appendSpoken(base: string, addition: string): string {
+  const current = base.trim();
+  const next = addition.trim();
+  if (!next) return current;
+  if (!current) return next;
+  const tail = current.toLowerCase();
+  const heard = next.toLowerCase();
+  if (tail === heard || tail.endsWith(heard)) return current;
+  return `${current} ${next}`;
+}
+
+/**
  * Pick the browser's best guess.
  *
  * Chrome returns several candidates for one phrase with `maxAlternatives`.
@@ -376,7 +397,7 @@ export function startDictation(options: DictationOptions = {}): Dictation {
     /* A session can end with the last phrase still marked interim. It was
        heard; hand it back rather than dropping the end of the sentence. */
     if (interim.trim()) {
-      heard = `${heard} ${interim}`.trim();
+      heard = appendSpoken(heard, interim);
       interim = '';
       emit(true);
     }
@@ -390,20 +411,42 @@ export function startDictation(options: DictationOptions = {}): Dictation {
     instance.interimResults = true;
     instance.maxAlternatives = 5;
 
+    /**
+     * How far into `event.results` this recogniser instance has been read.
+     *
+     * `resultIndex` is meant to point at the first result that is new, but
+     * Chrome on Android frequently sends 0 on every event while the results
+     * array keeps growing — so every phrase was re-read and re-appended, which
+     * is exactly how one sentence became two, three and four copies. Tracking
+     * the high-water mark ourselves makes the accumulation independent of what
+     * the browser claims.
+     */
+    let foldedUntil = 0;
+
+    instance.onstart = () => {
+      /* `start()` after a restart begins a new results list. */
+      foldedUntil = 0;
+    };
+
     instance.onresult = (event) => {
       let finalText = '';
       let interimText = '';
       const results = event.results;
-      for (let index = event.resultIndex; index < results.length; index += 1) {
+      const firstUnread = Math.max(event.resultIndex ?? 0, foldedUntil);
+      for (let index = firstUnread; index < results.length; index += 1) {
         const result = results[index];
         if (!result) continue;
         const text = pickBestTranscript(alternativesOf(result));
         if (!text) continue;
-        if (result.isFinal) finalText = `${finalText} ${text}`.trim();
-        else interimText = `${interimText} ${text}`.trim();
+        if (result.isFinal) {
+          finalText = `${finalText} ${text}`.trim();
+          foldedUntil = index + 1;
+        } else {
+          interimText = `${interimText} ${text}`.trim();
+        }
       }
       if (finalText) {
-        heard = `${heard} ${finalText}`.trim();
+        heard = appendSpoken(heard, finalText);
         interim = interimText;
         emit(true);
       } else if (interimText) {
@@ -427,7 +470,7 @@ export function startDictation(options: DictationOptions = {}): Dictation {
            Fold the words it already heard into the transcript so the restart
            begins where the last phrase ended instead of dropping it. */
         if (interim.trim()) {
-          heard = `${heard} ${interim}`.trim();
+          heard = appendSpoken(heard, interim);
           interim = '';
           emit(true);
         }

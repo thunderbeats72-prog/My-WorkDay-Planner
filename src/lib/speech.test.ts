@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DictationResultLike } from './speech';
 import { parseQuickAdd } from './quickAdd';
 import {
+  appendSpoken,
   DICTATION_LANGUAGES,
   deviceLanguage,
   dictationErrorKind,
@@ -309,5 +310,56 @@ describe('a listening session', () => {
 
     recognition.onerror?.({ error: 'not-allowed' });
     expect(onError).toHaveBeenCalledWith('not-allowed');
+  });
+});
+
+describe('the same words never arrive twice', () => {
+  it('ignores results the browser re-reports from index 0', () => {
+    installRecogniser();
+    const onFinal = vi.fn();
+
+    startDictation({ onFinal });
+    const recognition = FakeRecognition.instances[0];
+
+    /* Chrome on Android often keeps resultIndex at 0 while the array grows.
+       Before the fix, every event re-appended everything it had already sent —
+       the "twice, thrice, quads" in the field. */
+    const first = alternativeSet(['call the licensing team'], true);
+    recognition.emit([first]);
+    expect(onFinal).toHaveBeenLastCalledWith('call the licensing team');
+
+    recognition.emit([first, alternativeSet(['tomorrow at 3 pm'], true)]);
+    expect(onFinal).toHaveBeenLastCalledWith('call the licensing team tomorrow at 3pm');
+
+    // Replaying the whole array again must change nothing.
+    recognition.emit([first, alternativeSet(['tomorrow at 3 pm'], true)]);
+    expect(onFinal).toHaveBeenLastCalledWith('call the licensing team tomorrow at 3pm');
+    expect(onFinal.mock.calls).toHaveLength(2);
+  });
+
+  it('does not repeat a phrase when the recogniser restarts mid-sentence', () => {
+    vi.useFakeTimers();
+    installRecogniser();
+    const onFinal = vi.fn();
+
+    startDictation({ onFinal });
+    const recognition = FakeRecognition.instances[0];
+
+    recognition.emit([alternativeSet(['follow up with oraglife'], true)]);
+    recognition.onend?.(); // Android's silence stop
+    vi.advanceTimersByTime(300);
+
+    /* The new session reports the tail again — a real quirk on some builds. */
+    recognition.onstart?.();
+    recognition.emit([alternativeSet(['follow up with oraglife'], true)]);
+    expect(onFinal).toHaveBeenLastCalledWith('follow up with oraglife');
+  });
+
+  it('collapses a tail that repeats itself, and keeps new words', () => {
+    expect(appendSpoken('call sam', 'call sam')).toBe('call sam');
+    expect(appendSpoken('call sam', 'Call Sam')).toBe('call sam');
+    expect(appendSpoken('call sam', 'tomorrow')).toBe('call sam tomorrow');
+    expect(appendSpoken('', 'first words')).toBe('first words');
+    expect(appendSpoken('call sam', '')).toBe('call sam');
   });
 });

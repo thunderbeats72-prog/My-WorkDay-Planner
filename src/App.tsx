@@ -31,7 +31,7 @@ import {
   uniqueId,
   validateBackup,
 } from './lib/db';
-import { applyPlanToTasks, buildReminders } from './lib/engine';
+import { applyPlanToTasks, buildDailyDigest, buildReminderDue, buildReminders } from './lib/engine';
 import {
   addNotification,
   clearNotifications as clearNotificationList,
@@ -46,7 +46,7 @@ import {
   wasDelivered,
 } from './lib/notifications';
 import type { AppNotification } from './lib/notifications';
-import type { BusyInterval, DayPlan, LearnedDurations, ParsedDraft, ReminderItem } from './lib/engine';
+import type { BusyInterval, DayPlan, LearnedDurations, ParsedDraft, ReminderDue, ReminderItem } from './lib/engine';
 import {
   beginGraphSignIn,
   cleanGraphRedirectUrl,
@@ -474,6 +474,27 @@ export default function App() {
     await saveSettings(next);
     accountRef.current?.schedulePush();
   }, []);
+
+  /**
+   * A category the user named themselves.
+   *
+   * It lives in settings rather than in a table of its own: it is a short list
+   * of words, it belongs with the other preferences, and it travels in the same
+   * settings object that backups and cloud sync already carry. The task keeps
+   * the name itself, so a category is never a dangling reference.
+   */
+  const addCategory = useCallback(
+    (name: string) => {
+      const value = name.trim().replace(/\s+/g, ' ');
+      if (!value) return;
+      const current = settingsRef.current;
+      const existing = current.customCategories ?? [];
+      if (existing.some((category) => category.toLowerCase() === value.toLowerCase())) return;
+      void updateSettings({ ...current, customCategories: [...existing, value] });
+      addToast(`Category “${value}” added.`, 'success');
+    },
+    [addToast, updateSettings],
+  );
 
   const buildTask = useCallback(
     (draft: TaskDraft, extra?: Partial<Task>): Task => {
@@ -1331,31 +1352,70 @@ export default function App() {
   /**
    * Reminders become notifications here.
    *
-   * The in-app list is always written (it is the reliable layer). The OS is
-   * asked only when the user has enabled alerts, granted permission, and is
-   * outside quiet hours. Each (task, deadline) pair fires once; snoozing
-   * clears the marker so it can fire again.
+   * Three decisions shape this:
+   *
+   *   · The in-app list is always written; it is the reliable layer. The OS is
+   *     asked only when alerts are enabled, permission is granted and it is not
+   *     quiet hours.
+   *   · A pending task is nudged again every `reminderRepeatMinutes`, not just
+   *     once at its deadline. The slot number is part of the de-duplication
+   *     key, so each nudge is new and none is delivered twice.
+   *   · A dismissed or snoozed reminder silences its task until it is done or
+   *     snoozed past — that is what dismissal means, and repeats must not
+   *     overrule it.
    */
+  const dueReminders: ReminderDue[] = useMemo(() => {
+    /* A dismissal belongs to one deadline, not to the task forever: move the
+       task to tomorrow and it must be able to remind again. The record is keyed
+       by (task, deadline), so matching on the same pair keeps that promise. */
+    const silenced = new Set(
+      reminders
+        .filter(
+          (record) =>
+            record.status === 'done' ||
+            record.status === 'dismissed' ||
+            (record.snoozedUntil !== null && new Date(record.snoozedUntil).getTime() > now.getTime()),
+        )
+        .map((record) => `${record.taskId}|${record.dueAt}`),
+    );
+    return buildReminderDue(tasks, settings, now).filter(
+      (entry) => !silenced.has(`${entry.task.id}|${entry.dueAt.toISOString()}`),
+    );
+  }, [tasks, settings, now, reminders]);
+
   useEffect(() => {
-    if (activeReminders.length === 0) return;
-    const candidates = activeReminders
-      .filter((reminder) => !wasDelivered(`${reminder.task.id}|${reminder.dueAt.toISOString()}`))
-      .slice(0, 5);
+    if (dueReminders.length === 0) return;
+    /* Slot 0 keeps the key reminders used before repeats existed, so an alert
+       already in someone's bell is not re-delivered after this update. Every
+       repeat keys on the moment its window opened, which is unique per nudge
+       (a slot number alone would repeat across days). */
+    const keyOf = (entry: ReminderDue) =>
+      entry.slot === 0
+        ? `${entry.task.id}|${entry.dueAt.toISOString()}`
+        : `${entry.task.id}|${entry.dueAt.toISOString()}|${entry.nudgeAt.toISOString()}`;
+    const candidates = dueReminders.filter((entry) => !wasDelivered(keyOf(entry))).slice(0, 5);
     if (candidates.length === 0) return;
 
     const quiet = isQuietNow(settings, now);
+    /* Quiet hours mean quiet: the first alert is still recorded in the bell
+       (it is a list, not an interruption), but a repeat would only be noise at
+       2am and is skipped entirely. */
+    const deliverable = candidates.filter((entry) => entry.slot === 0 || !quiet);
+    if (deliverable.length === 0) return;
+
     const createdAt = new Date().toISOString();
     setNotifications((current) =>
-      candidates.reduce((list, reminder) => {
-        markDelivered(`${reminder.task.id}|${reminder.dueAt.toISOString()}`);
-        const client = reminder.task.client ? `${reminder.task.client} · ` : '';
+      deliverable.reduce((list, entry) => {
+        markDelivered(keyOf(entry));
+        const client = entry.task.client ? `${entry.task.client} · ` : '';
+        const repeatNote = entry.slot > 0 ? 'Still open · ' : '';
         return addNotification(list, {
-          id: `rem_${reminder.task.id}_${reminder.dueAt.getTime()}`,
-          taskId: reminder.task.id,
-          title: reminder.task.title,
-          body: `${client}${dueLabel(reminder.task, now)}`,
+          id: `rem_${entry.task.id}_${entry.dueAt.getTime()}`,
+          taskId: entry.task.id,
+          title: entry.task.title,
+          body: `${client}${repeatNote}${dueLabel(entry.task, now)}`,
           createdAt,
-          dueAt: reminder.dueAt.toISOString(),
+          dueAt: entry.dueAt.toISOString(),
           read: false,
           kind: 'reminder',
         });
@@ -1363,17 +1423,62 @@ export default function App() {
     );
 
     if (!settings.notificationsEnabled || notificationPermission !== 'granted' || quiet) return;
-    for (const reminder of candidates.slice(0, 2)) {
-      const client = reminder.task.client ? `${reminder.task.client} · ` : '';
+    for (const entry of deliverable.slice(0, 2)) {
+      const client = entry.task.client ? `${entry.task.client} · ` : '';
       void deliverNative({
-        title: reminder.task.title,
-        body: `${client}${dueLabel(reminder.task, now)}`,
-        tag: `rem_${reminder.task.id}`,
-        taskId: reminder.task.id,
+        title: entry.task.title,
+        body: `${client}${entry.slot > 0 ? 'Still open · ' : ''}${dueLabel(entry.task, now)}`,
+        /* A fresh tag per repeat: the same tag with `renotify: false` replaces
+           the banner without making a sound, which would look like a reminder
+           that never arrived. */
+        tag: entry.slot === 0 ? `rem_${entry.task.id}` : `rem_${entry.task.id}_${entry.slot}`,
+        taskId: entry.task.id,
         page: 'tasks',
       });
     }
-  }, [activeReminders, settings, notificationPermission, now]);
+  }, [dueReminders, settings, notificationPermission, now, addToast]);
+
+  /**
+   * One summary a day: everything still open, including work with no deadline.
+   *
+   * Without this, a task with no due date has nothing for a deadline reminder
+   * to hang on and can sit in the list unnoticed. Delivered at most once per
+   * calendar day, keyed by the date itself.
+   */
+  useEffect(() => {
+    const digest = buildDailyDigest(tasks, settings, now);
+    if (!digest) return;
+    const key = `digest|${digest.dateISO}`;
+    if (wasDelivered(key)) return;
+    markDelivered(key);
+
+    const parts: string[] = [];
+    if (digest.overdue.length > 0) parts.push(`${digest.overdue.length} overdue`);
+    if (digest.dueToday.length > 0) parts.push(`${digest.dueToday.length} due today`);
+    if (digest.undated.length > 0) parts.push(`${digest.undated.length} with no date`);
+    const body = `${digest.total} task${digest.total === 1 ? '' : 's'} still open — ${parts.join(', ')}.`;
+
+    setNotifications((current) =>
+      addNotification(current, {
+        id: `digest_${digest.dateISO}`,
+        taskId: null,
+        title: 'Today’s pending work',
+        body,
+        createdAt: new Date().toISOString(),
+        dueAt: null,
+        read: false,
+        kind: 'reminder',
+      }),
+    );
+
+    if (!settings.notificationsEnabled || notificationPermission !== 'granted' || isQuietNow(settings, now)) return;
+    void deliverNative({
+      title: `Today’s pending work — ${digest.total}`,
+      body,
+      tag: `digest_${digest.dateISO}`,
+      page: 'tasks',
+    });
+  }, [tasks, settings, now, notificationPermission]);
 
   // Ask the installed app to check reminders in the background (best effort).
   useEffect(() => {
@@ -1614,6 +1719,7 @@ export default function App() {
     <NotificationCenter
       notifications={notifications}
       permission={notificationPermission}
+      alertsEnabled={settings.notificationsEnabled}
       onOpenTask={handleOpenNotificationTask}
       onSnooze={(taskId) => void snoozeTask(taskId)}
       onDismiss={handleDismissNotification}
@@ -1868,8 +1974,13 @@ export default function App() {
         settings={settings}
         tasks={tasks}
         initialDraft={formState.initialDraft}
+        /* A new task lands on today by default: a task with no deadline has
+           nothing for a reminder to hang on, and "nothing was ever notified
+           about it" is exactly the complaint this had to fix. */
+        defaultDueDate={todayISO()}
         onClose={() => setFormState({ open: false, task: null, initialDraft: null })}
         onSubmit={handleFormSubmit}
+        onAddCategory={addCategory}
       />
       <ConfirmDialog
         open={confirmState !== null}

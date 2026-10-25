@@ -1,5 +1,5 @@
 import type { Category, Priority } from './types';
-import { CATEGORIES } from './types';
+import { categoryLabel } from './types';
 import { daysFromNow, parseTimeToMinutes, todayISO } from './dates';
 import { parseDuePhrase, parseTimePhrase } from './engine';
 
@@ -54,6 +54,13 @@ export interface QuickAddOptions {
   clients?: string[];
   /** When no date is typed, the task lands on this day. Defaults to today. */
   fallbackDueDate?: string | null;
+  /**
+   * Categories the user added, so `#licensing` works for them too.
+   *
+   * The built-ins are matched by their aliases; a custom one is matched by its
+   * own name (and without its spaces: `#fieldwork` finds “Field Work”).
+   */
+  customCategories?: string[];
 }
 
 const CATEGORY_ALIASES: Record<Category, string[]> = {
@@ -117,12 +124,19 @@ function clampEstimate(minutes: number): number {
   return Math.min(480, Math.max(5, Math.round(minutes / 5) * 5));
 }
 
-function resolveCategory(raw: string): Category | null {
+function resolveCategory(raw: string, customCategories: string[] = []): Category | null {
   const normalised = raw.toLowerCase().replace(/[-_]/g, '');
   for (const category of Object.keys(CATEGORY_ALIASES) as Category[]) {
     if (CATEGORY_ALIASES[category].includes(normalised) || category.replace(/_/g, '') === normalised) {
       return category;
     }
+  }
+  /* A category the user named is not something this file can know about, so
+     match it against the list it was handed instead of ignoring the token and
+     silently filing the task under “Other”. */
+  for (const category of customCategories) {
+    const key = category.toLowerCase().replace(/[\s_-]+/g, '');
+    if (key === normalised || category.toLowerCase() === raw.toLowerCase()) return category;
   }
   return null;
 }
@@ -161,10 +175,10 @@ export function parseQuickAdd(text: string, options: QuickAddOptions = {}): Quic
   const categoryMatch = /(?:^|\s)#([\p{L}][\p{L}_-]*)/u.exec(working);
   let category: Category | null = null;
   if (categoryMatch) {
-    category = resolveCategory(categoryMatch[1]);
+    category = resolveCategory(categoryMatch[1], options.customCategories ?? []);
     if (category) {
       hasCategory = true;
-      tokens.push({ kind: 'category', label: CATEGORIES[category].label });
+      tokens.push({ kind: 'category', label: categoryLabel(category) });
       working = working.replace(new RegExp(`(?:^|\\s)#${escapeRegExp(categoryMatch[1])}`, 'u'), ' ');
     }
   }

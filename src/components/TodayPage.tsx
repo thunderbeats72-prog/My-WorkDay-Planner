@@ -194,8 +194,9 @@ export function TodayPage({
         fallbackPriority: quickPriority,
         fallbackEstimateMinutes: settings.defaultEstimateMinutes,
         clients,
+        customCategories: settings.customCategories ?? [],
       }),
-    [quickTitle, now, quickPriority, settings.defaultEstimateMinutes, clients],
+    [quickTitle, now, quickPriority, settings.defaultEstimateMinutes, clients, settings.customCategories],
   );
   // Live: the next thing with a real deadline, recomputed as the clock moves.
   const nextDeadline = openTasks

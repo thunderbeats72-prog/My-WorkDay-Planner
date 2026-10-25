@@ -152,9 +152,22 @@ describe('My Workday Planner app', () => {
     await user.type(within(modal).getByLabelText('Client / account'), 'Orion Foods');
     await user.click(within(modal).getByRole('button', { name: 'Create task' }));
 
-    const title = await screen.findByRole('button', { name: 'Draft proposal for Orion' });
-    const card = title.closest('.task-card') as HTMLElement;
-    const cardScope = within(card);
+    /* It now has a date, so today's plan strip mentions it as well — work from
+       the card in the task section rather than the first match on the page. */
+    /* A new task lands on today by default now, so today's plan strip names it
+       too — start from the card in the task section, not the first match. */
+    const cardFor = () => {
+      const match = screen
+        .getAllByRole('button', { name: 'Draft proposal for Orion' })
+        .find((element) => element.closest('.task-card'));
+      return match ? (match.closest('.task-card') as HTMLElement) : null;
+    };
+    const card = (await waitFor(() => {
+      const found = cardFor();
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    })) as HTMLElement;
+    let cardScope = within(card);
 
     await user.click(cardScope.getByRole('button', { name: /Reschedule/ }));
     /* The menu is portalled to <body> on purpose — inside the card its z-index
@@ -162,6 +175,11 @@ describe('My Workday Planner app', () => {
        document level, not inside the card. */
     await user.click(screen.getByRole('menuitem', { name: 'Tomorrow' }));
     await waitFor(() => {
+      /* The card moves out of “Due today” when its date changes, so it is a new
+         element; hold a scope from the live one. */
+      const moved = cardFor();
+      expect(moved).not.toBeNull();
+      cardScope = within(moved as HTMLElement);
       expect(cardScope.getByText(/Due tomorrow/)).toBeTruthy();
     });
 
