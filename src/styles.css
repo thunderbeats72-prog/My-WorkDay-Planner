@@ -20990,3 +20990,52 @@ button.palette-cite:hover {
     justify-content: flex-end;
   }
 }
+
+/* --- Category chips in the task form ------------------------------------
+   The field used to be a <select>. Every category is on screen now, and the
+   last chip is always “New category” — the one action that was buried at the
+   bottom of the dropdown. Tapping a chip is one tap, not two, and a selected
+   chip is unmistakable rather than a value inside a closed control. */
+.category-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 11px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.category-chip:hover {
+  border-color: var(--ink);
+}
+
+.category-chip.is-selected {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-ink, #fff);
+  font-weight: 600;
+}
+
+.category-chip.is-new {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.category-chip.is-new:hover {
+  border-color: var(--ink);
+  color: var(--text);
+}

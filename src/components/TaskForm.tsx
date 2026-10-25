@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link2, Mic, TriangleAlert } from 'lucide-react';
+import { Link2, Mic, Plus, TriangleAlert } from 'lucide-react';
 import type { Category, Priority, Settings, Task } from '../lib/types';
 import {
   categoryChoices,
@@ -11,9 +11,6 @@ import {
 import { findDependencyCycle } from '../lib/engine';
 import { useDictation } from '../hooks/useDictation';
 import { Button, Field, Modal, Switch } from './ui';
-
-/** The select value that opens the "name a category" input. */
-const NEW_CATEGORY = '__new_category__';
 
 export interface TaskDraft {
   title: string;
@@ -85,9 +82,9 @@ export function TaskForm({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dependencyQuery, setDependencyQuery] = useState('');
-  /* "＋ New category" is an option in the same select, not a second screen:
-     picking it swaps the select for a one-line input until the name is
-     accepted or abandoned. */
+  /* “New category” is the last chip in the same field, not a second screen:
+     tapping it swaps the chips for a one-line input until the name is accepted
+     or abandoned. */
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [categoryError, setCategoryError] = useState('');
@@ -132,6 +129,14 @@ export function TaskForm({
   }, [open, task, settings, defaultDueDate, initialDraft]);
 
   const categoryOptions = useMemo(() => categoryChoices(settings), [settings]);
+
+  /* A task can carry a name the settings no longer list (it was deleted, or
+     the data came from a backup). Show it as a chip rather than silently
+     changing the task's category under the person's nose. */
+  const visibleCategories = useMemo(
+    () => (categoryOptions.includes(draft.category) ? categoryOptions : [...categoryOptions, draft.category]),
+    [categoryOptions, draft.category],
+  );
 
   const addCategory = () => {
     const result = normaliseCustomCategory(newCategory, settings.customCategories ?? []);
@@ -241,7 +246,7 @@ export function TaskForm({
           />
         </Field>
 
-        <Field label="Category" htmlFor="task-category">
+        <Field label="Category">
           {addingCategory ? (
             <div className="category-add">
               <input
@@ -275,34 +280,46 @@ export function TaskForm({
               </Button>
             </div>
           ) : (
-            <select
-              id="task-category"
-              className="input"
-              value={draft.category}
-              onChange={(event) => {
-                if (event.target.value === NEW_CATEGORY) {
+            /* Chips rather than a <select>: the one action this field kept
+               hiding was “add my own”, which sat at the bottom of a native
+               dropdown nobody opens. Every category is visible, and the last
+               chip is always the way to name a new one. */
+            <div className="category-picker" role="radiogroup" aria-label="Category">
+              {visibleCategories.map((category) => {
+                const selected = draft.category === category;
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    className={`category-chip ${selected ? 'is-selected' : ''}`.trim()}
+                    onClick={() => setDraft({ ...draft, category })}
+                  >
+                    {categoryLabel(category)}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="category-chip is-new"
+                onClick={() => {
                   setAddingCategory(true);
                   setNewCategory('');
                   setCategoryError('');
-                  return;
-                }
-                setDraft({ ...draft, category: event.target.value as Category });
-              }}
-            >
-              {!categoryOptions.includes(draft.category) ? (
-                <option value={draft.category}>{categoryLabel(draft.category)}</option>
-              ) : null}
-              {categoryOptions.map((category) => (
-                <option key={category} value={category}>
-                  {categoryLabel(category)}
-                </option>
-              ))}
-              <option value={NEW_CATEGORY}>＋ New category…</option>
-            </select>
+                }}
+              >
+                <Plus size={14} aria-hidden="true" /> New category
+              </button>
+            </div>
           )}
           {categoryError ? <span className="field-error">{categoryError}</span> : null}
-          {!addingCategory && (settings.customCategories ?? []).length === 0 ? (
-            <span className="field-hint">Need your own? Choose “＋ New category…” to add one.</span>
+          {!addingCategory ? (
+            <span className="field-hint">
+              {(settings.customCategories ?? []).length === 0
+                ? 'Need your own? Tap “New category”.'
+                : 'Your own categories can be renamed or deleted in Settings.'}
+            </span>
           ) : null}
         </Field>
 
