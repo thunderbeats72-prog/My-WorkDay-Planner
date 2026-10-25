@@ -104,10 +104,7 @@ describe('managing categories from Settings', () => {
     await user.click(screen.getAllByRole('button', { name: 'Today' })[0]);
     await user.click(await screen.findByRole('button', { name: 'Add task' }));
     const sheet = await screen.findByRole('dialog', { name: /New task/ });
-    const options = Array.from((within(sheet).getByLabelText('Category') as HTMLSelectElement).options).map(
-      (option) => option.textContent,
-    );
-    expect(options).toContain('Recruitment');
+    expect(within(sheet).getByRole('radio', { name: 'Recruitment' })).toBeTruthy();
   }, 40000);
 
   it('renames one and the tasks filed under it follow', async () => {

@@ -1018,10 +1018,14 @@ read straight through — so any name the user invented would have rendered as
 (`categoryLabel`, `categoryMeta`, `categoryChoices`), and every display site,
 report breakdown, CSV cell and duration model goes through them.
 
-- **Adding one** happens where the confusion happens: in the category picker
-  on the task form, `＋ New category…` opens a one-line input — and in
-  **Settings → Categories**, which lists everything, built-ins included, with
-  the number of tasks filed under each.
+- **Adding one** happens where the confusion happens. The task form's
+  **Category** field is a row of chips — every category visible at once, the
+  chosen one filled in — and its last chip is **＋ New category**, which swaps
+  the chips for a one-line input. It used to be the bottom option of a native
+  `<select>`, described twice as “there is no option to add one”: a control
+  that has to be opened before the action exists is an action most people never
+  find. **Settings → Categories** does the same job with a list, built-ins
+  included, and the number of tasks filed under each.
 - **Editing one** is a rename in place: the pencil on the row turns the chip
   into an input, and **Save** (or Enter) rewrites every task already filed
   under the old name. The list is a list of *names*, not foreign keys — that is
@@ -1046,11 +1050,12 @@ legitimately new phrase still lands. The regression test fails if the
 high-water mark is removed.
 
 Batch gates: `tsc -b` clean, lint at the 21-warning baseline with 0 errors,
-`npm run build` clean, and the suite grew 513 → **564 tests** across 51 files
+`npm run build` clean, and the suite grew 513 → **569 tests** across 52 files
 (`serviceWorkerReminders.test.ts` drives the real worker; `ReminderFlow.test.tsx`
-covers repeats, the digest and adding a category; `CategoryManagement.test.tsx`
-renames and deletes one through the real Settings page and checks the tasks
-followed).
+covers repeats, the digest and adding a category; `CategoryPicker.test.tsx`
+asserts every chip is on screen and that “New category” is one of them;
+`CategoryManagement.test.tsx` renames and deletes one through the real Settings
+page and checks the tasks followed).
 
 ### Honest limits of this batch
 

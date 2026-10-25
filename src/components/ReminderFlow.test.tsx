@@ -168,16 +168,17 @@ describe('a category the user names', () => {
     const sheet = await screen.findByRole('dialog', { name: /New task/ });
 
     await user.type(within(sheet).getByLabelText('Task'), 'Renew the Apollo licence');
-    const select = within(sheet).getByLabelText('Category') as HTMLSelectElement;
-    await user.selectOptions(select, '＋ New category…');
+    /* The way to add one is a chip in the category field itself, visible
+       without opening anything. */
+    await user.click(within(sheet).getByRole('button', { name: 'New category' }));
 
     const nameField = await within(sheet).findByLabelText('New category name');
     await user.type(nameField, 'Licensing');
     await user.click(within(sheet).getByRole('button', { name: 'Add' }));
 
-    /* The field is back to a select, now holding the new category. */
+    /* The field is back to chips, with the new one already chosen. */
     await waitFor(() =>
-      expect((within(sheet).getByLabelText('Category') as HTMLSelectElement).value).toBe('Licensing'),
+      expect(within(sheet).getByRole('radio', { name: 'Licensing' }).getAttribute('aria-checked')).toBe('true'),
     );
 
     await user.click(within(sheet).getByRole('button', { name: 'Create task' }));
@@ -194,10 +195,7 @@ describe('a category the user names', () => {
     /* Open the form again: the category is on the list without retyping it. */
     await user.click(screen.getByRole('button', { name: 'Add task' }));
     const again = await screen.findByRole('dialog', { name: /New task/ });
-    const options = Array.from((within(again).getByLabelText('Category') as HTMLSelectElement).options).map(
-      (option) => option.textContent,
-    );
-    expect(options).toContain('Licensing');
+    expect(within(again).getByRole('radio', { name: 'Licensing' })).toBeTruthy();
   }, 40000);
 
   it('shows a task filed under a custom category with a readable chip', async () => {
@@ -218,7 +216,7 @@ describe('a category the user names', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add task' }));
     const sheet = await screen.findByRole('dialog', { name: /New task/ });
-    await user.selectOptions(within(sheet).getByLabelText('Category'), '＋ New category…');
+    await user.click(within(sheet).getByRole('button', { name: 'New category' }));
     await user.type(await within(sheet).findByLabelText('New category name'), 'Follow-up');
     await user.click(within(sheet).getByRole('button', { name: 'Add' }));
 
