@@ -5,24 +5,36 @@ import {
   Database,
   Download,
   KeyRound,
+  Lock,
   LogOut,
   Moon,
+  Pencil,
+  Plus,
   RefreshCw,
   Save,
   Shield,
   Sun,
+  Trash2,
   Upload,
   Mic,
 } from 'lucide-react';
 import type { Settings, Theme } from '../lib/types';
-import { DAY_SHORT, DEFAULT_SETTINGS, PRIORITIES, PRIORITY_ORDER } from '../lib/types';
+import {
+  CATEGORY_ORDER,
+  DAY_SHORT,
+  DEFAULT_SETTINGS,
+  MAX_CUSTOM_CATEGORIES,
+  PRIORITIES,
+  PRIORITY_ORDER,
+  normaliseCustomCategory,
+} from '../lib/types';
 import { formatDuration, parseTimeToMinutes } from '../lib/dates';
 import { GRAPH_SCOPES, graphRedirectUri } from '../lib/graph';
 import type { GraphAccount } from '../lib/graph';
 import type { CommonPageProps } from './pageProps';
 import type { AccountApi } from '../hooks/useAccount';
 import { AccountPanel } from './AccountPanel';
-import { Badge, Button, ConfirmDialog, Field, Switch } from './ui';
+import { Badge, Button, CategoryBadge, ConfirmDialog, Field, Switch } from './ui';
 import { canHaptic, haptic, hapticsEnabled, setHapticsEnabled } from '../lib/haptics';
 import {
   DICTATION_LANGUAGES,
@@ -36,6 +48,7 @@ import { PageHeader } from './Shell';
 const WORKING_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export function SettingsPage({
+  tasks,
   settings,
   addToast,
   onSaveSettings,
@@ -45,6 +58,9 @@ export function SettingsPage({
   onExportCsv,
   onExportIcs,
   onResetData,
+  onAddCategory,
+  onRenameCategory,
+  onDeleteCategory,
   graph,
   notificationsPermission,
   onRequestNotifications,
@@ -59,6 +75,12 @@ export function SettingsPage({
   onExportCsv: () => void;
   onExportIcs: () => void;
   onResetData: () => void;
+  /** Returns an error message, or null when the category was added. */
+  onAddCategory: (name: string) => string | null;
+  /** Renaming rewrites the tasks already filed under the old name. */
+  onRenameCategory: (from: string, to: string) => Promise<string | null>;
+  /** Returns how many tasks were moved to “Other”. */
+  onDeleteCategory: (name: string) => Promise<number>;
   graph: {
     connected: boolean;
     account: GraphAccount | null;
@@ -79,6 +101,17 @@ export function SettingsPage({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [resetOpen, setResetOpen] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  /* Categories are edited where they are managed, not in the page's draft:
+     adding one is a thing the person does, sees happen and can undo — waiting
+     for “Save changes” with 40 other fields would hide it. */
+  const [newCategory, setNewCategory] = useState('');
+  const [categoryError, setCategoryError] = useState('');
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
+  const [categoryBusy, setCategoryBusy] = useState(false);
   const backupInput = useRef<HTMLInputElement | null>(null);
 
   const previousSettings = useRef(settings);
@@ -92,7 +125,15 @@ export function SettingsPage({
       const onlyThemeChanged =
         previous.theme !== settings.theme &&
         JSON.stringify({ ...settings, theme: previous.theme }) === JSON.stringify(previous);
-      return onlyThemeChanged ? { ...current, theme: settings.theme } : settings;
+      if (onlyThemeChanged) return { ...current, theme: settings.theme };
+      /* The category manager writes through immediately, the same way. Keep the
+         person's unsaved edits to the other fields while taking the new list. */
+      const onlyCategoriesChanged =
+        JSON.stringify(settings.customCategories ?? []) !== JSON.stringify(previous.customCategories ?? []) &&
+        JSON.stringify({ ...settings, customCategories: previous.customCategories }) === JSON.stringify(previous);
+      return onlyCategoriesChanged
+        ? { ...current, customCategories: settings.customCategories }
+        : settings;
     });
   }, [settings]);
 
@@ -161,6 +202,60 @@ export function SettingsPage({
   const workingMinutes =
     Math.max(0, parseTimeToMinutes(draft.workdayEnd) - parseTimeToMinutes(draft.workdayStart)) -
     Math.max(0, parseTimeToMinutes(draft.lunchEnd) - parseTimeToMinutes(draft.lunchStart));
+
+  const customCategories = draft.customCategories ?? [];
+  /* How many live tasks each category holds — the number that makes a delete
+     or a rename consequential, shown before either is pressed. */
+  const categoryCounts = tasks.reduce<Record<string, number>>((counts, task) => {
+    if (task.deletedAt !== null) return counts;
+    counts[task.category] = (counts[task.category] ?? 0) + 1;
+    return counts;
+  }, {});
+  const usageLabel = (count: number | undefined) =>
+    count ? `${count} task${count === 1 ? '' : 's'}` : 'No tasks yet';
+
+  const submitCategory = () => {
+    const result = normaliseCustomCategory(newCategory, settings.customCategories ?? []);
+    if (!result.ok) {
+      setCategoryError(result.error);
+      return;
+    }
+    const error = onAddCategory(result.value);
+    if (error) {
+      setCategoryError(error);
+      return;
+    }
+    setNewCategory('');
+    setCategoryError('');
+  };
+
+  const startRename = (name: string) => {
+    setRenaming(name);
+    setRenameValue(name);
+    setRenameError('');
+  };
+
+  const submitRename = async () => {
+    if (!renaming) return;
+    setCategoryBusy(true);
+    const error = await onRenameCategory(renaming, renameValue);
+    setCategoryBusy(false);
+    if (error) {
+      setRenameError(error);
+      return;
+    }
+    setRenaming(null);
+    setRenameValue('');
+    setRenameError('');
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!deletingCategory) return;
+    setCategoryBusy(true);
+    await onDeleteCategory(deletingCategory);
+    setCategoryBusy(false);
+    setDeletingCategory(null);
+  };
 
   return (
     <div className="page settings-page">
@@ -282,6 +377,166 @@ export function SettingsPage({
                 })}
               </div>
             </Field>
+          </section>
+
+          <section className="card settings-section" aria-labelledby="settings-categories-heading">
+            <div className="section-head">
+              <h2 id="settings-categories-heading">Categories</h2>
+              <Badge tone="info">
+                {customCategories.length} of {MAX_CUSTOM_CATEGORIES} of your own
+              </Badge>
+            </div>
+            <p className="section-note">
+              Every task is filed under one. The eight built-ins are fixed; the ones you add can be renamed or
+              deleted here — and the tasks filed under them move with the change.
+            </p>
+
+            <ul className="category-manage">
+              {CATEGORY_ORDER.map((category) => (
+                <li key={category} className="category-row">
+                  <CategoryBadge category={category} />
+                  <span className="category-usage">{usageLabel(categoryCounts[category])}</span>
+                  <span className="category-fixed">
+                    <Lock size={12} aria-hidden="true" /> Built-in
+                  </span>
+                </li>
+              ))}
+
+              {customCategories.map((category) => (
+                <li key={category} className="category-row is-custom">
+                  {renaming === category ? (
+                    <div className="category-rename">
+                      <input
+                        className={`input ${renameError ? 'invalid' : ''}`.trim()}
+                        aria-label={`Rename ${category}`}
+                        value={renameValue}
+                        /* eslint-disable-next-line jsx-a11y/no-autofocus */
+                        autoFocus
+                        onChange={(event) => {
+                          setRenameValue(event.target.value);
+                          setRenameError('');
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void submitRename();
+                          }
+                          if (event.key === 'Escape') {
+                            setRenaming(null);
+                            setRenameError('');
+                          }
+                        }}
+                      />
+                      {renameError ? <span className="field-error">{renameError}</span> : null}
+                    </div>
+                  ) : (
+                    <>
+                      <CategoryBadge category={category} />
+                      <span className="category-usage">{usageLabel(categoryCounts[category])}</span>
+                    </>
+                  )}
+
+                  <div className="category-row-actions">
+                    {renaming === category ? (
+                      <>
+                        <Button size="sm" variant="primary" onClick={() => void submitRename()} disabled={categoryBusy}>
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setRenaming(null);
+                            setRenameError('');
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn-sm"
+                          aria-label={`Edit ${category}`}
+                          title={`Rename “${category}”`}
+                          onClick={() => startRename(category)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn-sm"
+                          aria-label={`Delete ${category}`}
+                          title={`Delete “${category}”`}
+                          onClick={() => setDeletingCategory(category)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {customCategories.length === 0 ? (
+              <p className="field-hint">
+                No categories of your own yet — “Other” is the only catch-all, and it is not much of a bucket.
+              </p>
+            ) : null}
+
+            <div className="category-new">
+              <label className="field-label" htmlFor="settings-new-category">
+                Add a category
+              </label>
+              <div className="category-add">
+                <input
+                  id="settings-new-category"
+                  className={`input ${categoryError ? 'invalid' : ''}`.trim()}
+                  value={newCategory}
+                  placeholder="e.g. Licensing, Recruitment, Field work"
+                  onChange={(event) => {
+                    setNewCategory(event.target.value);
+                    setCategoryError('');
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      submitCategory();
+                    }
+                  }}
+                />
+                <Button variant="primary" icon={Plus} onClick={submitCategory}>
+                  Add category
+                </Button>
+              </div>
+              {categoryError ? <span className="field-error">{categoryError}</span> : null}
+              <span className="field-hint">
+                {customCategories.length >= MAX_CUSTOM_CATEGORIES
+                  ? `That is all ${MAX_CUSTOM_CATEGORIES} — rename or delete one to make room.`
+                  : 'It appears in every category picker straight away, including the task form.'}
+              </span>
+            </div>
+
+            <ConfirmDialog
+              open={deletingCategory !== null}
+              title={`Delete “${deletingCategory ?? ''}”?`}
+              message={
+                deletingCategory && (categoryCounts[deletingCategory] ?? 0) > 0 ? (
+                  <>
+                    {categoryCounts[deletingCategory]} task
+                    {(categoryCounts[deletingCategory] ?? 0) === 1 ? '' : 's'} use it. They move to{' '}
+                    <strong>Other</strong>; the tasks themselves are kept.
+                  </>
+                ) : (
+                  <>Nothing is filed under it. Deleting only removes the name.</>
+                )
+              }
+              confirmLabel="Delete category"
+              onConfirm={() => void confirmDeleteCategory()}
+              onCancel={() => setDeletingCategory(null)}
+            />
           </section>
 
           <section className="card settings-section">

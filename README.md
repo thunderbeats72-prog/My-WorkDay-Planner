@@ -1019,13 +1019,23 @@ read straight through — so any name the user invented would have rendered as
 report breakdown, CSV cell and duration model goes through them.
 
 - **Adding one** happens where the confusion happens: in the category picker
-  on the task form, `＋ New category…` opens a one-line input. Validation is
-  case-insensitive, rejects a duplicate of a built-in, caps the name at 24
-  characters and the list at 20.
+  on the task form, `＋ New category…` opens a one-line input — and in
+  **Settings → Categories**, which lists everything, built-ins included, with
+  the number of tasks filed under each.
+- **Editing one** is a rename in place: the pencil on the row turns the chip
+  into an input, and **Save** (or Enter) rewrites every task already filed
+  under the old name. The list is a list of *names*, not foreign keys — that is
+  what makes an old backup readable — so a rename that touched only the list
+  would strand its tasks on a word no picker offers any more.
+- **Deleting one** asks first, and says what it will do: those tasks move to
+  **Other**, and the tasks themselves are kept. The confirmation names the
+  count, so nobody deletes a bucket with eleven tasks in it by accident.
 - **It is remembered** in `settings.customCategories`, offered in the picker
   and the import review table afterwards, usable as a `#token` in quick-add
   (`#fieldwork` finds *Field Work*), filterable in reports, and learnable by
-  the on-device suggestions.
+  the on-device suggestions. Management writes through immediately rather than
+  waiting for “Save changes”; the page keeps any unsaved edits to the other
+  fields while the new list lands.
 
 ### Dictation stopped repeating itself
 
@@ -1036,9 +1046,11 @@ legitimately new phrase still lands. The regression test fails if the
 high-water mark is removed.
 
 Batch gates: `tsc -b` clean, lint at the 21-warning baseline with 0 errors,
-`npm run build` clean, and the suite grew 513 → **551 tests** across 50 files
-(`serviceWorkerReminders.test.ts` drives the real worker, `ReminderFlow.test.tsx`
-covers repeats, the digest and custom categories end to end through the app).
+`npm run build` clean, and the suite grew 513 → **564 tests** across 51 files
+(`serviceWorkerReminders.test.ts` drives the real worker; `ReminderFlow.test.tsx`
+covers repeats, the digest and adding a category; `CategoryManagement.test.tsx`
+renames and deletes one through the real Settings page and checks the tasks
+followed).
 
 ### Honest limits of this batch
 
@@ -1047,5 +1059,6 @@ covers repeats, the digest and custom categories end to end through the app).
   background check.
 - The daily summary is delivered by the app when it is open (or at the set time
   if it is already open). It is not queued by the system for later.
-- Custom categories can be added from the task form but not yet renamed or
-  deleted; removing one would have to decide what its tasks become.
+- Renaming rewrites the tasks that carry the old name; a **saved daily
+  report** keeps the wording it was written with, because that is a record of a
+  day rather than a live view.

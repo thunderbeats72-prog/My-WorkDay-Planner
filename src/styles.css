@@ -20904,3 +20904,89 @@ button.palette-cite:hover {
 .category-badge {
   text-transform: none;
 }
+
+/* --- Category manager (Settings) ---------------------------------------
+   A list of one-line rows: chip, how many tasks use it, then the actions.
+   Built-ins say so and offer none. On a phone the actions drop below the
+   chip rather than squeezing the name. */
+.category-manage {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.category-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2, transparent);
+}
+
+.category-row .category-badge {
+  flex: 0 0 auto;
+}
+
+.category-usage {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1 1 80px;
+  min-width: 0;
+}
+
+.category-fixed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.category-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.category-rename {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.category-rename .input {
+  min-width: 0;
+}
+
+.category-new {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 480px) {
+  .category-row {
+    align-items: flex-start;
+  }
+
+  .category-usage {
+    flex-basis: calc(100% - 120px);
+  }
+
+  .category-row-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+}

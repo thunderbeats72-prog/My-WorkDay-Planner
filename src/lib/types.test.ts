@@ -42,6 +42,20 @@ describe('naming a category', () => {
   it('keeps the list to a readable length', () => {
     expect(normaliseCustomCategory('x'.repeat(30), []).ok).toBe(false);
   });
+
+  it('lets a renamed category keep its place without clashing with itself', () => {
+    const existing = ['Licensing', 'Recruitment'];
+    // Renaming “Licensing” to a different case of its own name is not a clash.
+    expect(normaliseCustomCategory('LICENSING', existing, 'Licensing')).toEqual({
+      ok: true,
+      value: 'LICENSING',
+    });
+    // Renaming it onto another real category still is.
+    expect(normaliseCustomCategory('Recruitment', existing, 'Licensing').ok).toBe(false);
+    // …and the limit counts the category once, not twice.
+    const full = Array.from({ length: 20 }, (_, index) => `Cat ${index}`);
+    expect(normaliseCustomCategory('Cat 0 renamed', full, 'Cat 0').ok).toBe(true);
+  });
 });
 
 describe('showing a category', () => {
