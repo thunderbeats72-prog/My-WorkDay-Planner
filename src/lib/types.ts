@@ -295,6 +295,8 @@ export const MAX_CUSTOM_CATEGORIES = 20;
 export function normaliseCustomCategory(
   raw: string,
   existing: string[],
+  /** The name being renamed, if any — it must not clash with itself. */
+  previous?: string,
 ): { ok: true; value: string } | { ok: false; error: string } {
   const value = prettyCategoryName(raw);
   if (!value.trim()) return { ok: false, error: 'Give the category a name.' };
@@ -302,11 +304,12 @@ export function normaliseCustomCategory(
     return { ok: false, error: `Keep it under ${MAX_CUSTOM_CATEGORY_LENGTH} characters.` };
   }
   if (!/[\p{L}\p{N}]/u.test(value)) return { ok: false, error: 'Use at least one letter or number.' };
-  if (existing.length >= MAX_CUSTOM_CATEGORIES) {
+  const others = previous ? existing.filter((name) => name !== previous) : existing;
+  if (others.length >= MAX_CUSTOM_CATEGORIES) {
     return { ok: false, error: `That is the limit — ${MAX_CUSTOM_CATEGORIES} custom categories.` };
   }
   const clash =
-    existing.some((name) => name.toLowerCase() === value.toLowerCase()) ||
+    others.some((name) => name.toLowerCase() === value.toLowerCase()) ||
     CATEGORY_ORDER.some(
       (key) => key === value.toLowerCase() || CATEGORIES[key].label.toLowerCase() === value.toLowerCase(),
     );

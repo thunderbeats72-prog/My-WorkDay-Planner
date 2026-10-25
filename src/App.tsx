@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import type { PageId, ReminderRecord, Settings, Task } from './lib/types';
-import { DEFAULT_SETTINGS } from './lib/types';
+import type { Category, PageId, ReminderRecord, Settings, Task } from './lib/types';
+import { DEFAULT_SETTINGS, normaliseCustomCategory } from './lib/types';
 import {
   combineDateTime,
   daysFromNow,
@@ -484,16 +484,99 @@ export default function App() {
    * the name itself, so a category is never a dangling reference.
    */
   const addCategory = useCallback(
-    (name: string) => {
-      const value = name.trim().replace(/\s+/g, ' ');
-      if (!value) return;
+    (name: string): string | null => {
       const current = settingsRef.current;
       const existing = current.customCategories ?? [];
-      if (existing.some((category) => category.toLowerCase() === value.toLowerCase())) return;
-      void updateSettings({ ...current, customCategories: [...existing, value] });
-      addToast(`Category “${value}” added.`, 'success');
+      const result = normaliseCustomCategory(name, existing);
+      if (!result.ok) return result.error;
+      void updateSettings({ ...current, customCategories: [...existing, result.value] });
+      addToast(`Category “${result.value}” added.`, 'success');
+      return null;
     },
     [addToast, updateSettings],
+  );
+
+  /**
+   * Rename a category, on the tasks as well as in the list.
+   *
+   * A task stores the category's name, not a reference to it — that is what
+   * makes the list safe to trim and what keeps an old backup readable. The
+   * cost is this: renaming has to walk the tasks, or every task filed under the
+   * old name would silently fall back to looking like a custom category that
+   * no longer exists in any picker.
+   */
+  const renameCategory = useCallback(
+    async (from: string, to: string): Promise<string | null> => {
+      const current = settingsRef.current;
+      const existing = current.customCategories ?? [];
+      if (!existing.includes(from)) return 'That category is no longer in your list.';
+      const result = normaliseCustomCategory(to, existing, from);
+      if (!result.ok) return result.error;
+      const next = result.value;
+      if (next === from) return null;
+
+      await updateSettings({
+        ...current,
+        customCategories: existing.map((name) => (name === from ? next : name)),
+      });
+
+      const iso = new Date().toISOString();
+      const changed = tasksRef.current
+        .filter((task) => task.category === from)
+        .map((task) => ({ ...task, category: next, updatedAt: iso }));
+      if (changed.length > 0) {
+        const byId = new Map(changed.map((task) => [task.id, task]));
+        persistTasks(
+          tasksRef.current.map((task) => byId.get(task.id) ?? task),
+          changed,
+        );
+      }
+      addToast(
+        changed.length > 0
+          ? `Renamed to “${next}” on ${changed.length} task${changed.length === 1 ? '' : 's'}.`
+          : `Category renamed to “${next}”.`,
+        'success',
+      );
+      return null;
+    },
+    [addToast, persistTasks, updateSettings],
+  );
+
+  /**
+   * Delete a category and move what was filed under it to “Other”.
+   *
+   * Deleting the word without moving the tasks would leave them pointing at a
+   * name no picker offers — they would still render, but there would be no way
+   * to choose it again. “Other” is the one bucket that always exists.
+   */
+  const deleteCategory = useCallback(
+    async (name: string): Promise<number> => {
+      const current = settingsRef.current;
+      const existing = current.customCategories ?? [];
+      if (!existing.includes(name)) return 0;
+
+      await updateSettings({ ...current, customCategories: existing.filter((item) => item !== name) });
+
+      const iso = new Date().toISOString();
+      const changed = tasksRef.current
+        .filter((task) => task.category === name)
+        .map((task) => ({ ...task, category: 'other' as Category, updatedAt: iso }));
+      if (changed.length > 0) {
+        const byId = new Map(changed.map((task) => [task.id, task]));
+        persistTasks(
+          tasksRef.current.map((task) => byId.get(task.id) ?? task),
+          changed,
+        );
+      }
+      addToast(
+        changed.length > 0
+          ? `Category deleted — ${changed.length} task${changed.length === 1 ? '' : 's'} moved to Other.`
+          : `Category “${name}” deleted.`,
+        'success',
+      );
+      return changed.length;
+    },
+    [addToast, persistTasks, updateSettings],
   );
 
   const buildTask = useCallback(
@@ -1785,6 +1868,9 @@ export default function App() {
             onExportCsv={handleExportCsv}
             onExportIcs={handleExportIcs}
             onResetData={handleResetData}
+            onAddCategory={addCategory}
+            onRenameCategory={renameCategory}
+            onDeleteCategory={deleteCategory}
             graph={{
               connected: graphConnected,
               account: graphAccount,

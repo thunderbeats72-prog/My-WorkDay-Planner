@@ -33,13 +33,29 @@ function fakeAccount(): AccountApi {
   };
 }
 
-function renderSettings(overrides: { theme?: 'light' | 'dark' | 'system' } = {}) {
+function renderSettings(
+  overrides: {
+    theme?: 'light' | 'dark' | 'system';
+    settings?: Partial<typeof DEFAULT_SETTINGS>;
+    onAddCategory?: (name: string) => string | null;
+    onRenameCategory?: (from: string, to: string) => Promise<string | null>;
+    onDeleteCategory?: (name: string) => Promise<number>;
+  } = {},
+) {
   const onThemeChange = vi.fn();
+  const onAddCategory = overrides.onAddCategory ?? vi.fn(() => null);
+  const onRenameCategory = overrides.onRenameCategory ?? vi.fn(async () => null);
+  const onDeleteCategory = overrides.onDeleteCategory ?? vi.fn(async () => 0);
   render(
     <SettingsPage
       tasks={[]}
       graphHighlights={[]}
-      settings={{ ...DEFAULT_SETTINGS, onboardingComplete: true, theme: overrides.theme ?? 'light' }}
+      settings={{
+        ...DEFAULT_SETTINGS,
+        onboardingComplete: true,
+        theme: overrides.theme ?? 'light',
+        ...overrides.settings,
+      }}
       now={new Date('2026-01-05T10:00:00.000Z')}
       timer={{
         sessions: [],
@@ -80,6 +96,9 @@ function renderSettings(overrides: { theme?: 'light' | 'dark' | 'system' } = {})
       onExportCsv={vi.fn()}
       onExportIcs={vi.fn()}
       onResetData={vi.fn()}
+      onAddCategory={onAddCategory}
+      onRenameCategory={onRenameCategory}
+      onDeleteCategory={onDeleteCategory}
       graph={{
         connected: false,
         account: null,
@@ -95,7 +114,7 @@ function renderSettings(overrides: { theme?: 'light' | 'dark' | 'system' } = {})
       account={fakeAccount()}
     />,
   );
-  return { onThemeChange };
+  return { onThemeChange, onAddCategory, onRenameCategory, onDeleteCategory };
 }
 
 describe('Appearance', () => {
@@ -126,5 +145,112 @@ describe('Appearance', () => {
     expect(screen.getByText(/Following your system/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+describe('Categories in Settings', () => {
+  it('lists the built-ins as fixed and the user’s own as editable', () => {
+    renderSettings({ settings: { customCategories: ['Licensing'] } });
+    expect(screen.getByRole('heading', { name: 'Categories' })).toBeTruthy();
+    // A built-in says it cannot be edited rather than offering a dead button.
+    expect(screen.getAllByText('Built-in').length).toBeGreaterThanOrEqual(8);
+    expect(screen.queryByRole('button', { name: 'Edit Other' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit Licensing' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete Licensing' })).toBeTruthy();
+  });
+
+  it('adds a category with the button and with Enter', async () => {
+    const user = userEvent.setup();
+    const { onAddCategory } = renderSettings();
+    const field = screen.getByLabelText('Add a category');
+
+    await user.type(field, 'Recruitment');
+    await user.click(screen.getByRole('button', { name: 'Add category' }));
+    expect(onAddCategory).toHaveBeenCalledWith('Recruitment');
+    expect((field as HTMLInputElement).value).toBe('');
+
+    await user.type(field, 'Field work');
+    await user.keyboard('{Enter}');
+    expect(onAddCategory).toHaveBeenCalledWith('Field work');
+  });
+
+  it('refuses a built-in name before anything is saved', async () => {
+    const user = userEvent.setup();
+    const onAddCategory = vi.fn(() => null);
+    renderSettings({ onAddCategory });
+
+    await user.type(screen.getByLabelText('Add a category'), 'Proposal');
+    await user.click(screen.getByRole('button', { name: 'Add category' }));
+
+    expect(await screen.findByText('That category already exists.')).toBeTruthy();
+    expect(onAddCategory).not.toHaveBeenCalled();
+    // The name stays in the field so it can be corrected rather than retyped.
+    expect((screen.getByLabelText('Add a category') as HTMLInputElement).value).toBe('Proposal');
+  });
+
+  it('shows the reason when saving is refused', async () => {
+    const user = userEvent.setup();
+    const onAddCategory = vi.fn(() => 'Only 20 custom categories are allowed.');
+    renderSettings({ onAddCategory });
+
+    await user.type(screen.getByLabelText('Add a category'), 'Licensing');
+    await user.click(screen.getByRole('button', { name: 'Add category' }));
+
+    expect(onAddCategory).toHaveBeenCalledWith('Licensing');
+    expect(await screen.findByText('Only 20 custom categories are allowed.')).toBeTruthy();
+  });
+
+  it('renames in place, and saves with Enter', async () => {
+    const user = userEvent.setup();
+    const onRenameCategory = vi.fn(async () => null);
+    renderSettings({ settings: { customCategories: ['Licensing'] }, onRenameCategory });
+
+    await user.click(screen.getByRole('button', { name: 'Edit Licensing' }));
+    const field = screen.getByLabelText('Rename Licensing');
+    await user.clear(field);
+    await user.type(field, 'Permits{Enter}');
+    expect(onRenameCategory).toHaveBeenCalledWith('Licensing', 'Permits');
+  });
+
+  it('keeps the old name and says why when a rename clashes', async () => {
+    const user = userEvent.setup();
+    const onRenameCategory = vi.fn(async () => 'That category already exists.');
+    renderSettings({ settings: { customCategories: ['Licensing', 'Permits'] }, onRenameCategory });
+
+    await user.click(screen.getByRole('button', { name: 'Edit Licensing' }));
+    const field = screen.getByLabelText('Rename Licensing');
+    await user.clear(field);
+    await user.type(field, 'Permits');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('That category already exists.')).toBeTruthy();
+    // Still editing — the row has not pretended the rename happened.
+    expect(screen.getByLabelText('Rename Licensing')).toBeTruthy();
+  });
+
+  it('asks before deleting, and says what happens to the tasks', async () => {
+    const user = userEvent.setup();
+    const onDeleteCategory = vi.fn(async () => 0);
+    renderSettings({ settings: { customCategories: ['Licensing'] }, onDeleteCategory });
+
+    await user.click(screen.getByRole('button', { name: 'Delete Licensing' }));
+    const dialog = await screen.findByRole('dialog', { name: /Delete “Licensing”/ });
+    /* No tasks in this fixture, so the message says so rather than inventing
+       a count. The “moves to Other” wording is asserted end to end in
+       CategoryManagement.test.tsx, where the tasks are real. */
+    expect(dialog.textContent).toContain('Nothing is filed under it');
+    await user.click(screen.getByRole('button', { name: 'Delete category' }));
+
+    expect(onDeleteCategory).toHaveBeenCalledWith('Licensing');
+  });
+
+  it('cancelling the confirmation deletes nothing', async () => {
+    const user = userEvent.setup();
+    const onDeleteCategory = vi.fn(async () => 0);
+    renderSettings({ settings: { customCategories: ['Licensing'] }, onDeleteCategory });
+
+    await user.click(screen.getByRole('button', { name: 'Delete Licensing' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(onDeleteCategory).not.toHaveBeenCalled();
   });
 });
