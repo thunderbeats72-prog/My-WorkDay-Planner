@@ -716,6 +716,16 @@ export function TaskPanel({
             )}
           </section>
         </div>
+
+        <footer className="panel-foot">
+          <Button
+            variant={completed ? 'secondary' : 'primary'}
+            icon={completed ? undefined : Check}
+            onClick={onToggleComplete}
+          >
+            {completed ? 'Reopen task' : 'Complete task'}
+          </Button>
+        </footer>
       </aside>
     </div>
   );
