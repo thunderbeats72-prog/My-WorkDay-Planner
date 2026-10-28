@@ -79,3 +79,24 @@ describe('brand mark', () => {
     expect(manifest.theme_color.toLowerCase()).toBe('#0a0a0c');
   });
 });
+
+describe('brand cache refresh', () => {
+  it('uses the same fresh generation for browser, installed app and notifications', () => {
+    const config = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8');
+    const generation = config.match(/const ASSET_GENERATION = '(\d+)'/)?.[1];
+    expect(generation).toBeDefined();
+    expect(config).toContain('png|svg|ico');
+    const manifest = JSON.parse(read('manifest.webmanifest')) as {
+      icons: Array<{ src: string }>;
+      shortcuts: Array<{ icons: Array<{ src: string }> }>;
+    };
+    for (const icon of [...manifest.icons, ...manifest.shortcuts.flatMap((shortcut) => shortcut.icons)]) {
+      expect(icon.src).toMatch(new RegExp(`\\?v=${generation}$`));
+    }
+    const worker = read('sw.js');
+    for (const path of ['/icon-192.png', '/favicon-32.png']) {
+      expect(worker).toContain(`${path}?v=${generation}`);
+      expect(readFileSync(resolve(process.cwd(), 'src/lib/notifications.ts'), 'utf8')).toContain(`${path}?v=${generation}`);
+    }
+  });
+});
