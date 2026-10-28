@@ -71,6 +71,8 @@ export interface Task {
    * tasks saved before completion notes shipped do not have it, and a synced
    * snapshot written by an older build must still be readable here.
    */
+  /** Changes only when a finished task is reopened, so reminders start a fresh cycle. */
+  reminderCycle?: string;
   completionNote?: string;
   /** When {completionNote} was last written, for dating it in a report. */
   completionNoteAt?: string | null;
@@ -112,6 +114,8 @@ export interface ReminderRecord {
   status: ReminderStatus;
   snoozedUntil: string | null;
   createdAt: string;
+  /** Optional on older backups. */
+  updatedAt?: string;
 }
 
 export type TaskEventType =
@@ -152,6 +156,12 @@ export interface Settings {
    * 0 turns the repeats off and leaves the single deadline alert.
    */
   reminderRepeatMinutes: number;
+  /** Independent upcoming stages; absent on older backups means enabled. */
+  reminderThirtyMinutes?: boolean;
+  reminderFiveMinutes?: boolean;
+  /** IANA zone used for deadlines and daily/quiet hours. Empty means detect on setup. */
+  reminderTimeZone?: string;
+  notificationSound?: boolean;
   /** One summary of everything still pending, once a day. */
   dailyDigestEnabled: boolean;
   /** When that summary is due, “HH:MM”. */
@@ -336,6 +346,10 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultEstimateMinutes: 30,
   reminderLeadMinutes: 60,
   reminderRepeatMinutes: 30,
+  reminderThirtyMinutes: true,
+  reminderFiveMinutes: true,
+  reminderTimeZone: '',
+  notificationSound: true,
   dailyDigestEnabled: true,
   digestTime: '09:30',
   customCategories: [],

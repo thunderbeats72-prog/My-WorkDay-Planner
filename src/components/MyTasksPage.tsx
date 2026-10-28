@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarClock,
   CalendarRange,
@@ -30,6 +30,7 @@ import { followUpCadence, repliesFromHighlights } from '../lib/cadence';
 import { replyWindowFor, type ReplyWindow } from '../lib/replyWindow';
 import type { ClientMailResult } from '../lib/graph';
 import type { Task } from '../lib/types';
+import { taskDeadline } from '../lib/reminderSchedule';
 import type { CommonPageProps } from './pageProps';
 import { TaskCard } from './TaskCard';
 import { Badge, Button, ConfirmDialog, EmptyState, ProgressBar } from './ui';
@@ -58,13 +59,16 @@ export function MyTasksPage({
   addToast,
   graphHighlights,
   onFetchClientMail,
+  initialScope = 'all',
 }: CommonPageProps & {
   onOpenImport: () => void;
   onApplyPlan: (plan: DayPlan) => void;
   /** Reply-window stats (#7) fetched on demand from Microsoft Graph. */
   onFetchClientMail: (client: string) => Promise<ClientMailResult>;
+  initialScope?: 'all' | 'overdue';
 }) {
-  const [scope, setScope] = useState<Scope>('all');
+  const [scope, setScope] = useState<Scope>(initialScope);
+  useEffect(() => setScope(initialScope), [initialScope]);
   const [sort, setSort] = useState<Sort>('smart');
   const [query, setQuery] = useState('');
   const [planOpen, setPlanOpen] = useState(true);
@@ -102,7 +106,9 @@ export function MyTasksPage({
 
   const today = todayISO(now);
   const openTasks = tasks.filter((task) => task.status !== 'completed' && task.deletedAt === null);
-  const overdue = openTasks.filter((task) => task.dueDate !== null && task.dueDate < today);
+  const zoneSettings = { ...settings, reminderTimeZone: settings.reminderTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' };
+  const isOverdue = (task: Task) => { const due = taskDeadline(task, zoneSettings); return Boolean(due && due.getTime() < now.getTime()); };
+  const overdue = openTasks.filter(isOverdue);
   const dueToday = openTasks.filter((task) => task.dueDate === today);
 
   const plan = useMemo(() => {
@@ -154,7 +160,7 @@ export function MyTasksPage({
       }
       switch (scope) {
         case 'overdue':
-          return task.dueDate !== null && task.dueDate < today;
+          return isOverdue(task);
         case 'today':
           return task.dueDate === today;
         case 'scheduled':
@@ -184,7 +190,7 @@ export function MyTasksPage({
     <div key={task.id} className="task-item">
       {showAge && task.dueDate ? (
         <p className="task-age">
-          {Math.abs(dayOffset(task.dueDate, now))} day{Math.abs(dayOffset(task.dueDate, now)) === 1 ? '' : 's'} overdue
+          {dayOffset(task.dueDate, now) === 0 ? 'Due time passed today' : `${Math.abs(dayOffset(task.dueDate, now))} day${Math.abs(dayOffset(task.dueDate, now)) === 1 ? '' : 's'} overdue`}
         </p>
       ) : null}
       <TaskCard

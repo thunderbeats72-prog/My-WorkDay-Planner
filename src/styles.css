@@ -21039,3 +21039,31 @@ button.palette-cite:hover {
   border-color: var(--ink);
   color: var(--text);
 }
+
+/* Background reminder setup and actionable inbox */
+.reminder-setup-status {
+  display: grid;
+  gap: 4px;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #d7d7da);
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.reminder-setup-status.is-ready { border-color: #3b956d; }
+.reminder-setup-status span, .reminder-setup-status small { opacity: 0.78; }
+.reminder-troubleshooting { margin-top: 16px; font-size: 0.85rem; line-height: 1.55; }
+.reminder-troubleshooting summary { cursor: pointer; font-weight: 650; }
+.reminder-troubleshooting p { margin: 10px 0 0; opacity: 0.8; }
+.notify-item.is-overdue { border-inline-start: 3px solid #da6658; }
+.notify-dot.is-overdue { background: #da6658; }
+.notify-snooze {
+  max-width: 102px;
+  min-height: 30px;
+  border: 1px solid var(--border, #d7d7da);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.72rem;
+}

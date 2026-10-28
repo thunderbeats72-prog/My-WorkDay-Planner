@@ -1,11 +1,7 @@
-/* My Workday Planner — app shell plus local reminders.
- *
- * There is no push server. Notifications are computed on this device from the
- * planner's own IndexedDB, either when the page asks the worker to show one or
- * — on Android, for an installed app — during a periodic background check.
- */
+/* My Workday Planner — app shell, Web Push and a best-effort local fallback.
+ * Background push is driven by the server, not by a worker timer. */
 
-const CACHE = 'workday-shell-v8';
+const CACHE = 'workday-shell-v9';
 const SHELL = [
   '/',
   '/index.html',
@@ -43,6 +39,8 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // Authenticated API responses (especially private tasks) must never be cached.
+  if (url.pathname.startsWith('/api/')) return;
 
   // Web Share Target: the system share sheet POSTs the shared title/text/url
   // here when the installed app is chosen. Park the payload where the page
@@ -163,23 +161,133 @@ self.addEventListener('message', (event) => {
   );
 });
 
+/** Ask the server again before showing a potentially delayed push. */
+async function postNotification(operation, token, extra = {}) {
+  const response = await fetch('/api/notifications', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation, token, ...extra }), cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Notification request failed (${response.status})`);
+  return response.json();
+}
+
+async function tellWindows(message) {
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const client of all) {
+    if (new URL(client.url).origin === self.location.origin) client.postMessage(message);
+  }
+}
+
+async function handlePush(event) {
+  let payload;
+  try { payload = event.data?.json(); } catch { return; }
+  if (!payload || typeof payload.token !== 'string') return;
+  let validation;
+  try {
+    validation = await postNotification('validate', payload.token);
+  } catch {
+    // Never show a stale task when the status check failed. Keep the required
+    // user-visible push and give the person an honest way back to the planner.
+    await showNotification('Workday Planner', {
+      body: 'A reminder could not be verified. Open the planner to check your tasks.',
+      tag: 'workday-unverified', data: { url: '/#/tasks' },
+    });
+    return;
+  }
+  if (!validation.eligible || !validation.notification) return;
+  const current = validation.notification;
+  const taskId = typeof current.taskId === 'string' ? current.taskId : null;
+  const actions = taskId && ['upcoming', 'due', 'overdue'].includes(current.category)
+    ? [
+      { action: 'complete', title: 'Mark complete' },
+      { action: 'snooze10', title: 'Snooze 10 min' },
+      { action: 'snooze30', title: 'Snooze 30 min' },
+      { action: 'snooze60', title: 'Snooze 1 hour' },
+    ]
+    : current.category === 'summary' ? [{ action: 'overdue', title: 'Open overdue tasks' }] : [];
+  await showNotification(current.title, {
+    body: current.body, tag: payload.tag || 'workday-reminder', renotify: false,
+    silent: Boolean(current.silent),
+    ...(current.silent ? {} : { vibrate: [90, 40, 90] }),
+    actions,
+    data: { token: payload.token, taskId, category: current.category },
+  });
+  await tellWindows({ type: 'workday:push-received' });
+}
+
+self.addEventListener('push', (event) => event.waitUntil(handlePush(event)));
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const db = await openWorkerDB();
+      const config = await readOne(db, 'config', 'push-renewal');
+      db.close();
+      if (!config || !self.registration.pushManager) throw new Error('No renewal capability');
+      let next = event.newSubscription || await self.registration.pushManager.getSubscription();
+      if (!next || next.endpoint === config.endpoint) {
+        if (next) await next.unsubscribe();
+        const padded = config.publicKey + '='.repeat((4 - config.publicKey.length % 4) % 4);
+        const raw = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+        const key = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+        next = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
+      const response = await fetch('/api/notifications', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ operation: 'renew', token: config.token, previousEndpoint: config.endpoint, subscription: next.toJSON() }),
+      });
+      if (!response.ok) throw new Error('Renewal rejected');
+      const result = await response.json();
+      if (!result.renewalToken) throw new Error('Renewal incomplete');
+      const updated = await openWorkerDB();
+      await new Promise((resolve, reject) => {
+        const tx = updated.transaction('config', 'readwrite');
+        tx.objectStore('config').put({ key: 'push-renewal', token: result.renewalToken, endpoint: next.endpoint, publicKey: config.publicKey });
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
+      });
+      updated.close();
+    } catch {
+      // Some browsers require a foreground user gesture. The next app visit
+      // detects a missing endpoint and offers a repair button instead.
+      console.warn('[reminders] subscription renewal needs attention');
+    }
+    await tellWindows({ type: 'workday:subscription-changed' });
+  })());
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data ?? {};
-  const target = data.url ?? '/#tasks';
-
-  event.waitUntil(
-    (async () => {
-      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const client of all) {
-        if (new URL(client.url).origin !== self.location.origin) continue;
-        await client.focus();
-        client.postMessage({ type: 'workday:notification-click', taskId: data.taskId ?? null, url: target });
+  const action = event.action || '';
+  event.waitUntil((async () => {
+    let error = '';
+    if (data.token && ['complete', 'snooze10', 'snooze30', 'snooze60'].includes(action)) {
+      try {
+        await postNotification('action', data.token, { action });
+        await tellWindows({ type: 'workday:notification-action', taskId: data.taskId ?? null, action });
         return;
+      } catch {
+        error = 'The notification action could not be applied. Review the task and try again.';
       }
-      await self.clients.openWindow(target);
-    })(),
-  );
+    } else if (data.token) {
+      try { await postNotification('read', data.token); } catch { /* Open even if read sync is offline. */ }
+    }
+    const taskId = typeof data.taskId === 'string' ? data.taskId : null;
+    const overdue = action === 'overdue' || (!taskId && data.category === 'summary');
+    const query = new URLSearchParams();
+    if (taskId) query.set('openTask', taskId);
+    if (overdue) query.set('filter', 'overdue');
+    if (error) query.set('notificationError', error);
+    const target = data.url || `/${query.toString() ? `?${query.toString()}` : ''}#/tasks`;
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of all) {
+      if (new URL(client.url).origin !== self.location.origin) continue;
+      await client.focus();
+      client.postMessage({ type: 'workday:notification-click', taskId, overdue, error, url: target });
+      return;
+    }
+    await self.clients.openWindow(target);
+  })());
 });
 
 /* ------------------------------------------------------------------ */
@@ -192,6 +300,13 @@ function openDB(name, version, upgrade) {
     if (upgrade) request.onupgradeneeded = () => upgrade(request.result);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  });
+}
+
+function openWorkerDB() {
+  return openDB('workday-sw', 2, (database) => {
+    if (!database.objectStoreNames.contains('fired')) database.createObjectStore('fired', { keyPath: 'key' });
+    if (!database.objectStoreNames.contains('config')) database.createObjectStore('config', { keyPath: 'key' });
   });
 }
 
@@ -221,9 +336,7 @@ function readOne(db, store, key) {
 
 async function firedKeys() {
   try {
-    const db = await openDB('workday-sw', 1, (database) => {
-      if (!database.objectStoreNames.contains('fired')) database.createObjectStore('fired', { keyPath: 'key' });
-    });
+    const db = await openWorkerDB();
     const rows = await readAll(db, 'fired');
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const set = new Set(rows.filter((row) => row.at > cutoff).map((row) => row.key));
@@ -236,9 +349,7 @@ async function firedKeys() {
 
 async function rememberFired(key) {
   try {
-    const db = await openDB('workday-sw', 1, (database) => {
-      if (!database.objectStoreNames.contains('fired')) database.createObjectStore('fired', { keyPath: 'key' });
-    });
+    const db = await openWorkerDB();
     await new Promise((resolve) => {
       const tx = db.transaction('fired', 'readwrite');
       tx.objectStore('fired').put({ key, at: Date.now() });
@@ -267,6 +378,8 @@ function isQuiet(settings, now) {
 }
 
 async function checkReminders() {
+  // A registered push subscription is handled by the server, not both engines.
+  if (self.registration.pushManager && await self.registration.pushManager.getSubscription()) return;
   if (!self.Notification || self.Notification.permission !== 'granted') return;
   let db;
   try {
@@ -303,7 +416,7 @@ async function checkReminders() {
       /* One tag per nudge, so a repeat is a new banner (and a new buzz) rather
          than a silent replacement of the previous one. */
       tag: key,
-      data: { url: '/#tasks', taskId: task.id },
+      data: { url: `/?openTask=${encodeURIComponent(task.id)}#/tasks`, taskId: task.id },
       vibrate: [90, 40, 90],
     });
   }
@@ -360,7 +473,7 @@ function computeDue(tasks, settings, now, options = {}) {
 
 /* Exposed for the unit test that runs this file in Node; a worker has no other
    way to make its own logic reachable. */
-self.__workdayInternals = { computeDue, isQuiet };
+self.__workdayInternals = { computeDue, isQuiet, handlePush };
 
 self.addEventListener('periodicsync', (event) => {
   if (event.tag === 'workday-reminders') event.waitUntil(checkReminders());

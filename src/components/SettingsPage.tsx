@@ -29,6 +29,8 @@ import {
   normaliseCustomCategory,
 } from '../lib/types';
 import { formatDuration, parseTimeToMinutes } from '../lib/dates';
+import { validTimeZone } from '../lib/reminderSchedule';
+import type { BackgroundPushStatus } from '../lib/pushClient';
 import { GRAPH_SCOPES, graphRedirectUri } from '../lib/graph';
 import type { GraphAccount } from '../lib/graph';
 import type { CommonPageProps } from './pageProps';
@@ -65,6 +67,7 @@ export function SettingsPage({
   notificationsPermission,
   onRequestNotifications,
   onSendTestNotification,
+  backgroundStatus,
   account,
 }: CommonPageProps & {
   onSaveSettings: (next: Settings) => void;
@@ -93,6 +96,7 @@ export function SettingsPage({
   notificationsPermission: string;
   onRequestNotifications: () => Promise<string>;
   onSendTestNotification: () => void;
+  backgroundStatus?: BackgroundPushStatus;
   account: AccountApi;
 }) {
   /** Phone buzz. Stored on this device only — it is a hardware preference. */
@@ -126,6 +130,11 @@ export function SettingsPage({
         previous.theme !== settings.theme &&
         JSON.stringify({ ...settings, theme: previous.theme }) === JSON.stringify(previous);
       if (onlyThemeChanged) return { ...current, theme: settings.theme };
+      // Enabling a device is immediate too; do not discard unrelated edits the
+      // person has already made in this form before pressing Save.
+      const onlyNotificationsChanged =
+        JSON.stringify({ ...settings, notificationsEnabled: previous.notificationsEnabled, reminderTimeZone: previous.reminderTimeZone }) === JSON.stringify(previous);
+      if (onlyNotificationsChanged) return { ...current, notificationsEnabled: settings.notificationsEnabled, reminderTimeZone: settings.reminderTimeZone };
       /* The category manager writes through immediately, the same way. Keep the
          person's unsaved edits to the other fields while taking the new list. */
       const onlyCategoriesChanged =
@@ -175,7 +184,8 @@ export function SettingsPage({
     if (candidate.reminderRepeatMinutes < 0 || candidate.reminderRepeatMinutes > 480) {
       next.reminderRepeatMinutes = 'Repeats must be 0–480 minutes (0 turns them off).';
     }
-    if (!/^\d{1,2}:\d{2}$/.test(candidate.digestTime ?? '')) {
+    if (candidate.reminderTimeZone && !validTimeZone(candidate.reminderTimeZone)) next.reminderTimeZone = 'Use a valid IANA time zone, for example Asia/Kolkata.';
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(candidate.digestTime ?? '')) {
       next.digestTime = 'Use a time such as 09:30.';
     }
     return next;
@@ -636,152 +646,91 @@ export function SettingsPage({
             </p>
           </section>
 
-          <section className="card settings-section">
+          <section className="card settings-section" id="notification-settings">
             <div className="section-head">
-              <h2>
-                <Bell size={16} /> Reminders
-              </h2>
+              <h2><Bell size={16} /> System notifications &amp; reminders</h2>
               <Badge tone={notificationsPermission === 'granted' ? 'success' : 'neutral'}>
-                {notificationsPermission === 'granted'
-                  ? 'System alerts on'
-                  : notificationsPermission === 'denied'
-                    ? 'Blocked by browser'
-                    : notificationsPermission === 'unsupported'
-                      ? 'Not supported'
-                      : 'Alerts off'}
+                Permission: {notificationsPermission === 'granted' ? 'Enabled' : notificationsPermission === 'denied' ? 'Blocked' : notificationsPermission === 'unsupported' ? 'Unsupported' : 'Not enabled'}
               </Badge>
             </div>
+            <p className="muted">Allow system notifications so your device can show task reminders outside this tab. Background delivery also needs a synced Neon account, Web Push and a running scheduler.</p>
+            <div className={`reminder-setup-status ${backgroundStatus?.state === 'active' && draft.notificationsEnabled && notificationsPermission === 'granted' ? 'is-ready' : ''}`} role="status">
+              <strong>{backgroundStatus?.state === 'active' && draft.notificationsEnabled && notificationsPermission === 'granted' ? 'Background setup verified' : 'Background delivery status'}</strong>
+              <span>{!draft.notificationsEnabled && notificationsPermission === 'granted' ? 'System reminders are paused in the planner. Enable them and save your settings.' : backgroundStatus?.message ?? 'Sign in and enable notifications to check background delivery.'}</span>
+              {backgroundStatus?.schedulerLastSuccess ? <small>Last scheduler run: {new Date(backgroundStatus.schedulerLastSuccess).toLocaleString()}</small> : null}
+            </div>
+            <div className="settings-actions">
+              <Button variant="primary" icon={Bell} onClick={() => void onRequestNotifications()} disabled={notificationsPermission === 'unsupported' || notificationsPermission === 'denied'}>
+                Enable system notifications
+              </Button>
+              <Button variant="secondary" icon={Bell} onClick={onSendTestNotification} disabled={notificationsPermission !== 'granted'}>
+                Send test notification
+              </Button>
+            </div>
+            <p className="field-hint">The enable button is the only place that asks for permission. A background test is queued through the real scheduler; a local-only test checks the device banner only.</p>
+
+            <Switch checked={draft.notificationsEnabled} onChange={(enabled) => {
+              if (enabled && notificationsPermission !== 'granted') {
+                addToast('Select Enable system notifications first.', 'warning');
+                return;
+              }
+              setDraft({ ...draft, notificationsEnabled: enabled });
+            }} label="Send system reminders" description="Pause or resume system reminders for this synced planner. Save changes to apply." />
+            <Switch checked={draft.reminderThirtyMinutes !== false} onChange={(reminderThirtyMinutes) => setDraft({ ...draft, reminderThirtyMinutes })}
+              label="30 minutes before due" description="An upcoming reminder 30 minutes before the deadline." />
+            <Switch checked={draft.reminderFiveMinutes !== false} onChange={(reminderFiveMinutes) => setDraft({ ...draft, reminderFiveMinutes })}
+              label="5 minutes before due" description="A second upcoming reminder, or a prompt as soon as a shorter deadline is created." />
             <div className="form-grid">
-              <Field label="Remind me before a deadline (minutes)" htmlFor="settings-lead" error={errors.reminderLeadMinutes}>
-                <input
-                  id="settings-lead"
-                  className={`input ${errors.reminderLeadMinutes ? 'invalid' : ''}`.trim()}
-                  type="number"
-                  min={0}
-                  max={1440}
-                  step={15}
-                  value={draft.reminderLeadMinutes}
-                  onChange={(event) => setDraft({ ...draft, reminderLeadMinutes: Number(event.target.value) })}
-                />
+              <Field label="Repeat overdue reminders every (minutes)" htmlFor="settings-repeat" error={errors.reminderRepeatMinutes}
+                hint="Default 30 minutes; set to 0 to disable repeats. The initial overdue alert still fires.">
+                <input id="settings-repeat" className={`input ${errors.reminderRepeatMinutes ? 'invalid' : ''}`.trim()}
+                  type="number" min={0} max={480} step={5} value={draft.reminderRepeatMinutes}
+                  onChange={(event) => setDraft({ ...draft, reminderRepeatMinutes: Number(event.target.value) })} />
               </Field>
-              <Field
-                label="Nudge me again every (minutes)"
-                htmlFor="settings-repeat"
-                error={errors.reminderRepeatMinutes}
-                hint="A task that is still open keeps reminding you at this interval. 0 means alert once."
-              >
-                <input
-                  id="settings-repeat"
-                  className={`input ${errors.reminderRepeatMinutes ? 'invalid' : ''}`.trim()}
-                  type="number"
-                  min={0}
-                  max={480}
-                  step={5}
-                  value={draft.reminderRepeatMinutes}
-                  onChange={(event) => setDraft({ ...draft, reminderRepeatMinutes: Number(event.target.value) })}
-                />
+              <Field label="Show reminders on Today (minutes before)" htmlFor="settings-lead" error={errors.reminderLeadMinutes}
+                hint="Controls the in-app Today list; system alerts use the 30- and 5-minute switches above.">
+                <input id="settings-lead" className={`input ${errors.reminderLeadMinutes ? 'invalid' : ''}`.trim()}
+                  type="number" min={0} max={1440} step={5} value={draft.reminderLeadMinutes}
+                  onChange={(event) => setDraft({ ...draft, reminderLeadMinutes: Number(event.target.value) })} />
               </Field>
             </div>
-
-            <Switch
-              checked={draft.dailyDigestEnabled}
-              onChange={(dailyDigestEnabled) => setDraft({ ...draft, dailyDigestEnabled })}
-              label="One pending summary a day"
-              description="Every open task in one alert — including the ones with no deadline, which a deadline reminder can never catch."
-            />
-            {draft.dailyDigestEnabled ? (
-              <div className="form-grid compact-grid">
-                <Field label="Send the summary at" htmlFor="settings-digest-time" error={errors.digestTime}>
-                  <input
-                    id="settings-digest-time"
-                    className={`input ${errors.digestTime ? 'invalid' : ''}`.trim()}
-                    type="time"
-                    value={draft.digestTime}
-                    onChange={(event) => setDraft({ ...draft, digestTime: event.target.value })}
-                  />
-                </Field>
-              </div>
-            ) : null}
-            <p className="field-hint">
-              Alerts are computed on this device while the app is open, plus a best-effort background check on Android.
-              Nothing is sent to a server, so there is no push when the browser is fully closed — the in-app list keeps
-              every reminder either way.
-            </p>
-            <Switch
-              checked={draft.quietHoursEnabled}
-              onChange={(quietHoursEnabled) => setDraft({ ...draft, quietHoursEnabled })}
-              label="Quiet hours"
-              description="No browser notifications during these hours. In-app reminders stay visible."
-            />
+            <Switch checked={draft.dailyDigestEnabled} onChange={(dailyDigestEnabled) => setDraft({ ...draft, dailyDigestEnabled })}
+              label="Daily pending and overdue summary" description="Includes open tasks without a due date so you can schedule or complete them." />
+            <div className="form-grid">
+              <Field label="Daily summary and no-time deadline" htmlFor="settings-digest-time" error={errors.digestTime}
+                hint="Tasks with a date but no time use this time for system reminders.">
+                <input id="settings-digest-time" className={`input ${errors.digestTime ? 'invalid' : ''}`.trim()} type="time"
+                  value={draft.digestTime} onChange={(event) => setDraft({ ...draft, digestTime: event.target.value })} />
+              </Field>
+              <Field label="Reminder time zone" htmlFor="settings-reminder-zone" error={errors.reminderTimeZone}
+                hint="IANA time zone; leave empty to detect this device on enable. Daylight-saving changes are handled automatically.">
+                <input id="settings-reminder-zone" className={`input ${errors.reminderTimeZone ? 'invalid' : ''}`.trim()}
+                  value={draft.reminderTimeZone ?? ''} placeholder={Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'}
+                  onChange={(event) => setDraft({ ...draft, reminderTimeZone: event.target.value.trim() })} />
+              </Field>
+            </div>
+            <Switch checked={draft.notificationSound !== false} onChange={(notificationSound) => setDraft({ ...draft, notificationSound })}
+              label="Notification sound" description="The browser and device ultimately control sound, vibration and Do Not Disturb." />
+            <Switch checked={draft.quietHoursEnabled} onChange={(quietHoursEnabled) => setDraft({ ...draft, quietHoursEnabled })}
+              label="Quiet hours" description="Do not interrupt during these hours. The latest relevant reminder is considered after quiet hours end." />
             {draft.quietHoursEnabled ? (
               <div className="form-grid compact-grid">
                 <Field label="Quiet from" htmlFor="settings-quiet-start">
-                  <input
-                    id="settings-quiet-start"
-                    className="input"
-                    type="time"
-                    value={draft.quietStart}
-                    onChange={(event) => setDraft({ ...draft, quietStart: event.target.value })}
-                  />
+                  <input id="settings-quiet-start" className="input" type="time" value={draft.quietStart}
+                    onChange={(event) => setDraft({ ...draft, quietStart: event.target.value })} />
                 </Field>
                 <Field label="Quiet until" htmlFor="settings-quiet-end">
-                  <input
-                    id="settings-quiet-end"
-                    className="input"
-                    type="time"
-                    value={draft.quietEnd}
-                    onChange={(event) => setDraft({ ...draft, quietEnd: event.target.value })}
-                  />
+                  <input id="settings-quiet-end" className="input" type="time" value={draft.quietEnd}
+                    onChange={(event) => setDraft({ ...draft, quietEnd: event.target.value })} />
                 </Field>
               </div>
             ) : null}
-            <Switch
-              checked={draft.notificationsEnabled && notificationsPermission === 'granted'}
-              onChange={async (checked) => {
-                if (checked) {
-                  const permission = await onRequestNotifications();
-                  if (permission !== 'granted') {
-                    addToast('Browser permission was not granted. In-app reminders still work.', 'warning');
-                    return;
-                  }
-                }
-                setDraft({ ...draft, notificationsEnabled: checked });
-              }}
-              label="Desktop and phone notifications"
-              description="Laptop and phone banners when a deadline is close. Alerts while the app is open, plus a best-effort background check on Android. In-app reminders always work."
-              disabled={notificationsPermission === 'unsupported'}
-            />
-            {notificationsPermission === 'denied' ? (
-              <p className="field-hint">
-                Notifications are blocked in this browser’s site settings. Allow them there, then reload — this
-                page cannot override it.
-              </p>
-            ) : null}
-            {notificationsPermission === 'unsupported' ? (
-              <p className="field-hint">This browser does not support system notifications. In-app reminders still work.</p>
-            ) : null}
-            <div className="settings-actions">
-              {notificationsPermission === 'granted' ? (
-                <Button variant="secondary" icon={Bell} onClick={onSendTestNotification}>
-                  Send a test notification
-                </Button>
-              ) : notificationsPermission === 'default' ? (
-                <Button
-                  variant="primary"
-                  icon={Bell}
-                  onClick={() => {
-                    void onRequestNotifications().then((permission) => {
-                      if (permission === 'granted') onSendTestNotification();
-                    });
-                  }}
-                >
-                  Turn on notifications
-                </Button>
-              ) : null}
-              <span className="field-hint">
-                Nothing leaves this device: alerts are computed from your local tasks.
-              </span>
-            </div>
+            <details className="reminder-troubleshooting">
+              <summary>Notification troubleshooting &amp; compatibility</summary>
+              <p>If blocked, allow notifications for this site in your browser’s site settings, check your device notification settings and Do Not Disturb, then reload. On iOS/iPadOS 16.4 or later, add the planner to the Home Screen and enable notifications from that installed app.</p>
+              <p>On desktop and Android, Web Push depends on browser/OS support and network connectivity. The browser or OS may delay or suppress delivery. Without a synced Neon account, working scheduler and a registered device, reminders are best-effort while the planner is open; a completely closed browser cannot be promised alerts.</p>
+              <p>If a subscription expires, select Enable system notifications again. Each device must be enabled separately. Notification actions vary by browser; the in-app inbox also offers 10-minute, 30-minute and 1-hour snoozes.</p>
+            </details>
           </section>
 
           <section className="card settings-section">
@@ -976,8 +925,8 @@ export function SettingsPage({
               <CloudOff size={16} /> Honest limitations
             </h2>
             <ul className="limit-list">
-              <li>Cloud sync is off in this copy, so the account lives on this device. Deploying with the database turns it on for every device at once — no keys to paste.</li>
-              <li>Reminders in a closed browser are not guaranteed — this is a web app, not a native scheduler.</li>
+              <li>Cloud sync and background push require a configured Neon deployment and an account; local-only data stays on this device.</li>
+              <li>Background push depends on the scheduler, browser, operating system and network. Delivery cannot be guaranteed when these are unavailable.</li>
               <li>OCR quality depends on screenshot clarity. Parsed dates are flagged and reviewed.</li>
               <li>IndexedDB can be cleared by the browser; export backups regularly.</li>
               <li>Microsoft Graph needs your own tenant and admin consent for chat scopes; errors are shown, never hidden.</li>
@@ -1031,7 +980,7 @@ export function SettingsPage({
               </div>
               <div>
                 <dt>Sync</dt>
-                <dd>Not configured</dd>
+                <dd>{account.cloudConnected ? 'Connected' : 'Not connected'}</dd>
               </div>
             </dl>
           </section>

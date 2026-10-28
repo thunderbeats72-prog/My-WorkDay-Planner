@@ -2,7 +2,7 @@
 
 Private workday planner for a Business Development Executive (previously built as BD Command Center — same IndexedDB database name, so existing tasks/timer data carry over untouched).
 
-Private, local-first PWA for a Business Development Executive. ₹0/month target: React + TypeScript + IndexedDB (Dexie) + Tesseract.js in-browser OCR. No paid AI, no Teams API, no data leaves the browser.
+Private, local-first PWA for a Business Development Executive. React + TypeScript + IndexedDB (Dexie) + Tesseract.js in-browser OCR. Optional Neon sync and Web Push send the data needed for those features to your configured backend and browser push services. No paid AI is required.
 
 ## Run
 ```bash
@@ -19,26 +19,60 @@ npx -y pnpm@10 lint
 - Screenshot Import: drag/drop or upload, Tesseract.js OCR with progress, editable raw text, deterministic parsing, confidence + ambiguous-date warnings, duplicate detection, **mandatory review before saving**, plus a sample-text mode
 - Scheduling: explainable scoring (priority + deadline + deferrals), daily timeline, lunch/buffers, capacity & remaining time, conflict warnings, unscheduled queue (never silently discarded), manual override
 - Time tracking: Start/Pause/Resume/Complete, one active session, timestamp-based elapsed time persisted in IndexedDB so it recovers after refresh
-- Reminders: a **notification centre** in the utility bar (unread badge, snooze 15m, dismiss, mark all read) that persists across reloads, plus **real desktop and phone notifications** through the service worker — permission-gated, quiet-hours aware, de-duplicated per nudge, repeated until the task is done, and clickable straight into the task
+- Reminders: a persistent **notification centre**, plus server-scheduled Web Push for configured accounts and devices. Upcoming, due, overdue, completion and daily summaries support quiet hours, snooze, task links and browser-supported actions. See **Background reminders** below for setup and limitations.
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
 - Daily update, as a tab inside Reports: an optional note when completing a task, and a one-tap "Generate Daily Report" for any date — completed struck through, pending plain, notes after their task, WhatsApp/Markdown/plain text, one saved update per day
 - Backup: JSON + CSV export, validated JSON import, local reset; PWA manifest + service-worker app-shell cache
 - **Attachments:** photos (compressed in-browser) and 15-second voice memos on any task, with playback in the task panel — stored locally first, and synced across devices as their own rows, never inside the snapshot
 
 ## Honest limitations
-- **Notifications:** in-app reminders are always written and survive reloads. System banners fire while the app is open, and — on Android, for the installed PWA — from a best-effort background check. A fully closed browser on desktop cannot be woken; there is no push server by design, and the app says so rather than pretending otherwise.
+- **Notifications:** closed-tab Web Push requires the backend, a minute-by-minute scheduler, a synced account and an enabled subscription on each device. Browsers, operating systems, network availability and push providers can delay or suppress banners. Permission or provider acceptance is not proof of display; a fully closed browser can receive pushes only where the platform supports it.
 - **Cloud sync:** Neon Postgres behind this repo's own `/api` functions. Set the connection once in Vercel and every device uses it; no keys are ever pasted into the app.
 - **OCR:** quality depends on screenshot clarity; inferred dates are flagged and never auto-confirmed.
 - IndexedDB is per-browser/device and can be cleared — export backups regularly.
 
 ## Deploy
-Vercel (or any static host) with **build command** `pnpm build` and **output directory** `dist`. The repo pins its dependency graph in `pnpm-lock.yaml`; no environment variables are required. Service-worker caching only activates in production builds.
+Use **build command** `pnpm build` and **output directory** `dist`. A static host without environment variables is local-only. Sync and background reminders require the serverless API, Neon, VAPID credentials and a scheduler as described below. Service-worker caching only activates in production builds.
 
 ## Tests
-`npx -y pnpm@10 test` runs Vitest with jsdom + Testing Library: pure scheduling/scoring/date-parsing/OCR tests (`src/lib/engine.test.ts`), on-device ML tests (`src/lib/ml.test.ts`), and a full-app integration test covering onboarding, task CRUD, timer start/pause, rescheduling, completion + undo, screenshot import and reload persistence (`src/App.test.tsx`), backed by `fake-indexeddb`.
+`npx -y pnpm@10 test` runs Vitest with jsdom + Testing Library, including an embedded PostgreSQL reminder integration harness with real SQL and Web Push encryption (external push HTTP is captured, not sent to a provider); pure scheduling/scoring/date-parsing/OCR tests (`src/lib/engine.test.ts`), on-device ML tests (`src/lib/ml.test.ts`), and a full-app integration test covering onboarding, task CRUD, timer start/pause, rescheduling, completion + undo, screenshot import and reload persistence (`src/App.test.tsx`), backed by `fake-indexeddb`.
 
 ## Architecture
-`src/lib/types.ts` (domain models) · `src/lib/db.ts` (Dexie/IndexedDB) · `src/lib/engine.ts` (pure scheduling + OCR parsing — unit-testable) · `src/App.tsx` (UI, timer, reminders)
+`src/lib/types.ts` (domain models) · `src/lib/db.ts` (Dexie/IndexedDB) · `src/lib/engine.ts` (planning + OCR parsing) · `src/lib/reminderSchedule.ts` (shared reminder rules) · `api/cron/reminders.ts` and `api/notifications.ts` (scheduler + Web Push) · `src/App.tsx` (UI and timer)
+
+## Background reminders
+
+### Deploy the server and scheduler
+
+1. Deploy this repository to Vercel with the `/api` functions, HTTPS and the same origin for the app and API. Connect a Neon Postgres database and set its **pooled** `DATABASE_URL` as a server-side environment variable. Set `VITE_SYNC_MODE=neon` at build time and redeploy. Existing `planner_snapshots` remain the task source; the reminder tables only store subscriptions, notification history and delivery/snooze state. Back up your database first. The API applies additive, idempotent schema statements on first use; alternatively run `db/neon-schema.sql` in Neon's SQL editor. The DB role needs permission to create tables and indexes.
+2. Generate a VAPID key pair locally with `npx web-push generate-vapid-keys`. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and a contact URI such as `VAPID_SUBJECT=mailto:owner@example.com` as **server-side** Vercel environment variables. Generate `CRON_SECRET` using `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` and set it server-side too (at least 32 characters). Never commit these values, put the private key in a `VITE_` variable, or put the secret in a URL. Redeploy after changing variables. The public VAPID key is given only to authenticated clients for subscription; the private key and scheduler secret never go to the browser.
+3. Arrange an authenticated **every-minute** request to `GET /api/cron/reminders` on the deployment, with header `Authorization: Bearer <CRON_SECRET>`. Use an external scheduler capable of sending this header, or on a Vercel plan that supports per-minute cron add the `crons` property to the existing `vercel.json` (preserving `functions`):
+
+   ```json
+   {
+     "functions": { "api/cron/reminders.ts": { "maxDuration": 60 } },
+     "crons": [{ "path": "/api/cron/reminders", "schedule": "* * * * *" }]
+   }
+   ```
+
+   Vercel Cron sends the configured `CRON_SECRET` in the Authorization header. The committed function config permits up to 60 seconds but does not schedule it. Verify the plan's current frequency and runtime limits; Hobby schedules are not suitable for per-minute reminders. An unconditional cron config is intentionally not committed, to avoid breaking Hobby deployments. **No scheduler means no background reminders**, even when notification permission is granted.
+4. Check the scheduler's response and server logs for `[reminders]` cycles and failures, and check **Last scheduler run** in Settings. The scheduler processes bounded batches (up to 100 accounts and 30 deliveries per run); a backlog or platform time limit can delay alerts. Plan capacity and monitor failures if you have many users. Test on your actual deployment and devices; this repository cannot configure your Vercel, Neon or scheduler for you.
+
+### Enable and verify on every device
+
+1. Sign in to the **same Neon-synced account**, wait for a successful sync, and confirm that the existing tasks and time zone are correct. In **Settings → System notifications & reminders**, click **Enable system notifications** and allow the browser prompt. That explicit click is the only flow that asks for permission. Each browser/profile/device needs its own subscription; each account supports up to 10 devices. Sign out on an unneeded device to revoke it, or have the deployment owner remove a stale subscription for that account after backing up the database. A local-only account or Supabase sync does not provide this backend scheduling.
+2. Ensure Settings reports the subscription and a recent scheduler heartbeat. Use **Send test notification**, then close the tab and check the device's notification center after the next scheduler run. The test is queued via real Web Push when subscribed; the local fallback test is labelled separately and does **not** verify background delivery. Check browser site permissions, OS notification settings, Focus/Do Not Disturb, network and battery restrictions if no banner appears.
+3. iOS/iPadOS 16.4 or later: add the app to the Home Screen, open the installed app, sign in and enable notifications there. Desktop and Android require a Web Push-capable browser and OS. OS/browser implementations may limit notification actions; when an action is unavailable, open the app and use the inbox controls instead. Whether an entirely closed browser can be woken is platform-dependent.
+4. Subscriptions may expire or be revoked. Where the browser supports `pushsubscriptionchange`, the worker attempts a scoped renewal without an open tab; otherwise, or after key rotation or a 404/410 response, revisit Settings and select **Enable system notifications** to repair it. Signing out unregisters the current device when the server is reachable. If sign-out happens offline, the browser subscription is removed locally but the server may retain its stale endpoint until the push provider rejects it; reconnect before signing out for reliable server-side revocation.
+
+### Behaviour and guarantees
+
+- System reminders default to 30 minutes and 5 minutes before the deadline, at the deadline, one minute later as overdue, and every 30 minutes thereafter while incomplete. Settings can change the repeat interval (0 disables repeats), upcoming alerts, daily summary, quiet hours, sound and the IANA time zone. Quiet hours default to 20:00–08:00; missed stages are reconciled to the latest relevant state after quiet hours or downtime, not replayed as a flood. Date-only tasks use the configured daily-summary time (09:30 by default); tasks with no date are included in the daily summary. Daylight-saving gaps and folds are handled using the configured zone.
+- Task completion, reopening, rescheduling and soft deletion update the local database and trigger an immediate authenticated sync attempt. Small task changes use a `keepalive` request to improve the chance of finishing when a tab closes; it cannot guarantee delivery while offline, during shutdown or for oversized edits. Keep the app connected long enough to sync changes before closing it. The scheduler and worker recheck the latest **synced** task state before delivering; offline edits cannot cancel a server reminder until they sync. Stale or expired push payloads are not shown as task-specific reminders.
+- Stable event keys, DB uniqueness, expiring leases and per-device delivery rows suppress duplicates and allow retries. Push-service acceptance is not proof of OS display. Exactly-once delivery is impossible when a provider response is ambiguous, and browsers can delay, replace or drop notifications. Short push TTLs and stable tags reduce stale or duplicate alerts. A generic prompt may be shown if the worker cannot verify a pushed task.
+- The notification center retains synced event history for up to 30 days plus local history; content-free hashes of some one-off overdue keys persist to prevent old alerts replaying after pruning, with read/dismiss and 10/30/60-minute snoozes. Notifications may contain task titles and clients; protect lock-screen previews and restrict access to your database, logs and push subscriptions. Expired/revoked subscriptions are removed. On a permission-only or local setup, open-page alerts are best effort and are not a replacement for Web Push.
+
+> The sections below are historical design notes; the current reminder behaviour and deployment requirements are described above.
 
 ## UI/UX redesign (My Workday Planner)
 - Exact palette: navy `#17243B`, primary `#356AE6`, canvas `#F4F6FA`, success `#168568`; 8px spacing, restrained shadows, priorities always shown as text labels (never colour alone).
@@ -208,7 +242,9 @@ The third pass looked for what breaks rather than what to add.
 - The browser chrome colour follows the theme (`#f5f5f6` / `#0a0a0c`)
   instead of the retired navy.
 
-### Notifications you can actually receive
+### Notifications you can actually receive (historical, superseded)
+
+The following described the earlier local-only implementation; see **Background reminders** above for the current implementation.
 
 Two layers, because they fail in different ways.
 
@@ -235,7 +271,7 @@ Supporting behaviour:
   Android PWA), so reminders can fire from the background: the worker reads
   IndexedDB and applies **the same rule as the page** — lead time, repeat
   cadence, quiet hours, and a dismissed or snoozed task stays quiet.
-- Nothing leaves the device. There is no push server, and the copy says so.
+- At that time nothing left the device. The current opt-in Neon/Web Push setup supersedes this local-only limitation.
 
 ## Design v6 — one logo, proven, and a tick that sits still
 
@@ -307,7 +343,7 @@ the account is created on the device you are holding.
 ### What "the same login on my phone and laptop" actually requires
 
 A user ID and password can only *identify* you; something still has to move the
-data. The planner ships with no server, so sync is opt-in and the UI says which
+data. The planner includes an optional server; sync is opt-in and the UI says which
 of the two states you are in:
 
 | State | What the header says | What is true |
@@ -382,7 +418,7 @@ owner. The browser only ever sees a 64-character session token.
 api/auth/signup.ts   POST  { userId, password, displayName? } -> { token }
 api/auth/signin.ts   POST  { userId, password }               -> { token }
 api/snapshot.ts      GET | POST | DELETE   (Bearer <token>)
-db/neon-schema.sql   3 tables, no extensions
+db/neon-schema.sql   additive sync, attachment and reminder tables; no extensions
 ```
 
 The password is stretched with the same PBKDF2-SHA256/210k as the local accounts,
@@ -395,7 +431,7 @@ snapshot by naming it.
 
 1. **Create the project** at [neon.com](https://neon.com) — free plan. Region:
    **AWS ap-southeast-1 (Singapore)**, the closest Neon has to India.
-2. **Run `db/neon-schema.sql`** in the Neon SQL editor. Three tables.
+2. Optionally **run `db/neon-schema.sql`** in the Neon SQL editor; the API also applies its additive tables on first use.
 3. **Copy the connection string** from *Connection Details*. Use the **pooled**
    one; serverless functions open many short-lived connections.
 4. **Add it to the deployment** as `DATABASE_URL` — a server-side variable, never
@@ -940,7 +976,9 @@ assertions for the empty-state centring).
   draft autosave, so "Save this update" remains the only way to keep wording
   past the day you are looking at.
 
-## Design v8 — reminders that keep reminding
+## Design v8 — reminders that keep reminding (historical, superseded)
+
+This section documents the earlier open-page/periodic-sync implementation. For the current Web Push rules and setup, see **Background reminders** above.
 
 The complaint was short: *notifications are not there*. Three separate causes,
 all of which had to go.
@@ -1059,11 +1097,10 @@ page and checks the tasks followed).
 
 ### Honest limits of this batch
 
-- A desktop browser with the tab closed cannot be woken; there is no push
-  server by design. Repeats run while the app is open, and on Android from the
-  background check.
-- The daily summary is delivered by the app when it is open (or at the set time
-  if it is already open). It is not queued by the system for later.
+- At the time of that batch there was no push server; this was superseded by the
+  optional server-scheduled Web Push implementation described above.
+- The daily summary can now be queued by the configured background scheduler;
+  actual display still depends on browser, OS, network and provider support.
 - Renaming rewrites the tasks that carry the old name; a **saved daily
   report** keeps the wording it was written with, because that is a record of a
   day rather than a live view.

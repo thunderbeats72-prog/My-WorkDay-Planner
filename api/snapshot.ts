@@ -1,4 +1,5 @@
 import { hashToken } from './_lib/crypto.js';
+import type { Task } from '../src/lib/types.js';
 import { ensureSchema } from './_lib/schema.js';
 import {
   bearerToken,
@@ -7,6 +8,7 @@ import {
   explain,
   fail,
   noStore,
+  patchSnapshotTasks,
   readSnapshot,
   sessionUser,
   writeSnapshot,
@@ -38,7 +40,20 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     }
 
     if (req.method === 'POST') {
-      const payload = bodyOf(req).payload;
+      const body = bodyOf(req);
+      if (body.changedTasks !== undefined) {
+        if (!Array.isArray(body.changedTasks) || body.changedTasks.length === 0 || body.changedTasks.length > 200 ||
+            body.changedTasks.some((item: unknown) => !item || typeof item !== 'object' ||
+              typeof (item as Task).id !== 'string' || !(item as Task).id || (item as Task).id.length > 200 ||
+              typeof (item as Task).title !== 'string' || typeof (item as Task).updatedAt !== 'string' ||
+              !Number.isFinite(Date.parse((item as Task).updatedAt)))) {
+          return fail(res, 400, 'A valid list of changed tasks is required.');
+        }
+        if (!await patchSnapshotTasks(userId, body.changedTasks as Task[])) return fail(res, 409, 'Sync the full planner before updating individual tasks.');
+        res.status(200).json({ ok: true });
+        return;
+      }
+      const payload = body.payload;
       if (!payload || typeof payload !== 'object') return fail(res, 400, 'A snapshot payload is required.');
       await writeSnapshot(userId, payload);
       res.status(200).json({ ok: true });

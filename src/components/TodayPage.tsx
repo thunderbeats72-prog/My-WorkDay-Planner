@@ -654,12 +654,11 @@ export function TodayPage({
               <div>
                 <h3>Get reminders on this device</h3>
                 <p className="muted">
-                  A laptop or phone banner when a deadline is close. In-app reminders appear in the bell either way —
-                  nothing leaves this browser.
+                  In-app reminders appear in the bell. Closed-tab banners require a synced account and a configured Web Push scheduler.
                 </p>
               </div>
               <Button variant="secondary" icon={Bell} onClick={onRequestNotifications}>
-                Turn on notifications
+                Enable system notifications
               </Button>
             </section>
           ) : null}

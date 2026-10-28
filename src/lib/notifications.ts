@@ -1,18 +1,11 @@
 /**
- * Notifications, in two layers.
- *
- * 1. In-app: a durable list (localStorage) that the bell in the utility bar
- *    reads. It is the source of truth — nothing is lost if the OS refuses to
- *    show a banner.
- * 2. Native: the OS notification, sent through the service worker when one is
- *    available (this is the only way that works on Android) and through the
- *    `Notification` constructor otherwise.
- *
- * Everything is local. There is no push server and no account: alerts are
- * computed on this device from the tasks already in IndexedDB.
+ * Notification inbox helpers and the local native-notification fallback.
+ * Synced background Web Push and delivery state are handled by pushClient.ts,
+ * /api/notifications and the service worker; provider acceptance is not proof
+ * that the operating system displayed a banner.
  */
 
-export type AppNotificationKind = 'reminder' | 'test' | 'system';
+export type AppNotificationKind = 'reminder' | 'test' | 'system' | 'upcoming' | 'due' | 'overdue' | 'completed' | 'summary';
 
 export interface AppNotification {
   id: string;
@@ -24,6 +17,10 @@ export interface AppNotification {
   dueAt: string | null;
   read: boolean;
   kind: AppNotificationKind;
+  /** A push service accepting a message is not proof the device displayed it. */
+  delivery?: 'accepted' | 'pending' | 'failed';
+  /** Owner of a cached cloud event; never display it for another session. */
+  accountId?: string;
 }
 
 export type NativePermission = 'granted' | 'denied' | 'default' | 'unsupported';
@@ -61,6 +58,10 @@ export function loadNotifications(): AppNotification[] {
   const list = readJSON<AppNotification[]>(LIST_KEY, []);
   if (!Array.isArray(list)) return [];
   return list.filter((item) => item && typeof item.id === 'string' && typeof item.title === 'string');
+}
+
+export function notificationsForAccount(list: AppNotification[], accountId: string | null): AppNotification[] {
+  return list.filter((item) => !item.id.startsWith('cloud:') || (Boolean(accountId) && item.accountId === accountId));
 }
 
 export function saveNotifications(list: AppNotification[]): AppNotification[] {
@@ -122,6 +123,12 @@ export function markDelivered(key: string): void {
   writeJSON(DELIVERED_KEY, map);
 }
 
+export function unmarkDelivered(key: string): void {
+  const map = loadDelivered();
+  delete map[key];
+  writeJSON(DELIVERED_KEY, map);
+}
+
 export function resetDelivered(): void {
   writeJSON(DELIVERED_KEY, {});
 }
@@ -175,6 +182,9 @@ export interface NativeNotificationPayload {
   taskId?: string | null;
   /** Hash the app should open when the notification is clicked. */
   page?: string;
+  silent?: boolean;
+  /** A summary should open the overdue filter, not an unrelated page. */
+  overdue?: boolean;
 }
 
 /**
@@ -183,7 +193,10 @@ export interface NativeNotificationPayload {
  */
 export async function deliverNative(payload: NativeNotificationPayload): Promise<boolean> {
   if (readPermission() !== 'granted') return false;
-  const url = `/#${payload.page ?? 'tasks'}`;
+  const query = new URLSearchParams();
+  if (payload.taskId) query.set('openTask', payload.taskId);
+  if (payload.overdue) query.set('filter', 'overdue');
+  const url = `/${query.toString() ? `?${query.toString()}` : ''}#/${payload.page ?? 'tasks'}`;
   const options: NotificationOptions & { renotify?: boolean; vibrate?: number[] } = {
     body: payload.body,
     tag: payload.tag,
@@ -191,8 +204,9 @@ export async function deliverNative(payload: NativeNotificationPayload): Promise
     badge: '/favicon-32.png?v=5',
     data: { url, taskId: payload.taskId ?? null },
     renotify: false,
-    // A short, single pulse on Android; silently ignored elsewhere.
-    vibrate: [90, 40, 90],
+    silent: Boolean(payload.silent),
+    // The OS decides whether sound/vibration is supported.
+    ...(payload.silent ? {} : { vibrate: [90, 40, 90] }),
   };
 
   const registration = await activeRegistration();
@@ -207,14 +221,19 @@ export async function deliverNative(payload: NativeNotificationPayload): Promise
   }
 
   try {
-    new Notification(payload.title, options);
+    const notification = new Notification(payload.title, options);
+    notification.onclick = () => {
+      window.focus();
+      window.location.assign(url);
+      notification.close();
+    };
     return true;
   } catch {
     return false;
   }
 }
 
-/** A one-tap proof that the whole chain works on this device. */
+/** A local banner test; it does not prove server-scheduled Web Push. */
 export async function sendTestNotification(): Promise<boolean> {
   return deliverNative({
     title: 'Workday Planner',

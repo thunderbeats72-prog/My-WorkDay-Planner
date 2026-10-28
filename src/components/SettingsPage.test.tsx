@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { SettingsPage } from './SettingsPage';
 import { DEFAULT_SETTINGS } from '../lib/types';
 import type { AccountApi } from '../hooks/useAccount';
+import type { BackgroundPushStatus } from '../lib/pushClient';
 
 /**
  * Appearance used to be two controls saying the same thing: a segmented
@@ -40,12 +41,17 @@ function renderSettings(
     onAddCategory?: (name: string) => string | null;
     onRenameCategory?: (from: string, to: string) => Promise<string | null>;
     onDeleteCategory?: (name: string) => Promise<number>;
+    notificationsPermission?: string;
+    backgroundStatus?: BackgroundPushStatus;
   } = {},
 ) {
   const onThemeChange = vi.fn();
   const onAddCategory = overrides.onAddCategory ?? vi.fn(() => null);
   const onRenameCategory = overrides.onRenameCategory ?? vi.fn(async () => null);
   const onDeleteCategory = overrides.onDeleteCategory ?? vi.fn(async () => 0);
+  const onRequestNotifications = vi.fn(async () => 'granted');
+  const onSendTestNotification = vi.fn();
+  const addToast = vi.fn();
   render(
     <SettingsPage
       tasks={[]}
@@ -87,7 +93,7 @@ function renderSettings(
       onQuickAdd={vi.fn()}
       onNewTask={vi.fn()}
       onEditTask={vi.fn()}
-      addToast={vi.fn()}
+      addToast={addToast}
       online
       onSaveSettings={vi.fn()}
       onThemeChange={onThemeChange}
@@ -108,14 +114,37 @@ function renderSettings(
         onDisconnect: vi.fn(),
         onCheck: vi.fn(),
       }}
-      notificationsPermission="default"
-      onRequestNotifications={vi.fn(async () => 'granted')}
-      onSendTestNotification={vi.fn()}
+      notificationsPermission={overrides.notificationsPermission ?? 'default'}
+      onRequestNotifications={onRequestNotifications}
+      onSendTestNotification={onSendTestNotification}
+      backgroundStatus={overrides.backgroundStatus}
       account={fakeAccount()}
     />,
   );
-  return { onThemeChange, onAddCategory, onRenameCategory, onDeleteCategory };
+  return { onThemeChange, onAddCategory, onRenameCategory, onDeleteCategory, onRequestNotifications, onSendTestNotification, addToast };
 }
+
+describe('Notification setup', () => {
+  it('requests permission only after an explicit enable click', async () => {
+    const { onRequestNotifications, onSendTestNotification, addToast } = renderSettings();
+    expect(onRequestNotifications).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Send test notification' }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByRole('switch', { name: 'Send system reminders' }));
+    expect(onRequestNotifications).not.toHaveBeenCalled();
+    expect(addToast).toHaveBeenCalledWith('Select Enable system notifications first.', 'warning');
+    expect(onSendTestNotification).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Enable system notifications' }));
+    expect(onRequestNotifications).toHaveBeenCalledOnce();
+  });
+
+  it('does not label permission alone as verified background delivery', () => {
+    renderSettings({ notificationsPermission: 'granted', settings: { notificationsEnabled: true }, backgroundStatus: {
+      state: 'scheduler-offline', message: 'The scheduler has not run recently.', subscribed: true, schedulerLastSuccess: null, history: [],
+    } });
+    expect(screen.getByText('The scheduler has not run recently.')).toBeTruthy();
+    expect(screen.queryByText('Background setup verified')).toBeNull();
+  });
+});
 
 describe('Appearance', () => {
   it('offers exactly two choices, both with an icon', () => {

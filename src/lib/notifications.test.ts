@@ -6,6 +6,7 @@ import {
   forgetDelivered,
   loadNotifications,
   markAllNotificationsRead,
+  notificationsForAccount,
   markDelivered,
   requestPermission,
   unreadCount,
@@ -116,6 +117,8 @@ describe('native delivery', () => {
     expect(sent).toBe(true);
     expect(FakeNotification.instances).toHaveLength(1);
     expect(FakeNotification.instances[0].title).toBe('Task');
+    expect(FakeNotification.instances[0].options?.data.url).toBe('/?openTask=task_1#/tasks');
+    expect(typeof (FakeNotification.instances[0] as unknown as Notification).onclick).toBe('function');
   });
 
   it('prefers the service worker, which is the only path on Android', async () => {
@@ -139,5 +142,16 @@ describe('native delivery', () => {
     vi.stubGlobal('Notification', undefined);
     expect(await requestPermission()).toBe('unsupported');
     expect(await deliverNative({ title: 'Task', body: 'x', tag: 't' })).toBe(false);
+  });
+});
+
+
+describe('account-scoped inbox cache', () => {
+  it('keeps local history and only the signed-in account’s cached events', () => {
+    const common = { taskId: null, title: 'Notice', body: '', createdAt: '2026-10-28T10:00:00.000Z', dueAt: null, read: false, kind: 'system' as const };
+    const entries = [{ ...common, id: 'local:1' }, { ...common, id: 'cloud:1', accountId: 'alice' },
+      { ...common, id: 'cloud:2', accountId: 'bob' }, { ...common, id: 'cloud:legacy' }];
+    expect(notificationsForAccount(entries, 'alice').map((item) => item.id)).toEqual(['local:1', 'cloud:1']);
+    expect(notificationsForAccount(entries, null).map((item) => item.id)).toEqual(['local:1']);
   });
 });

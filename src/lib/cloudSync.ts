@@ -298,12 +298,16 @@ export async function cloudSignIn(userId: string, password: string): Promise<Clo
   return sessionFrom(result.data ?? null, userId);
 }
 
-export async function cloudSignOut(): Promise<void> {
+export async function cloudSignOut(beforeRevoke?: (session: CloudSession) => Promise<void>): Promise<void> {
   const config = loadCloudConfig();
   const session = loadCloudSession();
+  const neon = neonEnabled();
+  // Detach synchronously. A new sign-in during network cleanup must not be
+  // cleared or signed out when the old request finally finishes.
   saveCloudSession(null);
   if (!config || !session) return;
-  if (neonEnabled()) {
+  if (beforeRevoke) await beforeRevoke(session);
+  if (neon) {
     await neonSignOut(session.accessToken);
     return;
   }

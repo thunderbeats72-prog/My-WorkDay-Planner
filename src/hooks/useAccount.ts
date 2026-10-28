@@ -1,3 +1,4 @@
+import { disableBackgroundPush } from '../lib/pushClient';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   accountSnapshot,
@@ -33,12 +34,13 @@ import {
   createBackupPayload,
   listAllEvents,
   listReminders,
+  listReports,
+  mergeCloudSnapshot,
   listSessions,
   listTasks,
   loadSettings,
-  restoreBackup,
 } from '../lib/db';
-import { describeMerge, mergeIsQuiet, mergeSnapshots } from '../lib/snapshot';
+import { describeMerge, mergeIsQuiet } from '../lib/snapshot';
 import type { BackupFile } from '../lib/db';
 
 export interface AccountState {
@@ -119,14 +121,15 @@ function writeLastSync(): void {
 
 /** Everything on this device, in the shape the backup format already uses. */
 export async function buildLocalSnapshot(exportedAt?: string): Promise<BackupFile> {
-  const [settings, tasks, sessions, reminders, events] = await Promise.all([
+  const [settings, tasks, sessions, reminders, events, reports] = await Promise.all([
     loadSettings(),
     listTasks(),
     listSessions(),
     listReminders(),
     listAllEvents(),
+    listReports(),
   ]);
-  const snapshot = createBackupPayload(settings, tasks, sessions, reminders, events);
+  const snapshot = createBackupPayload(settings, tasks, sessions, reminders, events, reports);
   // `exportedAt` doubles as "when this device's data last changed". Stamping the
   // moment of the snapshot instead would make every device look like the newest
   // writer and send settings ping-ponging between them.
@@ -276,11 +279,10 @@ export function useAccount({
           setLastSyncedAt(readLastSync());
           message = 'This device uploaded its first snapshot — your other device will pick it up.';
         } else {
-          const { merged, stats } = mergeSnapshots(local, pulled.data);
-          if (!mergeIsQuiet(stats)) {
-            await restoreBackup(merged, 'replace');
-            refreshData.current();
-          }
+          // Pulling can take seconds; merge against the *current* local DB in
+          // one transaction rather than replacing edits made during that wait.
+          const { merged, stats } = await mergeCloudSnapshot(pulled.data, readChangedAt);
+          if (!mergeIsQuiet(stats)) refreshData.current();
           // No write means no new timestamp, which means the other device stops
           // seeing a change. Without this the two devices trade updates forever.
           if (stats.needsPush) {
@@ -344,7 +346,7 @@ export function useAccount({
     lastActivity.current = Date.now();
   }, []);
 
-  const schedulePush = useCallback(() => {
+  const schedulePush = useCallback(function queuePush() {
     markChanged();
     noteActivity();
     if (!isCloudConfigured() || !loadCloudSession()) return;
@@ -353,10 +355,17 @@ export function useAccount({
       pushTimer.current = null;
       void (async () => {
         const result = await syncNow({ quiet: true });
+        if (!result.ok && isCloudConfigured() && loadCloudSession()) {
+          // An edit that arrived during an in-flight sync (or a network outage)
+          // must not be silently dropped. Keep retrying while this page is open.
+          pushTimer.current = window.setTimeout(() => { pushTimer.current = null; queuePush(); }, 15_000);
+        }
         if (result.ok) {
           // This device just wrote; take the new timestamp as the baseline so
           // its own change does not look like somebody else's.
-          remoteVersion.current = null;
+          // Force one pull after a write: the server may have merged a concurrent
+          // notification action rather than accepting this device's stale copy.
+          remoteVersion.current = '';
           channel.current?.postMessage({ type: 'synced', at: Date.now() });
         }
       })();
@@ -448,12 +457,14 @@ export function useAccount({
     const onActivity = () => noteActivity();
 
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onVisible);
     window.addEventListener('pointerdown', onActivity, { passive: true });
     window.addEventListener('keydown', onActivity);
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onVisible);
       window.removeEventListener('pointerdown', onActivity);
       window.removeEventListener('keydown', onActivity);
     };
@@ -616,7 +627,13 @@ export function useAccount({
   );
 
   const signOut = useCallback(() => {
-    void cloudSignOut();
+    // Detach the UI session immediately, then use the captured token to revoke
+    // this device before revoking that same token. Other devices stay subscribed.
+    const neon = neonEnabled();
+    void cloudSignOut(async (session) => {
+      if (!neon) return;
+      await disableBackgroundPush(session).catch(() => notice.current('Could not remove this device’s push subscription while offline. Reconnect and disable it before signing out.', 'warning'));
+    });
     signOutLocal();
     setCloudConnected(false);
     notice.current('Signed out. Your tasks stay on this device.', 'info');
@@ -694,7 +711,11 @@ export function useAccount({
   );
 
   const disconnectCloud = useCallback(() => {
-    void cloudSignOut();
+    const neon = neonEnabled();
+    void cloudSignOut(async (session) => {
+      if (!neon) return;
+      await disableBackgroundPush(session).catch(() => notice.current('Could not remove this device’s push subscription while offline.', 'warning'));
+    });
     clearCloudConfig();
     setCloudConfigured(false);
     setCloudConnected(false);
