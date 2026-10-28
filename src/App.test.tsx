@@ -385,7 +385,7 @@ describe('live behaviour', () => {
       // Two hours later, with no reload and no new fetch.
       await act(async () => {
         vi.setSystemTime(new Date(2026, 9, 21, 12, 0, 0));
-        vi.advanceTimersByTime(60_000);
+        vi.advanceTimersByTime(30_000);
       });
 
       expect(await screen.findByText(/Next in 3h 5\dm|Next in 4h/)).toBeTruthy();

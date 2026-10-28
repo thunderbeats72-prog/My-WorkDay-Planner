@@ -5,12 +5,13 @@ import {
   deleteReport,
   getReport,
   listReports,
+  mergeCloudSnapshot,
   restoreBackup,
   saveReport,
   validateBackup,
 } from './db';
 import { DEFAULT_SETTINGS } from './types';
-import type { SavedReport } from './types';
+import type { SavedReport, Task } from './types';
 
 /**
  * The storage promises the daily update sits on: one row per day, an old day is
@@ -100,5 +101,26 @@ describe('backup round trip', () => {
     if (!parsed.ok) return;
     expect(parsed.data.reports).toEqual([]);
     await expect(restoreBackup(parsed.data, 'merge')).resolves.toBeUndefined();
+  });
+});
+
+
+describe('safe cloud merge', () => {
+  it('reads the current local task inside the transaction and retains edits made while a pull was in flight', async () => {
+    const task = { id: 'a', title: 'Before', notes: 'keep notes', updatedAt: '2026-01-02T10:00:00.000Z' } as Task;
+    const stalePull = createBackupPayload({ ...DEFAULT_SETTINGS }, [task, { ...task, id: 'b', title: 'Remote task' }], [], [], []);
+    stalePull.exportedAt = '2026-01-02T10:00:00.000Z';
+    await db.tasks.put({ ...task, title: 'Edited during network wait', updatedAt: '2026-01-02T11:00:00.000Z' });
+    const { merged } = await mergeCloudSnapshot(stalePull, () => '2026-01-02T11:00:00.000Z');
+    expect(merged.tasks.find((row) => row.id === 'a')).toMatchObject({ title: 'Edited during network wait', notes: 'keep notes' });
+    expect((await db.tasks.toArray()).map((row) => row.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('preserves one saved report per date when another device uses a different id', async () => {
+    await saveReport(report({ dateISO: '2026-10-21', text: 'Local draft', updatedAt: '2026-10-21T18:00:00.000Z' }));
+    const remoteReport = report({ id: 'remote-id', dateISO: '2026-10-21', text: 'Remote edit', updatedAt: '2026-10-21T19:00:00.000Z' });
+    const remote = createBackupPayload({ ...DEFAULT_SETTINGS }, [], [], [], [], [remoteReport]);
+    await mergeCloudSnapshot(remote, () => '1970-01-01T00:00:00.000Z');
+    expect(await db.reports.toArray()).toEqual([remoteReport]);
   });
 });

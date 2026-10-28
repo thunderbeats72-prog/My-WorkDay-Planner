@@ -108,6 +108,30 @@ describe('mergeSnapshots', () => {
     expect(stats.sessionsAdded).toBe(0);
   });
 
+  it('merges mutable timer sessions by their latest heartbeat or end instead of losing a pause', () => {
+    const running: TimeSession = { id: 'timer', taskId: 'a', startedAt: '2026-01-02T10:00:00.000Z', endedAt: null,
+      durationMs: 0, state: 'running', lastHeartbeatAt: '2026-01-02T10:00:00.000Z', note: '' };
+    const paused: TimeSession = { ...running, startedAt: '2026-01-02T10:05:00.000Z', endedAt: '2026-01-02T10:05:00.000Z',
+      lastHeartbeatAt: '2026-01-02T10:05:00.000Z', durationMs: 300000, state: 'paused' };
+    const received = mergeSnapshots(snapshot({ timeSessions: [running] }), snapshot({ timeSessions: [paused] }));
+    expect(received.merged.timeSessions[0]).toEqual(paused);
+    expect(received.stats.sessionsUpdated).toBe(1);
+    expect(mergeIsQuiet(received.stats)).toBe(false);
+    const staleServer = mergeSnapshots(snapshot({ timeSessions: [paused] }), snapshot({ timeSessions: [running] }));
+    expect(staleServer.merged.timeSessions[0]).toEqual(paused);
+    expect(staleServer.stats.needsPush).toBe(true);
+  });
+
+  it('recognizes a newer snooze for an existing reminder as a local change to apply', () => {
+    const older: ReminderRecord = { id: 'r', taskId: 'a', dueAt: '2026-01-02T10:00:00.000Z', status: 'queued',
+      snoozedUntil: null, createdAt: '2026-01-02T09:00:00.000Z', updatedAt: '2026-01-02T09:00:00.000Z' };
+    const later: ReminderRecord = { ...older, snoozedUntil: '2026-01-02T10:30:00.000Z', updatedAt: '2026-01-02T10:00:00.000Z' };
+    const received = mergeSnapshots(snapshot({ reminderRecords: [older] }), snapshot({ reminderRecords: [later] }));
+    expect(received.merged.reminderRecords[0]).toEqual(later);
+    expect(received.stats.remindersUpdated).toBe(1);
+    expect(mergeIsQuiet(received.stats)).toBe(false);
+  });
+
   it('lets a dismissed reminder stay dismissed even if the other device still has it queued', () => {
     const queued: ReminderRecord = {
       id: 'r1',

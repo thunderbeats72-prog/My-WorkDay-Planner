@@ -1,8 +1,11 @@
 import { neon } from '@neondatabase/serverless';
 import { pickDatabaseUrl } from '../../src/lib/databaseUrl.js';
+import { mergeSnapshots, mergeTasks } from '../../src/lib/snapshot.js';
+import type { Task } from '../../src/lib/types.js';
+import type { BackupFile } from '../../src/lib/backupTypes.js';
 
 /**
- * The whole server side of Neon sync: three tables, no ORM.
+ * The server side of Neon sync: additive tables, no ORM.
  *
  * Rows are scoped by `user_id`, and every route derives that id from the
  * session token — never from the request body — so a caller cannot ask for
@@ -193,13 +196,73 @@ export async function readSnapshot(userId: string): Promise<unknown | null> {
   return found[0]?.payload ?? null;
 }
 
+/**
+ * Optimistic merge/write. A notification action may complete a task between a
+ * device's pull and push; an unconditional whole-snapshot replacement would
+ * silently undo that completion (or another device's edit).
+ */
 export async function writeSnapshot(userId: string, payload: unknown): Promise<void> {
-  await sql()`
-    insert into planner_snapshots (user_id, payload, updated_at)
-    values (${userId}, ${JSON.stringify(payload)}::jsonb, now())
-    on conflict (user_id) do update
-      set payload = excluded.payload, updated_at = now()
-  `;
+  const normalise = (input: unknown): BackupFile => {
+    const value = input as Partial<BackupFile>;
+    return {
+      ...value,
+      app: 'my-workday-planner',
+      version: typeof value.version === 'number' ? value.version : 1,
+      exportedAt: typeof value.exportedAt === 'string' ? value.exportedAt : '1970-01-01T00:00:00.000Z',
+      settings: (value.settings ?? {}) as BackupFile['settings'],
+      tasks: Array.isArray(value.tasks) ? value.tasks : [],
+      timeSessions: Array.isArray(value.timeSessions) ? value.timeSessions : [],
+      reminderRecords: Array.isArray(value.reminderRecords) ? value.reminderRecords : [],
+      taskEvents: Array.isArray(value.taskEvents) ? value.taskEvents : [],
+      reports: Array.isArray(value.reports) ? value.reports : [],
+    };
+  };
+  const incoming = normalise(payload);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const current = await rows<{ payload: unknown; version: string }>(sql()`
+      select payload, updated_at::text as version from planner_snapshots where user_id = ${userId} limit 1
+    `);
+    if (!current[0]) {
+      const inserted = await rows<{ user_id: string }>(sql()`
+        insert into planner_snapshots (user_id, payload, updated_at)
+        values (${userId}, ${JSON.stringify(incoming)}::jsonb, now())
+        on conflict (user_id) do nothing returning user_id
+      `);
+      if (inserted.length) return;
+      continue;
+    }
+    const remote = normalise(current[0].payload);
+    const { merged } = mergeSnapshots(incoming, remote);
+    // Keep unknown fields from both versions for forwards-compatible backups.
+    const combined = { ...(current[0].payload as object), ...(payload as object), ...merged };
+    const updated = await rows<{ user_id: string }>(sql()`
+      update planner_snapshots set payload = ${JSON.stringify(combined)}::jsonb, updated_at = now()
+      where user_id = ${userId} and updated_at = ${current[0].version}::timestamptz returning user_id
+    `);
+    if (updated.length) return;
+  }
+  throw new Error('Snapshot changed too many times; retry sync.');
+}
+
+/** Apply only changed task rows to the existing snapshot, with optimistic CAS.
+ * Used for a keepalive write on deadline/status changes before a tab closes. */
+export async function patchSnapshotTasks(userId: string, changed: Task[]): Promise<boolean> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const current = await rows<{ payload: Record<string, unknown>; version: string }>(sql()`
+      select payload, updated_at::text as version from planner_snapshots where user_id=${userId} limit 1
+    `);
+    if (!current[0] || !Array.isArray(current[0].payload.tasks)) return false;
+    const original = current[0].payload.tasks as Task[];
+    const merged = mergeTasks(original, changed).tasks;
+    if (JSON.stringify(original) === JSON.stringify(merged)) return true;
+    const next = { ...current[0].payload, tasks: merged };
+    const updated = await rows<{ user_id: string }>(sql()`
+      update planner_snapshots set payload=${JSON.stringify(next)}::jsonb, updated_at=now()
+      where user_id=${userId} and updated_at=${current[0].version}::timestamptz returning user_id
+    `);
+    if (updated.length) return true;
+  }
+  throw new Error('Snapshot changed too many times; retry sync.');
 }
 
 /* ---------------------------------------------------------- attachments */

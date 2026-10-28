@@ -2,6 +2,8 @@ import Dexie, { type Table } from 'dexie';
 import type { ReminderRecord, SavedReport, Settings, Task, TaskEvent, TimeSession } from './types';
 import type { AttachmentRecord } from './attachments';
 import { DEFAULT_SETTINGS } from './types';
+import type { BackupFile } from './backupTypes';
+import { mergeIsQuiet, mergeSnapshots } from './snapshot';
 
 export const DB_NAME = 'bd-command-center';
 
@@ -199,18 +201,8 @@ export async function clearAllData(): Promise<void> {
   );
 }
 
-export interface BackupFile {
-  app: string;
-  version: number;
-  exportedAt: string;
-  settings: Settings;
-  tasks: Task[];
-  timeSessions: TimeSession[];
-  reminderRecords: ReminderRecord[];
-  taskEvents: TaskEvent[];
-  /** Optional: files written before daily updates existed simply lack it. */
-  reports?: SavedReport[];
-}
+export type { BackupFile } from './backupTypes';
+
 
 export function createBackupPayload(
   settings: Settings,
@@ -263,6 +255,33 @@ export function validateBackup(input: unknown): { ok: true; data: BackupFile } |
         : [],
     },
   };
+}
+
+/** Merge a pulled snapshot with the latest local data under one IndexedDB
+ * transaction. An edit made while the network request was in flight must not
+ * be cleared by restoring a stale copy. No task or log store is cleared. */
+export async function mergeCloudSnapshot(remote: BackupFile, changedAt: () => string): Promise<ReturnType<typeof mergeSnapshots>> {
+  return db.transaction('rw', [db.tasks, db.timeSessions, db.reminderRecords, db.taskEvents, db.settings, db.reports], async () => {
+    const [settings, tasks, sessions, reminders, events, reports] = await Promise.all([
+      loadSettings(), listTasks(), listSessions(), listReminders(), listAllEvents(), listReports(),
+    ]);
+    const local = createBackupPayload(settings, tasks, sessions, reminders, events, reports);
+    local.exportedAt = changedAt();
+    const result = mergeSnapshots(local, remote);
+    if (!mergeIsQuiet(result.stats)) {
+      await db.tasks.bulkPut(result.merged.tasks);
+      await db.timeSessions.bulkPut(result.merged.timeSessions);
+      await db.reminderRecords.bulkPut(result.merged.reminderRecords);
+      await db.taskEvents.bulkPut(result.merged.taskEvents);
+      // Reports have one row per date, including when devices created different IDs.
+      const chosen = new Map((result.merged.reports ?? []).map((row) => [row.dateISO, row.id]));
+      const superseded = reports.filter((row) => chosen.has(row.dateISO) && chosen.get(row.dateISO) !== row.id);
+      if (superseded.length) await db.reports.bulkDelete(superseded.map((row) => row.id));
+      await db.reports.bulkPut(result.merged.reports ?? []);
+      await db.settings.put({ ...DEFAULT_SETTINGS, ...result.merged.settings, id: 'app' });
+    }
+    return result;
+  });
 }
 
 export async function restoreBackup(data: BackupFile, mode: 'merge' | 'replace'): Promise<void> {

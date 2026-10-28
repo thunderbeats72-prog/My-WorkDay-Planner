@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { AlarmClock, Bell, BellOff, Check, CheckCheck, Clock, Settings as SettingsIcon, Trash2, X } from 'lucide-react';
+import { AlarmClock, Bell, BellOff, Check, CheckCheck, Settings as SettingsIcon, Trash2, X } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import type { AppNotification, AppNotificationKind, NativePermission } from '../lib/notifications';
 import { unreadCount } from '../lib/notifications';
@@ -19,6 +19,11 @@ const CONSEQUENCE: Record<AppNotificationKind, string> = {
   reminder: 'Deadline',
   test: 'Test',
   system: 'Planner',
+  upcoming: 'Upcoming',
+  due: 'Due now',
+  overdue: 'Overdue',
+  completed: 'Completed',
+  summary: 'Daily summary',
 };
 
 export function NotificationCenter({
@@ -26,26 +31,32 @@ export function NotificationCenter({
   permission,
   alertsEnabled,
   onOpenTask,
+  onOpenOverdue,
   onSnooze,
   onDismiss,
   onMarkAllRead,
+  onMarkRead,
   onClearAll,
   onRequestPermission,
   onSendTest,
   onOpenSettings,
+  backgroundMessage,
 }: {
   notifications: AppNotification[];
   permission: NativePermission;
   /** The in-app switch in Settings — separate from the browser's permission. */
   alertsEnabled: boolean;
-  onOpenTask: (taskId: string) => void;
-  onSnooze: (taskId: string) => void;
+  onOpenTask: (taskId: string, notificationId?: string) => void;
+  onOpenOverdue: (notificationId?: string) => void;
+  onSnooze: (taskId: string, minutes: number) => void;
   onDismiss: (notification: AppNotification) => void;
   onMarkAllRead: () => void;
+  onMarkRead: (id: string) => void;
   onClearAll: () => void;
   onRequestPermission: () => void;
   onSendTest: () => void;
   onOpenSettings: () => void;
+  backgroundMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
   const unread = unreadCount(notifications);
@@ -128,7 +139,7 @@ export function NotificationCenter({
                     </p>
                   </div>
                   <button type="button" className="btn btn-primary btn-sm" onClick={onRequestPermission}>
-                    Turn on
+                    Enable system notifications
                   </button>
                 </>
               ) : (
@@ -138,13 +149,12 @@ export function NotificationCenter({
                     <p>
                       <strong>Get alerts on this device</strong>
                       <span>
-                        Laptop and phone banners, even when the planner is in another tab. Permission is asked
-                        once; nothing leaves this browser.
+                        Allow this device to show reminders. Closed-tab delivery also requires a synced account and a configured scheduler.
                       </span>
                     </p>
                   </div>
                   <button type="button" className="btn btn-primary btn-sm" onClick={onRequestPermission}>
-                    Turn on
+                    Enable system notifications
                   </button>
                 </>
               )}
@@ -152,7 +162,7 @@ export function NotificationCenter({
           ) : (
             <div className="notify-permission is-granted">
               <Check size={15} />
-              <p>System alerts are on for this device.</p>
+              <p>{backgroundMessage || 'System notification permission is enabled on this device.'}</p>
               <button type="button" className="link-button" onClick={onSendTest}>
                 Send test
               </button>
@@ -166,13 +176,13 @@ export function NotificationCenter({
               </span>
               <p className="notify-empty-title">All clear</p>
               <p className="notify-empty-copy">
-                Reminders land here when a deadline is close — and on your lock screen if alerts are on.
+                Reminders land here when a deadline is close. Device banners depend on setup, browser and OS permissions.
               </p>
             </div>
           ) : (
             <ul className="notify-list">
               {notifications.map((item) => (
-                <li key={item.id} className={`notify-item ${item.read ? '' : 'is-unread'}`.trim()}>
+                <li key={item.id} className={`notify-item ${item.read ? '' : 'is-unread'} ${item.kind === 'overdue' ? 'is-overdue' : ''}`.trim()}>
                   <span className={`notify-dot is-${item.kind}`} aria-hidden="true" />
                   <div className="notify-copy">
                     <p className="notify-title">
@@ -181,10 +191,14 @@ export function NotificationCenter({
                           type="button"
                           className="notify-open"
                           onClick={() => {
-                            onOpenTask(item.taskId as string);
+                            onOpenTask(item.taskId as string, item.id);
                             setOpen(false);
                           }}
                         >
+                          {item.title}
+                        </button>
+                      ) : item.kind === 'summary' ? (
+                        <button type="button" className="notify-open" onClick={() => { onOpenOverdue(item.id); setOpen(false); }}>
                           {item.title}
                         </button>
                       ) : (
@@ -195,19 +209,28 @@ export function NotificationCenter({
                     <p className="notify-meta">
                       <span>{CONSEQUENCE[item.kind]}</span>
                       <span aria-hidden="true">·</span>
-                      <span>{whenLabel(item.createdAt)}</span>
+                      <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()}>{whenLabel(item.createdAt)}</time>
+                      {item.delivery === 'pending' ? <span>· Queued</span> : item.delivery === 'failed' ? <span>· Delivery failed</span> : null}
                     </p>
                   </div>
                   <div className="notify-actions">
-                    {item.taskId ? (
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn-sm"
-                        title="Snooze 15 minutes"
-                        aria-label={`Snooze ${item.title} for 15 minutes`}
-                        onClick={() => onSnooze(item.taskId as string)}
+                    {item.taskId && item.kind !== 'completed' ? (
+                      <select
+                        className="notify-snooze"
+                        aria-label={`Snooze ${item.title}`}
+                        value=""
+                        onChange={(event) => { if (event.target.value) onSnooze(item.taskId as string, Number(event.target.value)); }}
                       >
-                        <Clock size={14} />
+                        <option value="">Snooze…</option>
+                        <option value="10">10 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="60">1 hour</option>
+                      </select>
+                    ) : null}
+                    {!item.read ? (
+                      <button type="button" className="icon-btn icon-btn-sm" title="Mark as read"
+                        aria-label={`Mark ${item.title} as read`} onClick={() => onMarkRead(item.id)}>
+                        <Check size={14} />
                       </button>
                     ) : null}
                     <button

@@ -3,13 +3,10 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { Category, PageId, ReminderRecord, Settings, Task } from './lib/types';
 import { DEFAULT_SETTINGS, normaliseCustomCategory } from './lib/types';
 import {
-  combineDateTime,
   daysFromNow,
-  dueLabel,
   formatDateLong,
   formatDuration,
   formatSecondsLabel,
-  isQuietNow,
   relativeDayLabel,
   taskDueAt,
   toISODate,
@@ -31,22 +28,28 @@ import {
   uniqueId,
   validateBackup,
 } from './lib/db';
-import { applyPlanToTasks, buildDailyDigest, buildReminderDue, buildReminders } from './lib/engine';
+import { applyPlanToTasks, buildReminders } from './lib/engine';
 import {
   addNotification,
   clearNotifications as clearNotificationList,
   deliverNative,
-  forgetDelivered,
   loadNotifications,
   markAllNotificationsRead,
+  markNotificationRead,
   markDelivered,
-  registerBackgroundChecks,
+  notificationsForAccount,
   saveNotifications,
   sendTestNotification,
   wasDelivered,
+  unmarkDelivered,
 } from './lib/notifications';
 import type { AppNotification } from './lib/notifications';
-import type { BusyInterval, DayPlan, LearnedDurations, ParsedDraft, ReminderDue, ReminderItem } from './lib/engine';
+import { nextReminderRecordTimestamp, prepareReminderTaskEdit, reminderCandidates, taskDeadline } from './lib/reminderSchedule';
+import { loadCloudSession } from './lib/cloudSync';
+import { syncChangedTasksKeepalive } from './lib/taskKeepalive';
+import { enableBackgroundPush, inspectBackgroundPush, queuePushTest, snoozeCloudTask, updateCloudHistory } from './lib/pushClient';
+import type { BackgroundPushStatus } from './lib/pushClient';
+import type { BusyInterval, DayPlan, LearnedDurations, ParsedDraft, ReminderItem } from './lib/engine';
 import {
   beginGraphSignIn,
   cleanGraphRedirectUrl,
@@ -208,7 +211,13 @@ export default function App() {
   const [meetings, setMeetings] = useState<BusyInterval[]>([]);
   const graphRedirectHandled = useRef(false);
   const [notificationPermission, requestNotificationPermission] = useNotificationPermission();
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
+  const [notifications, setNotifications] = useState<AppNotification[]>(() =>
+    notificationsForAccount(loadNotifications(), loadCloudSession()?.userId ?? null));
+  const [pushStatus, setPushStatus] = useState<BackgroundPushStatus>({
+    state: 'checking', message: 'Checking background reminder setup…', subscribed: false, schedulerLastSuccess: null, history: [],
+  });
+  const [taskScope, setTaskScope] = useState<'all' | 'overdue'>('all');
+  const [taskScopeRevision, setTaskScopeRevision] = useState(0);
 
   useAmbientEffects(!loading);
   usePrivacyBlur(settings.privacyBlur);
@@ -280,6 +289,7 @@ export default function App() {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
+  const refreshTimerAfterSync = useRef<(() => Promise<void>) | null>(null);
   /** Re-reads the local database — used after a sync merges another device's work. */
   const reloadFromDevice = useCallback(async () => {
     const [loadedSettings, loadedTasks, loadedReminders] = await Promise.all([
@@ -293,12 +303,58 @@ export default function App() {
     setSettings(loadedSettings);
     setTasks(loadedTasks);
     setReminders(loadedReminders);
+    await refreshTimerAfterSync.current?.();
   }, []);
 
   const account = useAccount({
     onDataChanged: () => void reloadFromDevice(),
     onNotice: addToast,
   });
+
+  const refreshBackground = useCallback(async () => {
+    const session = loadCloudSession();
+    const accountId = session?.userId ?? null;
+    if (session && typeof navigator !== 'undefined' && !navigator.onLine) {
+      setPushStatus((current) => ({ ...current, state: 'error', message: 'Offline: background setup cannot be verified. Local changes must sync after reconnecting.' }));
+      setNotifications((current) => saveNotifications(notificationsForAccount(current, accountId)));
+      return;
+    }
+    const status = await inspectBackgroundPush();
+    // An older request must never put the previous account's inbox back after
+    // sign-out or a quick sign-in to another account.
+    if ((loadCloudSession()?.accessToken ?? null) !== (session?.accessToken ?? null)) return;
+    if (session && typeof navigator !== 'undefined' && !navigator.onLine) {
+      setPushStatus((current) => ({ ...current, state: 'error', message: 'Offline: background setup cannot be verified. Local changes must sync after reconnecting.' }));
+      setNotifications((current) => saveNotifications(notificationsForAccount(current, accountId)));
+      return;
+    }
+    setPushStatus(status);
+    setNotifications((current) => {
+      const visible = notificationsForAccount(current, accountId);
+      if (status.state === 'error') return saveNotifications(visible);
+      const local = visible.filter((item) => !item.id.startsWith('cloud:'));
+      const history = status.history.map((item) => ({ ...item, accountId: accountId ?? undefined }));
+      return saveNotifications([...history, ...local]);
+    });
+  }, []);
+
+  useEffect(() => {
+    void refreshBackground();
+    const onWake = () => { if (document.visibilityState === 'visible') void refreshBackground(); };
+    window.addEventListener('online', onWake);
+    window.addEventListener('offline', onWake);
+    window.addEventListener('focus', onWake);
+    document.addEventListener('visibilitychange', onWake);
+    // Only refreshes setup/history while the UI is open. The server owns the schedule.
+    const timerId = window.setInterval(onWake, 60_000);
+    return () => {
+      window.removeEventListener('online', onWake);
+      window.removeEventListener('offline', onWake);
+      window.removeEventListener('focus', onWake);
+      document.removeEventListener('visibilitychange', onWake);
+      window.clearInterval(timerId);
+    };
+  }, [refreshBackground, account.cloudConnected, account.syncBuiltIn]);
 
   // Task and settings editing was written before sync existed, so it reaches
   // the sync engine through a ref rather than threading a new prop everywhere.
@@ -415,12 +471,29 @@ export default function App() {
   }, [confettiKey]);
 
   const persistTasks = useCallback((next: Task[], changed?: Task[]) => {
-    tasksRef.current = next;
-    setTasks(next);
-    if (changed && changed.length > 0) {
-      void saveTasks(changed);
-      // Queue a push so the other device sees this without waiting for a poll.
-      accountRef.current?.schedulePush();
+    const previous = tasksRef.current;
+    // Changing a deadline (including changing it back) or reopening starts a
+    // new reminder generation; old event keys and snoozes cannot carry over.
+    const adjusted = changed?.map((task) =>
+      prepareReminderTaskEdit(task, previous.find((item) => item.id === task.id)));
+    const adjustedById = new Map((adjusted ?? []).map((task) => [task.id, task]));
+    const finalTasks = next.map((task) => adjustedById.get(task.id) ?? task);
+    tasksRef.current = finalTasks;
+    setTasks(finalTasks);
+    if (adjusted && adjusted.length > 0) {
+      const scheduleChanged = adjusted.some((task) => {
+        const before = previous.find((item) => item.id === task.id);
+        return !before || before.status !== task.status || before.dueDate !== task.dueDate ||
+          before.dueTime !== task.dueTime || before.deletedAt !== task.deletedAt;
+      });
+      void saveTasks(adjusted).then(() => {
+        accountRef.current?.schedulePush();
+        if (scheduleChanged && accountRef.current?.cloudConnected && accountRef.current.syncBuiltIn) void syncChangedTasksKeepalive(adjusted);
+        // Deadlines/status/deletions invalidate server jobs as soon as sync can
+        // reach it. An offline device retains the edit locally for later sync.
+        if (scheduleChanged && accountRef.current?.cloudConnected) void accountRef.current.syncNow();
+      });
+      if (scheduleChanged) console.info('[reminders] task schedule/status changed');
     }
   }, []);
 
@@ -454,6 +527,8 @@ export default function App() {
     enabled: !loading,
   });
 
+  useEffect(() => { refreshTimerAfterSync.current = timer.refresh; }, [timer.refresh]);
+
   const applyTheme = useCallback(
     (theme: Settings['theme']) => {
       if (settingsRef.current.theme === theme) return;
@@ -469,10 +544,16 @@ export default function App() {
   const toggleTheme = useCallback(() => applyTheme(isDark ? 'light' : 'dark'), [applyTheme, isDark]);
 
   const updateSettings = useCallback(async (next: Settings) => {
-    settingsRef.current = next;
-    setSettings(next);
-    await saveSettings(next);
+    const previous = settingsRef.current;
+    const saved = next.notificationsEnabled && !next.reminderTimeZone
+      ? { ...next, reminderTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : next;
+    settingsRef.current = saved;
+    setSettings(saved);
+    await saveSettings(saved);
     accountRef.current?.schedulePush();
+    if (previous.notificationsEnabled && !saved.notificationsEnabled && accountRef.current?.cloudConnected) {
+      void accountRef.current.syncNow();
+    }
   }, []);
 
   /**
@@ -662,8 +743,18 @@ export default function App() {
 
   const reopenTask = useCallback(
     async (id: string) => {
-      const updated = updateTaskById(id, (task) => ({ ...task, status: 'todo', completedAt: null }));
+      const cycle = new Date().toISOString();
+      const updated = updateTaskById(id, (task) => ({ ...task, status: 'todo', completedAt: null, reminderCycle: cycle }));
       if (!updated) return;
+      const currentTask = tasksRef.current.find((task) => task.id === id) ?? updated;
+      const reopened = remindersRef.current.filter((record) => record.taskId === id)
+        .map((record) => ({ ...record, status: 'queued' as const, snoozedUntil: null, updatedAt: nextReminderRecordTimestamp(currentTask, record) }));
+      if (reopened.length) {
+        remindersRef.current = remindersRef.current.map((record) => reopened.find((item) => item.id === record.id) ?? record);
+        setReminders(remindersRef.current);
+        await saveReminders(reopened);
+        accountRef.current?.schedulePush();
+      }
       await logEvent(id, 'status', 'Task reopened — completion undone');
       addToast('Task reopened.', 'info');
     },
@@ -865,31 +956,37 @@ export default function App() {
   );
 
   const snoozeTask = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, minutes = 15) => {
       const task = tasksRef.current.find((candidate) => candidate.id === taskId);
       if (!task) return;
-      const dueAt = combineDateTime(task.dueDate ?? todayISO(), task.dueTime || '17:00').toISOString();
+      const zone = settingsRef.current.reminderTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const dueAt = (taskDeadline(task, { ...settingsRef.current, reminderTimeZone: zone }) ?? new Date()).toISOString();
       const recordId = `rem_${task.id}_${task.dueDate ?? 'none'}_${task.dueTime || 'eod'}`;
       const existing = remindersRef.current.find((record) => record.id === recordId);
+      const recordAt = nextReminderRecordTimestamp(task, existing);
       const record: ReminderRecord = {
         id: recordId,
         taskId: task.id,
         dueAt,
         status: 'queued',
-        snoozedUntil: new Date(Date.now() + 15 * 60_000).toISOString(),
-        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        snoozedUntil: new Date(Date.now() + minutes * 60_000).toISOString(),
+        createdAt: existing?.createdAt ?? recordAt,
+        updatedAt: recordAt,
       };
       const next = [...remindersRef.current.filter((item) => item.id !== recordId), record];
       remindersRef.current = next;
       setReminders(next);
       await saveReminders([record]);
-      await logEvent(task.id, 'reminder', 'Reminder snoozed for 15 minutes');
-      // A snooze is a request to be told again — clear the de-dupe marker.
-      forgetDelivered(task.id);
+      accountRef.current?.schedulePush();
+      if (accountRef.current?.cloudConnected && accountRef.current.syncBuiltIn) {
+        try { await snoozeCloudTask(task.id, minutes); }
+        catch { addToast('Snooze saved locally; sync before closing the planner to update background reminders.', 'warning'); }
+      }
+      await logEvent(task.id, 'reminder', `Reminder snoozed for ${minutes} minutes`);
       setNotifications((current) =>
-        saveNotifications(current.filter((item) => item.taskId !== task.id || item.kind === 'test')),
+        saveNotifications(current.filter((item) => item.taskId !== task.id || item.kind === 'test' || item.id.startsWith('cloud:'))),
       );
-      addToast('Reminder snoozed for 15 minutes.', 'info');
+      addToast(`Reminder snoozed for ${minutes} minutes.`, 'info');
     },
     [addToast],
   );
@@ -898,21 +995,26 @@ export default function App() {
     async (taskId: string) => {
       const task = tasksRef.current.find((candidate) => candidate.id === taskId);
       if (!task) return;
-      const dueAt = combineDateTime(task.dueDate ?? todayISO(), task.dueTime || '17:00').toISOString();
+      const zone = settingsRef.current.reminderTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const dueAt = (taskDeadline(task, { ...settingsRef.current, reminderTimeZone: zone }) ?? new Date()).toISOString();
       const recordId = `rem_${task.id}_${task.dueDate ?? 'none'}_${task.dueTime || 'eod'}`;
       const existing = remindersRef.current.find((record) => record.id === recordId);
+      const recordAt = nextReminderRecordTimestamp(task, existing);
       const record: ReminderRecord = {
         id: recordId,
         taskId: task.id,
         dueAt,
         status: 'dismissed',
         snoozedUntil: null,
-        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        createdAt: existing?.createdAt ?? recordAt,
+        updatedAt: recordAt,
       };
       const next = [...remindersRef.current.filter((item) => item.id !== recordId), record];
       remindersRef.current = next;
       setReminders(next);
       await saveReminders([record]);
+      accountRef.current?.schedulePush();
+      if (accountRef.current?.cloudConnected) void accountRef.current.syncNow();
       await logEvent(task.id, 'reminder', 'Reminder dismissed');
       setNotifications((current) => saveNotifications(current.filter((item) => item.taskId !== task.id)));
       addToast('Reminder dismissed.', 'info');
@@ -1341,71 +1443,101 @@ export default function App() {
   );
 
   const handleRequestNotifications = useCallback(async (): Promise<string> => {
+    // The browser prompt is reached only from the explicit Enable button.
     const permission = await requestNotificationPermission();
-    if (permission === 'granted') {
-      const next = { ...settingsRef.current, notificationsEnabled: true };
-      await updateSettings(next);
-      void registerBackgroundChecks();
-      addToast('Notifications enabled on this device.', 'success');
-    } else if (permission === 'denied') {
-      addToast('Browser permission was denied. In-app reminders still work.', 'warning');
+    console.info('[reminders] permission state', { permission });
+    if (permission !== 'granted') {
+      addToast(permission === 'denied' ? 'Notifications are blocked in browser settings.' : 'System notification permission was not granted.', 'warning');
+      return permission;
+    }
+    const zone = settingsRef.current.reminderTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const settingsWrite = updateSettings({ ...settingsRef.current, notificationsEnabled: true, reminderTimeZone: zone });
+    if (account.cloudConnected && account.syncBuiltIn) {
+      // Subscribe locally as close to the click as possible (important on iOS),
+      // then sync before exposing that subscription to the server scheduler.
+      const status = await enableBackgroundPush(async () => {
+        await settingsWrite;
+        const sync = await account.syncNow();
+        if (!sync.ok) throw new Error(`Permission granted, but background setup needs a successful sync: ${sync.message}`);
+      });
+      await settingsWrite;
+      setPushStatus(status);
+      if (status.state === 'active') addToast('Background reminders are set up on this device.', 'success');
+      else addToast(status.message, 'warning');
+      await refreshBackground();
+    } else {
+      await settingsWrite;
+      await refreshBackground();
+      addToast('System permission granted. Sign in to a configured Neon account for reminders with the planner closed.', 'info');
     }
     return permission;
-  }, [addToast, requestNotificationPermission, updateSettings]);
+  }, [account, addToast, refreshBackground, requestNotificationPermission, updateSettings]);
 
-  const handleOpenNotificationTask = useCallback((taskId: string) => {
+  const handleMarkRead = useCallback((id: string) => {
+    setNotifications((current) => markNotificationRead(current, id));
+    if (id.startsWith('cloud:')) void updateCloudHistory('read', id).catch(() => addToast('Could not sync the read state yet.', 'warning'));
+  }, [addToast]);
+
+  const handleOpenNotificationTask = useCallback((taskId: string, id?: string) => {
     setPage('tasks');
+    setTaskScope('all');
+    setTaskScopeRevision((revision) => revision + 1);
     setPanelId(taskId);
-    setNotifications((current) => markAllNotificationsRead(current));
-  }, []);
+    if (id) handleMarkRead(id);
+  }, [handleMarkRead]);
+
+  const handleOpenOverdue = useCallback((id?: string) => {
+    setPage('tasks');
+    setPanelId(null);
+    setTaskScope('overdue');
+    // The user may have manually changed the filter since the previous click.
+    setTaskScopeRevision((revision) => revision + 1);
+    if (id) handleMarkRead(id);
+  }, [handleMarkRead]);
 
   const handleMarkAllRead = useCallback(() => {
     setNotifications((current) => markAllNotificationsRead(current));
-  }, []);
+    if (account.cloudConnected && account.syncBuiltIn) void updateCloudHistory('readAll').catch(() => addToast('Could not sync the read state yet.', 'warning'));
+  }, [account.cloudConnected, account.syncBuiltIn, addToast]);
 
   const handleClearNotifications = useCallback(() => {
     setNotifications(clearNotificationList());
-  }, []);
+    if (account.cloudConnected && account.syncBuiltIn) void updateCloudHistory('clearAll').catch(() => addToast('Could not clear the synced history yet.', 'warning'));
+  }, [account.cloudConnected, account.syncBuiltIn, addToast]);
 
   const handleDismissNotification = useCallback((item: AppNotification) => {
     setNotifications((current) => saveNotifications(current.filter((entry) => entry.id !== item.id)));
-  }, []);
+    if (item.id.startsWith('cloud:')) void updateCloudHistory('clear', item.id).catch(() => addToast('Could not clear the synced notification yet.', 'warning'));
+  }, [addToast]);
 
-  /**
-   * Proves the whole chain end to end: in-app entry, OS banner, and a
-   * permission prompt when the browser has not been asked yet.
-   */
   const handleSendTestNotification = useCallback(async () => {
-    let permission = notificationPermission;
-    if (permission !== 'granted') permission = await requestNotificationPermission();
-
-    setNotifications((current) =>
-      addNotification(current, {
-        id: `test_${Date.now()}`,
-        taskId: null,
-        title: 'Notifications are on',
-        body: 'This is what a deadline alert looks like on this device.',
-        createdAt: new Date().toISOString(),
-        dueAt: null,
-        read: false,
-        kind: 'test',
-      }),
-    );
-
-    if (permission !== 'granted') {
-      addToast('Saved in-app. Allow notifications to also get system alerts.', 'info');
+    // Testing must never trigger a surprise permission prompt.
+    if (notificationPermission !== 'granted') {
+      addToast('Enable system notifications first.', 'warning');
       return;
     }
-    if (!settingsRef.current.notificationsEnabled) {
-      await updateSettings({ ...settingsRef.current, notificationsEnabled: true });
+    if (pushStatus.subscribed) {
+      try {
+        await queuePushTest();
+        addToast(pushStatus.state === 'active'
+          ? 'Test push queued for the next scheduler run. Check your device’s notification center.'
+          : 'Test push queued, but the scheduler has not run recently. Check its setup.', pushStatus.state === 'active' ? 'info' : 'warning');
+        void refreshBackground();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Could not queue the test push.', 'warning');
+      }
+      return;
     }
     const sent = await sendTestNotification();
-    addToast(
-      sent ? 'Test notification sent to this device.' : 'System notifier unavailable — the in-app copy is above.',
-      sent ? 'success' : 'warning',
-    );
-    void registerBackgroundChecks();
-  }, [addToast, notificationPermission, requestNotificationPermission, updateSettings]);
+    if (sent) {
+      setNotifications((current) => addNotification(current, {
+        id: `test_${Date.now()}`, taskId: null, title: 'Local notification test',
+        body: 'The device accepted a local test. This does not test closed-tab delivery.',
+        createdAt: new Date().toISOString(), dueAt: null, read: false, kind: 'test',
+      }));
+    }
+    addToast(sent ? 'Local system test requested. This does not test background push.' : 'The system notifier is unavailable on this device.', sent ? 'info' : 'warning');
+  }, [addToast, notificationPermission, pushStatus, refreshBackground]);
 
   const handleOnboarding = useCallback(
     async (next: Settings) => {
@@ -1432,156 +1564,85 @@ export default function App() {
     });
   }, [tasks, settings, now, reminders]);
 
-  /**
-   * Reminders become notifications here.
-   *
-   * Three decisions shape this:
-   *
-   *   · The in-app list is always written; it is the reliable layer. The OS is
-   *     asked only when alerts are enabled, permission is granted and it is not
-   *     quiet hours.
-   *   · A pending task is nudged again every `reminderRepeatMinutes`, not just
-   *     once at its deadline. The slot number is part of the de-duplication
-   *     key, so each nudge is new and none is delivered twice.
-   *   · A dismissed or snoozed reminder silences its task until it is done or
-   *     snoozed past — that is what dismissal means, and repeats must not
-   *     overrule it.
-   */
-  const dueReminders: ReminderDue[] = useMemo(() => {
-    /* A dismissal belongs to one deadline, not to the task forever: move the
-       task to tomorrow and it must be able to remind again. The record is keyed
-       by (task, deadline), so matching on the same pair keeps that promise. */
-    const silenced = new Set(
-      reminders
-        .filter(
-          (record) =>
-            record.status === 'done' ||
-            record.status === 'dismissed' ||
-            (record.snoozedUntil !== null && new Date(record.snoozedUntil).getTime() > now.getTime()),
-        )
-        .map((record) => `${record.taskId}|${record.dueAt}`),
-    );
-    return buildReminderDue(tasks, settings, now).filter(
-      (entry) => !silenced.has(`${entry.task.id}|${entry.dueAt.toISOString()}`),
-    );
-  }, [tasks, settings, now, reminders]);
-
+  // Local-only fallback uses the same stages as the server, but can run only
+  // while the page is active. Never run it alongside a registered push device.
   useEffect(() => {
-    if (dueReminders.length === 0) return;
-    /* Slot 0 keeps the key reminders used before repeats existed, so an alert
-       already in someone's bell is not re-delivered after this update. Every
-       repeat keys on the moment its window opened, which is unique per nudge
-       (a slot number alone would repeat across days). */
-    const keyOf = (entry: ReminderDue) =>
-      entry.slot === 0
-        ? `${entry.task.id}|${entry.dueAt.toISOString()}`
-        : `${entry.task.id}|${entry.dueAt.toISOString()}|${entry.nudgeAt.toISOString()}`;
-    const candidates = dueReminders.filter((entry) => !wasDelivered(keyOf(entry))).slice(0, 5);
-    if (candidates.length === 0) return;
-
-    const quiet = isQuietNow(settings, now);
-    /* Quiet hours mean quiet: the first alert is still recorded in the bell
-       (it is a list, not an interruption), but a repeat would only be noise at
-       2am and is skipped entirely. */
-    const deliverable = candidates.filter((entry) => entry.slot === 0 || !quiet);
-    if (deliverable.length === 0) return;
-
-    const createdAt = new Date().toISOString();
-    setNotifications((current) =>
-      deliverable.reduce((list, entry) => {
-        markDelivered(keyOf(entry));
-        const client = entry.task.client ? `${entry.task.client} · ` : '';
-        const repeatNote = entry.slot > 0 ? 'Still open · ' : '';
-        return addNotification(list, {
-          id: `rem_${entry.task.id}_${entry.dueAt.getTime()}`,
-          taskId: entry.task.id,
-          title: entry.task.title,
-          body: `${client}${repeatNote}${dueLabel(entry.task, now)}`,
-          createdAt,
-          dueAt: entry.dueAt.toISOString(),
-          read: false,
-          kind: 'reminder',
-        });
-      }, current),
-    );
-
-    if (!settings.notificationsEnabled || notificationPermission !== 'granted' || quiet) return;
-    for (const entry of deliverable.slice(0, 2)) {
-      const client = entry.task.client ? `${entry.task.client} · ` : '';
-      void deliverNative({
-        title: entry.task.title,
-        body: `${client}${entry.slot > 0 ? 'Still open · ' : ''}${dueLabel(entry.task, now)}`,
-        /* A fresh tag per repeat: the same tag with `renotify: false` replaces
-           the banner without making a sound, which would look like a reminder
-           that never arrived. */
-        tag: entry.slot === 0 ? `rem_${entry.task.id}` : `rem_${entry.task.id}_${entry.slot}`,
-        taskId: entry.task.id,
-        page: 'tasks',
+    if (loading || pushStatus.state === 'checking' || pushStatus.subscribed) return;
+    const zone = settings.reminderTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const candidates = reminderCandidates({ tasks, settings: { ...settings, notificationsEnabled: true, reminderTimeZone: zone }, reminderRecords: reminders }, now);
+    const historyKey = (candidate: (typeof candidates)[number]) =>
+      candidate.category === 'summary' ? `digest|${JSON.parse(candidate.key)[1]}` : `local|${candidate.key}`;
+    const pending = candidates.filter((candidate) => !wasDelivered(historyKey(candidate))).slice(0, 5);
+    if (pending.length) {
+      const items: AppNotification[] = pending.map((candidate) => {
+        const date = candidate.category === 'summary' ? String(JSON.parse(candidate.key)[1]) : '';
+        markDelivered(historyKey(candidate));
+        const task = candidate.taskId ? tasks.find((item) => item.id === candidate.taskId) : null;
+        return {
+          id: candidate.category === 'summary' ? `digest_${date}` : `local:${candidate.key}`,
+          taskId: candidate.taskId,
+          title: task?.title || (candidate.category === 'summary' ? 'Today’s pending work' : candidate.title),
+          body: candidate.body, createdAt: new Date().toISOString(), dueAt: candidate.dueAt,
+          read: false, kind: candidate.category,
+        };
       });
+      setNotifications((current) => saveNotifications([...items, ...current]));
     }
-  }, [dueReminders, settings, notificationPermission, now, addToast]);
+    // In-app history and OS delivery have separate markers. Granting
+    // permission after a reminder appeared in the inbox must still show it.
+    if (settings.notificationsEnabled && notificationPermission === 'granted') {
+      for (const candidate of candidates.filter((item) => !wasDelivered(`native|${item.key}`)).slice(0, 5)) {
+        const key = `native|${candidate.key}`;
+        markDelivered(key);
+        void deliverNative({ title: candidate.title, body: candidate.body, tag: `local:${candidate.key}`,
+          taskId: candidate.taskId, page: 'tasks', silent: candidate.silent, overdue: candidate.category === 'summary',
+        }).then((sent) => { if (!sent) unmarkDelivered(key); });
+      }
+    }
+  }, [tasks, settings, reminders, now, loading, notificationPermission, pushStatus.state, pushStatus.subscribed]);
 
-  /**
-   * One summary a day: everything still open, including work with no deadline.
-   *
-   * Without this, a task with no due date has nothing for a deadline reminder
-   * to hang on and can sit in the list unnoticed. Delivered at most once per
-   * calendar day, keyed by the date itself.
-   */
+  // Open the correct task on a cold PWA launch, too (not just an existing tab).
   useEffect(() => {
-    const digest = buildDailyDigest(tasks, settings, now);
-    if (!digest) return;
-    const key = `digest|${digest.dateISO}`;
-    if (wasDelivered(key)) return;
-    markDelivered(key);
+    if (loading) return;
+    const params = new URLSearchParams(window.location.search);
+    const taskId = params.get('openTask');
+    const error = params.get('notificationError');
+    if (taskId) { setPage('tasks'); setPanelId(taskId); }
+    if (params.get('filter') === 'overdue') handleOpenOverdue();
+    if (error) addToast(error, 'warning');
+    if (taskId || error || params.has('filter')) {
+      params.delete('openTask'); params.delete('filter'); params.delete('notificationError');
+      const query = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    }
+  }, [loading, addToast, handleOpenOverdue]);
 
-    const parts: string[] = [];
-    if (digest.overdue.length > 0) parts.push(`${digest.overdue.length} overdue`);
-    if (digest.dueToday.length > 0) parts.push(`${digest.dueToday.length} due today`);
-    if (digest.undated.length > 0) parts.push(`${digest.undated.length} with no date`);
-    const body = `${digest.total} task${digest.total === 1 ? '' : 's'} still open — ${parts.join(', ')}.`;
-
-    setNotifications((current) =>
-      addNotification(current, {
-        id: `digest_${digest.dateISO}`,
-        taskId: null,
-        title: 'Today’s pending work',
-        body,
-        createdAt: new Date().toISOString(),
-        dueAt: null,
-        read: false,
-        kind: 'reminder',
-      }),
-    );
-
-    if (!settings.notificationsEnabled || notificationPermission !== 'granted' || isQuietNow(settings, now)) return;
-    void deliverNative({
-      title: `Today’s pending work — ${digest.total}`,
-      body,
-      tag: `digest_${digest.dateISO}`,
-      page: 'tasks',
-    });
-  }, [tasks, settings, now, notificationPermission]);
-
-  // Ask the installed app to check reminders in the background (best effort).
-  useEffect(() => {
-    if (notificationPermission !== 'granted' || !settings.notificationsEnabled) return;
-    void registerBackgroundChecks();
-  }, [notificationPermission, settings.notificationsEnabled]);
-
-  // Tapping an OS notification focuses the app and opens the task.
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
     const onMessage = (event: MessageEvent) => {
       const data = event.data;
-      if (!data || data.type !== 'workday:notification-click') return;
+      if (!data) return;
+      if (data.type === 'workday:push-received' || data.type === 'workday:subscription-changed') {
+        void refreshBackground();
+      }
+      if (data.type === 'workday:notification-action') {
+        void (async () => {
+          const result = await accountRef.current?.syncNow();
+          if (result?.ok) await reloadFromDevice();
+          else addToast('Action saved on the server. Reconnect to update this screen.', 'info');
+          await refreshBackground();
+        })();
+      }
+      if (data.type !== 'workday:notification-click') return;
       setPage('tasks');
       if (typeof data.taskId === 'string') setPanelId(data.taskId);
-      setNotifications((current) => markAllNotificationsRead(current));
+      if (data.overdue) handleOpenOverdue();
+      if (data.error) addToast(data.error, 'warning');
+      void refreshBackground();
     };
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
-  }, []);
+  }, [addToast, refreshBackground, reloadFromDevice, handleOpenOverdue]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1804,13 +1865,16 @@ export default function App() {
       permission={notificationPermission}
       alertsEnabled={settings.notificationsEnabled}
       onOpenTask={handleOpenNotificationTask}
-      onSnooze={(taskId) => void snoozeTask(taskId)}
+      onOpenOverdue={handleOpenOverdue}
+      onSnooze={(taskId, minutes) => void snoozeTask(taskId, minutes)}
       onDismiss={handleDismissNotification}
       onMarkAllRead={handleMarkAllRead}
+      onMarkRead={handleMarkRead}
       onClearAll={handleClearNotifications}
       onRequestPermission={() => void handleRequestNotifications()}
       onSendTest={() => void handleSendTestNotification()}
       onOpenSettings={() => setPage('settings')}
+      backgroundMessage={pushStatus.message}
     />
   );
 
@@ -1838,10 +1902,12 @@ export default function App() {
       case 'tasks':
         return (
           <MyTasksPage
+            key={taskScopeRevision}
             {...common}
             onOpenImport={() => setImportOpen(true)}
             onApplyPlan={applyPlan}
             onFetchClientMail={handleFetchClientMail}
+            initialScope={taskScope}
           />
         );
       case 'completed':
@@ -1883,6 +1949,7 @@ export default function App() {
             notificationsPermission={notificationPermission}
             onRequestNotifications={handleRequestNotifications}
             onSendTestNotification={() => void handleSendTestNotification()}
+            backgroundStatus={pushStatus}
             account={account}
           />
         );

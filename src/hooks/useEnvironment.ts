@@ -24,6 +24,12 @@ export function readNotificationPermission(): NotificationPermissionState {
 
 export function useNotificationPermission(): [NotificationPermissionState, () => Promise<NotificationPermissionState>] {
   const [permission, setPermission] = useState<NotificationPermissionState>(() => readNotificationPermission());
+  useEffect(() => {
+    const refresh = () => setPermission(readNotificationPermission());
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, []);
   const request = async (): Promise<NotificationPermissionState> => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setPermission('unsupported');
