@@ -1,7 +1,7 @@
 /* My Workday Planner — app shell, Web Push and a best-effort local fallback.
  * Background push is driven by the server, not by a worker timer. */
 
-const CACHE = 'workday-shell-v9';
+const CACHE = 'workday-shell-v10';
 const SHELL = [
   '/',
   '/index.html',
@@ -15,6 +15,15 @@ const SHELL = [
   '/favicon-16.png',
   '/favicon-32.png',
   '/favicon-48.png',
+  '/icon.svg?v=6',
+  '/icon-192.png?v=6',
+  '/icon-512.png?v=6',
+  '/icon-maskable-512.png?v=6',
+  '/apple-touch-icon.png?v=6',
+  '/favicon.ico?v=6',
+  '/favicon-16.png?v=6',
+  '/favicon-32.png?v=6',
+  '/favicon-48.png?v=6',
 ];
 
 self.addEventListener('install', (event) => {
@@ -131,8 +140,8 @@ self.addEventListener('fetch', (event) => {
 /* Notifications                                                       */
 /* ------------------------------------------------------------------ */
 
-const ICON = '/icon-192.png?v=5';
-const BADGE = '/favicon-32.png?v=5';
+const ICON = '/icon-192.png?v=6';
+const BADGE = '/favicon-32.png?v=6';
 
 async function showNotification(title, options) {
   try {

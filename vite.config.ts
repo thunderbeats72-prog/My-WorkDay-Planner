@@ -31,7 +31,7 @@ function absoluteSiteUrls(): Plugin {
 // The icon set is cache-busted as one generation. Bump this whenever a file in
 // public/ changes, and every browser and OS that respected the old icon will
 // fetch the new one instead of reusing its cached copy.
-const ASSET_GENERATION = '5'
+const ASSET_GENERATION = '6'
 
 function cacheBustIcons(): Plugin {
   return {
@@ -39,7 +39,7 @@ function cacheBustIcons(): Plugin {
     transformIndexHtml(html) {
       // Icons only. The manifest URL stays clean so PWA update detection
       // keeps working the way browsers expect.
-      return html.replace(/(href="\/[^"]*\.(?:png|svg))"/g, `$1?v=${ASSET_GENERATION}"`)
+      return html.replace(/(href="\/[^"]*\.(?:png|svg|ico))"/g, `$1?v=${ASSET_GENERATION}"`)
     },
   }
 }
