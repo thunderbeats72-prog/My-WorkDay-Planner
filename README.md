@@ -19,6 +19,8 @@ npx -y pnpm@10 lint
 - Screenshot Import: drag/drop or upload, Tesseract.js OCR with progress, editable raw text, deterministic parsing, confidence + ambiguous-date warnings, duplicate detection, **mandatory review before saving**, plus a sample-text mode
 - Scheduling: explainable scoring (priority + deadline + deferrals), daily timeline, lunch/buffers, capacity & remaining time, conflict warnings, unscheduled queue (never silently discarded), manual override
 - Time tracking: Start/Pause/Resume/Complete, one active session, timestamp-based elapsed time persisted in IndexedDB so it recovers after refresh
+- **Focus workspace:** a distraction-free, full-screen task timer with adjustable session goals, Space/Esc keyboard controls, minimize-and-return, finish and completion actions — all backed by the same persisted timer, never a second clock
+- **Daily momentum:** the Today dial now compares real completions today with open deadlines still due today; scheduled capacity remains visible separately, and deleted tasks never distort progress
 - Reminders: a persistent **notification centre**, plus server-scheduled Web Push for configured accounts and devices. Upcoming, due, overdue, completion and daily summaries support quiet hours, snooze, task links and browser-supported actions. See **Background reminders** below for setup and limitations.
 - Weekly report from real saved data (est. vs actual, follow-ups/proposals, category breakdown)
 - Daily update, as a tab inside Reports: an optional note when completing a task, and a one-tap "Generate Daily Report" for any date — completed struck through, pending plain, notes after their task, WhatsApp/Markdown/plain text, one saved update per day
@@ -1104,3 +1106,12 @@ page and checks the tasks followed).
 - Renaming rewrites the tasks that carry the old name; a **saved daily
   report** keeps the wording it was written with, because that is a record of a
   day rather than a live view.
+
+## Premium pass — daily momentum and focus workspace
+
+- **Open Focus mode** from Today's “Do this next” card or any open task's ⋮ menu. While a timer is running, the desktop utility bar also has a **Focus** return button.
+- The workspace uses the existing `TimeSession` engine: start, pause, resume and finish write the same IndexedDB records as every other timer control. Minimizing does not stop a running session, and closing the planner still follows the existing heartbeat safeguard.
+- **Session goals** default to the configured focus-block length, offer 15/25/50/90-minute presets, and are remembered on the device. The goal is a visual target only — reaching it never stops the timer or completes the task automatically.
+- **Keyboard:** Space starts, pauses or resumes when focus is not on another control; Esc minimizes. The dialog traps Tab and restores focus when closed.
+- **Daily momentum is not a productivity score.** It is `completed today ÷ (completed today + open tasks due today)`. Work completed today counts even if its original deadline was earlier; overdue open work stays in its own section rather than being hidden in the denominator. An empty day shows a dash, not a fabricated 0% or 100%.
+- Coverage includes pure progress and timer-math tests, component keyboard/goal tests, and a full-app IndexedDB flow that starts, minimizes, returns, pauses and completes a real task.

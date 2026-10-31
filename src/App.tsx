@@ -84,6 +84,7 @@ import type { ToastItem, ToastTone } from './components/ui';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { TodayPage } from './components/TodayPage';
+import { FocusMode } from './components/FocusMode';
 import { MyTasksPage } from './components/MyTasksPage';
 import { CompletedPage } from './components/CompletedPage';
 import { CompletionDialog } from './components/CompletionDialog';
@@ -104,12 +105,13 @@ import type { QuickAddDraft } from './lib/quickAdd';
 import { sharedToQuickText, takeSharedPayload } from './lib/shareInbox';
 import { buildFoldedIcs } from './lib/ics';
 import { learnDurations } from './lib/ml';
+import { focusElapsedMs } from './lib/focusSession';
 import { answerQuestion } from './lib/qa';
 import type { QaAnswer } from './lib/qa';
 import { useAccount } from './hooks/useAccount';
 import type { CommonPageProps } from './components/pageProps';
 import type { TaskCardHandlers } from './components/TaskCard';
-import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun, ScanText } from 'lucide-react';
+import { Keyboard, Search, Plus, Wifi, WifiOff, Moon, Sun, ScanText, Maximize2 } from 'lucide-react';
 
 const PAGE_IDS: PageId[] = ['today', 'tasks', 'completed', 'reports', 'settings'];
 const SIDEBAR_STORAGE_KEY = 'workday.sidebar';
@@ -190,6 +192,7 @@ export default function App() {
     window.location.hash.replace(/^#\/?/, '').trim() === 'daily' ? 'daily' : 'weekly',
   );
   const [panelId, setPanelId] = useState<string | null>(null);
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({ open: false, task: null, initialDraft: null });
   /* Which task is waiting for its optional completion note. The dialog never
      completes anything by itself — a cancel leaves the task untouched. */
@@ -1767,9 +1770,15 @@ export default function App() {
     addToast('A new day — the board has rolled over.', 'info');
   }, [now, addToast]);
 
+  const openFocusMode = useCallback((taskId: string) => {
+    setPanelId(null);
+    setFocusTaskId(taskId);
+  }, []);
+
   const taskHandlers = useCallback(
     (task: Task): TaskCardHandlers => ({
       onOpen: () => setPanelId(task.id),
+      onFocus: () => openFocusMode(task.id),
       onEdit: () => {
         setPanelId(null);
         setFormState({ open: true, task, initialDraft: null });
@@ -1784,8 +1793,12 @@ export default function App() {
       onDelete: () => requestDelete(task),
       onToggleBlocked: () => void toggleBlocked(task.id),
     }),
-    [finishTimer, pauseTimer, requestDelete, rescheduleTask, resumeTask, snoozeTask, startTask, toggleBlocked, toggleComplete],
+    [finishTimer, openFocusMode, pauseTimer, requestDelete, rescheduleTask, resumeTask, snoozeTask, startTask, toggleBlocked, toggleComplete],
   );
+
+  const focusTask = focusTaskId
+    ? tasks.find((task) => task.id === focusTaskId && task.deletedAt === null && task.status !== 'completed') ?? null
+    : null;
 
   /** Local assistant Q&A (#13) — pure function over local planner data. */
   const handleAsk = useCallback(
@@ -1998,6 +2011,17 @@ export default function App() {
             <kbd>⌘K</kbd>
           </button>
           <div className="utility-actions">
+            {runningTask ? (
+              <button
+                type="button"
+                className="utility-focus"
+                onClick={() => openFocusMode(runningTask.id)}
+                title={`Return to focus: ${runningTask.title}`}
+              >
+                <Maximize2 size={15} aria-hidden="true" />
+                <span>Focus</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="utility-import"
@@ -2077,6 +2101,27 @@ export default function App() {
         onAsk={handleAsk}
       />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      {focusTask ? (
+        <FocusMode
+          task={focusTask}
+          now={now}
+          elapsedMs={focusElapsedMs(timer.sessions, focusTask.id, timer.now)}
+          isRunning={timer.isRunning(focusTask.id)}
+          isPaused={timer.hasPausedSession(focusTask.id)}
+          defaultGoalMinutes={settings.focusBlockMinutes}
+          onClose={() => setFocusTaskId(null)}
+          onStart={() => void startTask(focusTask.id)}
+          onResume={() => void resumeTask(focusTask.id)}
+          onPause={() => void pauseTimer()}
+          onFinish={() => {
+            void finishTimer().then(() => setFocusTaskId(null));
+          }}
+          onComplete={() => {
+            setFocusTaskId(null);
+            void toggleComplete(focusTask.id);
+          }}
+        />
+      ) : null}
       <Modal
         open={importOpen}
         onClose={() => setImportOpen(false)}
