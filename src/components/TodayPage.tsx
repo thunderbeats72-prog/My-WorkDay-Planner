@@ -9,6 +9,7 @@ import {
   Clock,
   Flame,
   Inbox,
+  Maximize2,
   Mic,
   MoonStar,
   PieChart,
@@ -17,7 +18,6 @@ import {
   Plus,
   RefreshCw,
   Target,
-  Wifi,
   WifiOff,
 } from 'lucide-react';
 import type { Priority, Task } from '../lib/types';
@@ -42,6 +42,7 @@ import {
 import { buildDayPlan, diffDayPlans } from '../lib/engine';
 import type { BusyInterval, EnergyCurve, PlanShift, ReminderItem } from '../lib/engine';
 import { buildInsights, deadlineRisk, learnDurations } from '../lib/ml';
+import { buildDayMomentum } from '../lib/dayMomentum';
 import { forecastTask } from '../lib/forecast';
 import { nextWorkingISO, rehearsalFor } from '../lib/rehearsal';
 import { suggestFocus } from '../lib/focus';
@@ -148,9 +149,8 @@ export function TodayPage({
     workdayOver || !workingToday
       ? 0
       : Math.max(0, Math.min(capacity - planned - meetingMinutesLeft, minutesLeft));
-  const completedToday = tasks.filter(
-    (task) => task.status === 'completed' && task.completedAt && task.completedAt.slice(0, 10) === today,
-  ).length;
+  const momentum = buildDayMomentum(tasks, now);
+  const completedToday = momentum.completed;
   const overdue = openTasks.filter((task) => isTaskOverdue(task, now));
   const dueToday = openTasks.filter((task) => task.dueDate === today);
   const inProgress = openTasks.filter((task) => task.status === 'in_progress' && task.dueDate !== today);
@@ -246,7 +246,7 @@ export function TodayPage({
 
   return (
     <div className="page today-page">
-      <section className="hero" data-tod={timeOfDay}>
+      <section className="hero hero-premium" data-tod={timeOfDay}>
         <div className="hero-copy">
           <p className="eyebrow">{formatDateLong(today)}</p>
           <h1>{`${greetingForHour(now.getHours())}${firstName ? `, ${firstName}` : ''}`}</h1>
@@ -278,10 +278,12 @@ export function TodayPage({
               </span>
               <span className="sr-only">Day vibe: {vibe.note}</span>
             </span>
-            <span className={`chip ${online ? 'chip-online' : 'chip-offline'}`}>
-              {online ? <Wifi size={12} /> : <WifiOff size={12} />}
-              {online ? 'Online' : 'Offline'}
-            </span>
+            {!online ? (
+              <span className="chip chip-offline">
+                <WifiOff size={12} />
+                Offline · saved locally
+              </span>
+            ) : null}
             <span className="chip chip-plan" title={`${plannedPercent}% of today's capacity is planned`}>
               <PieChart size={12} />
               {plannedPercent}% planned
@@ -329,19 +331,33 @@ export function TodayPage({
             <span className="readout-caret" aria-hidden="true" />
           </p>
         </div>
-        <div className="hero-ring">
+        <div
+          className="hero-ring"
+          role="group"
+          aria-label={momentum.total > 0
+            ? `${momentum.percent}% of today's work complete: ${completedToday} complete and ${dueToday.length} still due`
+            : 'No completed work or open deadlines today'}
+        >
+          <span className="hero-ring-eyebrow">Daily momentum</span>
           <Ring
-            value={plannedPercent}
-            size={168}
-            stroke={12}
-            label={`${plannedPercent}%`}
-            sublabel="day planned"
+            value={momentum.percent}
+            size={144}
+            stroke={10}
+            label={momentum.total > 0 ? `${momentum.percent}%` : '—'}
+            sublabel="day complete"
           />
-          <p>
-            {capacity > 0
-              ? `${formatDuration(planned)} of ${formatDuration(capacity)} committed`
-              : 'No working hours today'}
-          </p>
+          <div className="hero-ring-copy">
+            <p>
+              {momentum.total > 0
+                ? `${completedToday} of ${momentum.total} task${momentum.total === 1 ? '' : 's'} complete`
+                : 'Your completed work will appear here'}
+            </p>
+            <span>
+              {capacity > 0
+                ? `${formatDuration(planned)} of ${formatDuration(capacity)} planned`
+                : 'No working hours today'}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -571,6 +587,13 @@ export function TodayPage({
                   Start focus
                 </Button>
               )}
+              <Button
+                variant="secondary"
+                icon={Maximize2}
+                onClick={() => taskHandlers(focus.task).onFocus?.()}
+              >
+                Focus mode
+              </Button>
               <Button variant="ghost" onClick={() => taskHandlers(focus.task).onOpen()}>
                 Open
               </Button>

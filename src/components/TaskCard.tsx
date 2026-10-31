@@ -7,6 +7,7 @@ import {
   Ellipsis,
   ExternalLink,
   Flag,
+  Maximize2,
   Pause,
   Pencil,
   Play,
@@ -29,6 +30,7 @@ import { Badge, Button, CategoryBadge, IconButton, MenuPopover, PriorityBadge } 
 
 export interface TaskCardHandlers {
   onOpen: () => void;
+  onFocus?: () => void;
   onEdit: () => void;
   onToggleComplete: () => void;
   onStart: () => void;
@@ -232,6 +234,18 @@ export function TaskCard({
             label={`More actions for “${task.title}”`}
             onClose={closeMenu}
           >
+            {!completed && handlers.onFocus ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  handlers.onFocus?.();
+                  closeMenu();
+                }}
+              >
+                <Maximize2 size={14} /> Focus mode
+              </button>
+            ) : null}
             {!completed ? (
               <button
                 type="button"
