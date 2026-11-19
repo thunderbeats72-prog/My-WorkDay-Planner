@@ -12,11 +12,28 @@ const FACE = 100; // internal viewBox units; everything scales from here
  * is one composited layer at most).
  */
 export function AnalogClock({ size = 36 }: { size?: number }) {
-  const [now, setNow] = useState(() => new Date());
+  const [clock, setClock] = useState(() => {
+    const initial = new Date();
+    return { now: initial, secondAngle: initial.getSeconds() * 6, smoothTick: false };
+  });
 
   useEffect(() => {
     let timer = 0;
-    const tick = () => setNow(new Date());
+    const tick = () => {
+      const next = new Date();
+      setClock((prev) => {
+        const deltaMs = next.getTime() - prev.now.getTime();
+        const prevSec = prev.now.getSeconds();
+        const nextSec = next.getSeconds();
+        const step = (nextSec - prevSec + 60) % 60;
+        const isSingleTick = deltaMs >= 500 && deltaMs < 2500 && step === 1;
+        return {
+          now: next,
+          secondAngle: isSingleTick ? prev.secondAngle + 6 : nextSec * 6,
+          smoothTick: isSingleTick,
+        };
+      });
+    };
     timer = window.setInterval(tick, 1000);
     const onVisible = () => {
       if (document.visibilityState === 'visible') tick();
@@ -28,13 +45,13 @@ export function AnalogClock({ size = 36 }: { size?: number }) {
     };
   }, []);
 
+  const { now, secondAngle, smoothTick } = clock;
   const seconds = now.getSeconds();
   const minutes = now.getMinutes() + seconds / 60;
   const hours = (now.getHours() % 12) + minutes / 60;
 
   const hourAngle = hours * 30;
   const minuteAngle = minutes * 6;
-  const secondAngle = seconds * 6;
 
   const label = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -60,7 +77,10 @@ export function AnalogClock({ size = 36 }: { size?: number }) {
         ))}
         <line x1="50" y1="50" x2="50" y2="29" className="clock-hand clock-hour" transform={`rotate(${hourAngle} 50 50)`} />
         <line x1="50" y1="50" x2="50" y2="19" className="clock-hand clock-minute" transform={`rotate(${minuteAngle} 50 50)`} />
-        <g transform={`rotate(${secondAngle} 50 50)`}>
+        <g
+          className={`clock-second-arm ${smoothTick ? 'is-ticking' : ''}`.trim()}
+          style={{ transform: `rotate(${secondAngle}deg)`, transformOrigin: '50px 50px' }}
+        >
           <line x1="50" y1="56" x2="50" y2="16" className="clock-hand clock-second" />
         </g>
         <circle cx="50" cy="50" r="2.6" className="clock-pin" />
