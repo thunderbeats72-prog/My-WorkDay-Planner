@@ -184,6 +184,8 @@ export function FocusMode({
           aria-valuetext={`${Math.round(progress)}% of a ${goalMinutes}-minute goal`}
         >
           <svg viewBox="0 0 300 300" aria-hidden="true">
+            <circle className="focus-mode-orbit" cx="150" cy="150" r={144} />
+            <circle className="focus-mode-inner-ring" cx="150" cy="150" r={118} />
             <circle className="focus-mode-track" cx="150" cy="150" r={radius} />
             <circle
               className="focus-mode-value"

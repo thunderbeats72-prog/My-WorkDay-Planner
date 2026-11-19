@@ -21877,3 +21877,962 @@ button.palette-cite:hover {
     display: none !important;
   }
 }
+
+/* =========================================================================
+   Design v17 — tactile visual depth & purposeful motion
+   -------------------------------------------------------------------------
+   Elevates every primary surface, transition, and micro-interaction while
+   keeping the monochrome + hairline + Geist identity intact:
+   · Restrained time-of-day atmospheric depth on the hero panel
+   · Smooth dial draws, rotating focus orbit, and quartz second-hand tick
+   · Tactile task-check stroke draw + running pulse ring
+   · Staggered section & card choreography (`backwards` fill so hover lifts work)
+   · Crisp overlay entrances for menus, command palette, task panel & sheets
+   · Full `prefers-reduced-motion: reduce` and touch (`hover: none`) safety
+   ========================================================================= */
+
+/* ---------- 1. Page & section entrance choreography ---------- */
+
+.page > .page-header,
+.today-page > .hero-premium {
+  animation: v17-card-in 320ms var(--e-enter) backwards;
+}
+
+.today-page > .quick-add {
+  animation: v17-card-in 340ms var(--e-enter) 45ms backwards;
+}
+
+.today-page > .focus-card,
+.today-page > .wrapup-card,
+.today-page > .rehearsal-card {
+  animation: v17-card-in 360ms var(--e-enter) 85ms backwards;
+}
+
+.today-page > .dashboard-grid .dashboard-main > section,
+.today-page > .dashboard-grid .dashboard-side > section,
+.today-page > .dashboard-grid .dashboard-side > details {
+  animation: v17-card-in 360ms var(--e-enter) backwards;
+}
+
+.today-page > .dashboard-grid .dashboard-main > *:nth-child(1),
+.today-page > .dashboard-grid .dashboard-side > *:nth-child(1) {
+  animation-delay: 110ms;
+}
+
+.today-page > .dashboard-grid .dashboard-main > *:nth-child(2),
+.today-page > .dashboard-grid .dashboard-side > *:nth-child(2) {
+  animation-delay: 155ms;
+}
+
+.today-page > .dashboard-grid .dashboard-main > *:nth-child(3) {
+  animation-delay: 200ms;
+}
+
+.today-page > .dashboard-grid .dashboard-main > *:nth-child(4) {
+  animation-delay: 245ms;
+}
+
+.stat-grid > .stat-card,
+.report-grid > .card,
+.completed-groups > .task-group,
+.settings-grid > section {
+  animation: v17-card-in 340ms var(--e-enter) backwards;
+}
+
+.stat-grid > .stat-card:nth-child(1),
+.report-grid > .card:nth-child(1),
+.completed-groups > .task-group:nth-child(1),
+.settings-grid > section:nth-child(1) {
+  animation-delay: 40ms;
+}
+
+.stat-grid > .stat-card:nth-child(2),
+.report-grid > .card:nth-child(2),
+.completed-groups > .task-group:nth-child(2),
+.settings-grid > section:nth-child(2) {
+  animation-delay: 85ms;
+}
+
+.stat-grid > .stat-card:nth-child(3),
+.completed-groups > .task-group:nth-child(3),
+.settings-grid > section:nth-child(3) {
+  animation-delay: 130ms;
+}
+
+.stat-grid > .stat-card:nth-child(4),
+.settings-grid > section:nth-child(4) {
+  animation-delay: 175ms;
+}
+
+@keyframes v17-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 2. Hero panel: quiet atmosphere & dial motion ---------- */
+
+.hero.hero-premium {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 22px 50px -36px rgba(0, 0, 0, 0.72);
+  transition: border-color var(--d-slow) ease, box-shadow var(--d-slow) ease;
+}
+
+.hero.hero-premium::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 68% 95% at 88% 22%, rgba(131, 212, 178, 0.085), transparent 62%);
+  transition: opacity 600ms var(--e-enter);
+}
+
+.hero.hero-premium[data-tod='dawn']::before {
+  background: radial-gradient(ellipse 68% 95% at 88% 22%, rgba(240, 180, 92, 0.08), transparent 62%);
+}
+
+.hero.hero-premium[data-tod='morning']::before {
+  background: radial-gradient(ellipse 68% 95% at 88% 22%, rgba(131, 212, 178, 0.09), transparent 62%);
+}
+
+.hero.hero-premium[data-tod='afternoon']::before {
+  background: radial-gradient(ellipse 68% 95% at 88% 22%, rgba(255, 255, 255, 0.055), transparent 62%);
+}
+
+.hero.hero-premium[data-tod='evening']::before {
+  background: radial-gradient(ellipse 68% 95% at 88% 22%, rgba(232, 168, 95, 0.075), transparent 62%);
+}
+
+.hero.hero-premium[data-tod='night']::before {
+  background: radial-gradient(ellipse 68% 95% at 88% 22%, rgba(131, 212, 178, 0.06), transparent 62%);
+}
+
+.hero.hero-premium > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-premium .hero-stats > div {
+  transition: background-color var(--d-base) ease;
+  border-radius: 6px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hero-premium .hero-stats > div:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
+
+.hero-premium .hero-ring {
+  position: relative;
+}
+
+.hero-premium .hero-ring .ring {
+  position: relative;
+}
+
+.hero-premium .hero-ring .ring::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+}
+
+.hero-premium .hero-ring .ring-value {
+  transition: stroke-dashoffset 640ms var(--e-enter);
+  animation: v17-ring-fade 520ms var(--e-enter) 120ms backwards;
+}
+
+@keyframes v17-ring-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hero-premium .vibe-meter i {
+  transition: width 580ms var(--e-enter);
+}
+
+.hero-premium .vibe-glyph {
+  animation: v17-soft-breathe 3.2s ease-in-out infinite;
+}
+
+.hero-premium .chip-live.is-urgent {
+  border-color: rgba(245, 141, 136, 0.42);
+  background: rgba(245, 141, 136, 0.09);
+  color: #fbc2bf;
+  animation: v17-urgent-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes v17-soft-breathe {
+  0%, 100% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes v17-urgent-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 141, 136, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(245, 141, 136, 0);
+  }
+}
+
+/* ---------- 3. Quick add & smart natural-language tokens ---------- */
+
+.quick-add {
+  transition:
+    border-color var(--d-base) ease,
+    box-shadow var(--d-base) var(--e-enter),
+    background-color var(--d-base) ease;
+}
+
+.quick-add > svg {
+  transition: transform var(--d-base) var(--e-settle), color var(--d-fast) ease;
+}
+
+.quick-add:focus-within > svg {
+  color: var(--text);
+  transform: rotate(90deg) scale(1.06);
+}
+
+.quick-token {
+  animation: v17-token-pop 210ms var(--e-settle) backwards;
+}
+
+@keyframes v17-token-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.quick-dictate,
+.input-mic {
+  transition:
+    color var(--d-fast) ease,
+    border-color var(--d-fast) ease,
+    background-color var(--d-fast) ease,
+    transform var(--d-fast) var(--e-enter);
+}
+
+.quick-dictate.is-listening,
+.input-mic.is-listening {
+  animation: v17-mic-ring 1.5s ease-out infinite;
+}
+
+@keyframes v17-mic-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 38%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--danger) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* ---------- 4. Task cards, checkbox stroke draw & live running state ---------- */
+
+.task-card {
+  position: relative;
+  transition:
+    border-color var(--d-base) ease,
+    background-color var(--d-base) ease,
+    box-shadow var(--d-base) var(--e-enter),
+    transform var(--d-base) var(--e-enter);
+}
+
+.task-card::before {
+  transition: width var(--d-fast) var(--e-enter), opacity var(--d-fast) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .task-card:hover {
+    transform: translateY(-1.5px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .task-card:hover::before,
+  .task-card:focus-within::before {
+    width: 4px;
+    opacity: 1;
+  }
+
+  .task-card .task-actions .icon-btn {
+    opacity: 0.72;
+    transition:
+      opacity var(--d-fast) ease,
+      background-color var(--d-fast) ease,
+      border-color var(--d-fast) ease,
+      color var(--d-fast) ease,
+      transform var(--d-fast) var(--e-enter);
+  }
+
+  .task-card:hover .task-actions .icon-btn,
+  .task-card:focus-within .task-actions .icon-btn {
+    opacity: 1;
+  }
+}
+
+.task-card.is-running {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--success) 6%, var(--surface)) 0%,
+    var(--surface) 44%
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--success) 16%, transparent),
+    var(--shadow-sm);
+}
+
+:root[data-theme='dark'] .task-card.is-running {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--success) 10%, var(--surface)) 0%,
+    var(--surface) 48%
+  );
+}
+
+.task-actual.live .live-dot {
+  position: relative;
+  animation: v17-live-dot 1.8s ease-in-out infinite;
+}
+
+@keyframes v17-live-dot {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 0%, transparent);
+    transform: scale(1.12);
+  }
+}
+
+.task-check {
+  position: relative;
+}
+
+.task-check svg path,
+.task-check svg polyline {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+}
+
+.task-check.checked svg path,
+.task-check.checked svg polyline {
+  animation: v17-check-draw 260ms var(--e-enter) 40ms backwards;
+}
+
+.task-check.checked::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--success);
+  opacity: 0;
+  pointer-events: none;
+  animation: v17-check-burst 420ms var(--e-enter) forwards;
+}
+
+@keyframes v17-check-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes v17-check-burst {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.65);
+  }
+}
+
+/* ---------- 5. Week strip, agenda timeline & focus suggestion ---------- */
+
+.week-strip-day {
+  position: relative;
+  transition:
+    transform var(--d-base) var(--e-enter),
+    border-color var(--d-fast) ease,
+    background-color var(--d-fast) ease,
+    box-shadow var(--d-base) var(--e-enter);
+  animation: v17-day-in 280ms var(--e-enter) backwards;
+}
+
+.week-strip-day:nth-child(1) { animation-delay: 20ms; }
+.week-strip-day:nth-child(2) { animation-delay: 45ms; }
+.week-strip-day:nth-child(3) { animation-delay: 70ms; }
+.week-strip-day:nth-child(4) { animation-delay: 95ms; }
+.week-strip-day:nth-child(5) { animation-delay: 120ms; }
+.week-strip-day:nth-child(6) { animation-delay: 145ms; }
+.week-strip-day:nth-child(7) { animation-delay: 170ms; }
+
+@keyframes v17-day-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .week-strip-day:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.week-strip-day:active {
+  transform: scale(0.97);
+}
+
+.week-strip-day.today {
+  box-shadow: 0 10px 22px -16px color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+.mini-block {
+  border-radius: 8px;
+  padding: 5px 8px 5px 10px;
+  transition: background-color var(--d-fast) ease, transform var(--d-fast) var(--e-enter);
+}
+
+.mini-block::before {
+  content: '';
+  position: absolute;
+  left: -13.5px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: var(--border-strong);
+  border: 1.5px solid var(--surface);
+  transition: background-color var(--d-fast) ease, transform var(--d-fast) var(--e-settle);
+}
+
+.mini-block.is-now {
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-2));
+}
+
+.mini-block.is-now::before {
+  background: var(--success);
+  transform: translateY(-50%) scale(1.25);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mini-block:hover {
+    background: var(--surface-2);
+  }
+
+  .mini-block:hover::before {
+    background: var(--text);
+    transform: translateY(-50%) scale(1.18);
+  }
+}
+
+.focus-shuffle svg {
+  transition: transform 340ms var(--e-settle);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .focus-shuffle:hover svg {
+    transform: rotate(180deg);
+  }
+}
+
+.focus-alt {
+  transition:
+    background-color var(--d-fast) ease,
+    border-color var(--d-fast) ease,
+    transform var(--d-fast) var(--e-enter);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .focus-alt:hover {
+    transform: translateY(-1px);
+  }
+}
+
+/* ---------- 6. Focus mode: atmospheric dial & staggered entrance ---------- */
+
+.focus-mode {
+  background:
+    radial-gradient(circle 420px at 50% 46%, rgba(131, 212, 178, 0.065), transparent 72%),
+    #0c0d0f;
+}
+
+.focus-mode.is-running {
+  background:
+    radial-gradient(circle 460px at 50% 46%, rgba(131, 212, 178, 0.115), transparent 70%),
+    #0c0d0f;
+}
+
+.focus-mode.is-goal-met {
+  background:
+    radial-gradient(circle 500px at 50% 46%, rgba(131, 212, 178, 0.16), transparent 70%),
+    #0c0d0f;
+}
+
+.focus-mode-orbit {
+  fill: none;
+  stroke: rgba(131, 212, 178, 0.18);
+  stroke-width: 1.25;
+  stroke-dasharray: 2 10;
+  transform-origin: 150px 150px;
+  animation: v17-focus-orbit 42s linear infinite;
+  animation-play-state: paused;
+  transition: stroke 320ms ease;
+}
+
+.focus-mode.is-running .focus-mode-orbit {
+  stroke: rgba(131, 212, 178, 0.34);
+  animation-play-state: running;
+}
+
+.focus-mode-inner-ring {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 1;
+}
+
+.focus-mode.is-goal-met .focus-mode-value {
+  filter: drop-shadow(0 0 10px rgba(131, 212, 178, 0.35));
+}
+
+@keyframes v17-focus-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.focus-mode-main > .focus-mode-kicker {
+  animation: v17-card-in 280ms var(--e-enter) 40ms backwards;
+}
+
+.focus-mode-main > h1 {
+  animation: v17-card-in 320ms var(--e-enter) 80ms backwards;
+}
+
+.focus-mode-main > .focus-mode-meta {
+  animation: v17-card-in 320ms var(--e-enter) 120ms backwards;
+}
+
+.focus-mode-main > .focus-mode-dial {
+  animation: v17-dial-pop 380ms var(--e-enter) 140ms backwards;
+}
+
+.focus-mode-main > .focus-mode-controls {
+  animation: v17-card-in 320ms var(--e-enter) 200ms backwards;
+}
+
+@keyframes v17-dial-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.focus-mode-goal button {
+  transition:
+    background-color var(--d-fast) ease,
+    color var(--d-fast) ease,
+    transform var(--d-fast) var(--e-enter);
+}
+
+.focus-mode-goal button:active {
+  transform: scale(0.95);
+}
+
+/* ---------- 7. Analog clock quartz tick & utility controls ---------- */
+
+.clock-second-arm {
+  transition: none;
+}
+
+.clock-second-arm.is-ticking {
+  transition: transform 180ms cubic-bezier(0.28, 1.55, 0.52, 1);
+}
+
+.clock-wrap {
+  transition: background-color var(--d-fast) ease, transform var(--d-fast) var(--e-enter);
+}
+
+.utility-focus {
+  transition:
+    border-color var(--d-fast) ease,
+    color var(--d-fast) ease,
+    background-color var(--d-fast) ease,
+    transform var(--d-fast) var(--e-enter);
+}
+
+.utility-focus svg {
+  color: var(--success);
+}
+
+/* ---------- 8. Progress bars, reports & stat cards ---------- */
+
+.progress > span,
+.day-bar-track > span,
+.double-bar .bar {
+  transform-origin: left center;
+  transition: width 560ms var(--e-enter);
+  animation: v17-bar-grow 580ms var(--e-enter) backwards;
+}
+
+@keyframes v17-bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.stat-card {
+  transition:
+    border-color var(--d-fast) ease,
+    box-shadow var(--d-base) var(--e-enter),
+    transform var(--d-base) var(--e-enter);
+}
+
+.stat-card .stat-icon {
+  transition: transform var(--d-base) var(--e-settle);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stat-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1.5px);
+  }
+
+  .stat-card:hover .stat-icon {
+    transform: scale(1.07);
+  }
+}
+
+.day-bars li {
+  border-radius: 8px;
+  transition: background-color var(--d-fast) ease, transform var(--d-fast) var(--e-enter);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .day-bars li:hover {
+    background: var(--surface-2);
+    transform: translateX(2px);
+  }
+}
+
+.replay-head,
+.replay-span {
+  transition: left 120ms linear;
+}
+
+/* ---------- 9. Overlays, menus, switches, palette & stickers ---------- */
+
+.menu.menu-popover {
+  animation: v17-menu-in 150ms var(--e-enter) both;
+}
+
+@keyframes v17-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.palette-backdrop {
+  animation: v17-backdrop-in 180ms ease-out both;
+}
+
+.palette {
+  animation: v17-palette-in 220ms var(--e-enter) both;
+}
+
+@keyframes v17-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes v17-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.palette-item {
+  position: relative;
+  transition: background-color 110ms ease, color 110ms ease, transform 110ms var(--e-enter);
+}
+
+.palette-item.active {
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.panel-backdrop {
+  animation: v17-backdrop-in 200ms ease-out both;
+}
+
+.task-panel {
+  animation: v17-panel-slide 280ms var(--e-enter) both;
+}
+
+@keyframes v17-panel-slide {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-backdrop {
+  animation: v17-backdrop-in 180ms ease-out both;
+}
+
+@media (min-width: 561px) {
+  .modal {
+    animation: v17-modal-pop 220ms var(--e-enter) both;
+  }
+}
+
+@keyframes v17-modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.switch {
+  transition: background-color var(--d-base) ease, border-color var(--d-base) ease;
+}
+
+.switch-knob {
+  transition:
+    transform 240ms var(--e-settle),
+    width 140ms var(--e-enter),
+    background-color var(--d-fast) ease,
+    box-shadow var(--d-fast) ease;
+}
+
+.switch:active .switch-knob {
+  width: 21px;
+}
+
+.notify-badge {
+  animation: v17-badge-pop 280ms var(--e-settle) backwards;
+}
+
+@keyframes v17-badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .notify-bell.has-unread:hover svg {
+    animation: v17-bell-nudge 420ms var(--e-settle);
+  }
+}
+
+@keyframes v17-bell-nudge {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-12deg); }
+  55% { transform: rotate(10deg); }
+  80% { transform: rotate(-4deg); }
+}
+
+.notify-item {
+  transition: background-color var(--d-fast) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .notify-item:hover {
+    background: var(--surface-2);
+  }
+}
+
+.sticker-pop {
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+}
+
+.sticker-stamp {
+  position: relative;
+}
+
+.sticker-stamp::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  opacity: 0;
+  pointer-events: none;
+  animation: v17-stamp-ring 680ms var(--e-enter) 140ms backwards;
+}
+
+@keyframes v17-stamp-ring {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+.back-to-top {
+  transition:
+    transform var(--d-base) var(--e-settle),
+    border-color var(--d-fast) ease,
+    color var(--d-fast) ease,
+    box-shadow var(--d-base) ease;
+}
+
+.back-to-top svg {
+  transition: transform var(--d-fast) var(--e-enter);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .back-to-top:hover svg {
+    transform: translateY(-2px);
+  }
+}
+
+/* ---------- 10. Onboarding transitions ---------- */
+
+.onboarding-step {
+  animation: v17-card-in 260ms var(--e-enter) both;
+}
+
+.onboarding-preview .preview-bar span {
+  transition: width 420ms var(--e-enter);
+}
+
+/* ---------- 11. Reduced motion: honour user preference completely ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .page > .page-header,
+  .today-page > .hero-premium,
+  .today-page > .quick-add,
+  .today-page > .focus-card,
+  .today-page > .wrapup-card,
+  .today-page > .rehearsal-card,
+  .today-page > .dashboard-grid .dashboard-main > section,
+  .today-page > .dashboard-grid .dashboard-side > section,
+  .today-page > .dashboard-grid .dashboard-side > details,
+  .stat-grid > .stat-card,
+  .report-grid > .card,
+  .completed-groups > .task-group,
+  .settings-grid > section,
+  .hero-premium .hero-ring .ring-value,
+  .hero-premium .vibe-glyph,
+  .hero-premium .chip-live.is-urgent,
+  .quick-token,
+  .quick-dictate.is-listening,
+  .input-mic.is-listening,
+  .task-actual.live .live-dot,
+  .task-check.checked svg path,
+  .task-check.checked svg polyline,
+  .task-check.checked::after,
+  .week-strip-day,
+  .focus-mode-orbit,
+  .focus-mode-main > *,
+  .progress > span,
+  .day-bar-track > span,
+  .double-bar .bar,
+  .menu.menu-popover,
+  .palette-backdrop,
+  .palette,
+  .panel-backdrop,
+  .task-panel,
+  .modal-backdrop,
+  .modal,
+  .notify-badge,
+  .sticker-stamp::after,
+  .onboarding-step {
+    animation: none !important;
+  }
+
+  .clock-second-arm.is-ticking {
+    transition: none !important;
+  }
+}
+
